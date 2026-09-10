@@ -1,0 +1,1575 @@
+/**
+ * ADROIT ATS - Multi-Consultant US IT Staffing & 1-Click Outreach Platform
+ * Complete Dashboard Controller & Interactive Engine
+ */
+
+let state = {
+    consultants: [],
+    activeConsultantId: 1,
+    jobs: [],
+    students: [],
+    studentsLoaded: false,
+    pipeline: {},
+    activeTab: 'jobs',
+    lastOptimizedResumeText: '',
+    lastOptimizedCandidateName: 'Consultant'
+};
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+    initNavigation();
+    initConsultants();
+    initJobsTable();
+    initModals();
+    initResumeBot();
+    initStudentsTab();
+    checkUrlAuthParams();
+});
+
+function checkUrlAuthParams() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('auth_success')) {
+        showToast('Gmail successfully connected for consultant!', 'success');
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+}
+
+// =========================================================================
+// 1. Navigation & Tab Switching
+// =========================================================================
+function initNavigation() {
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const tabId = item.getAttribute('data-tab');
+            switchTab(tabId);
+        });
+    });
+
+    // Hash support
+    if (window.location.hash) {
+        const hashTab = window.location.hash.replace('#', '');
+        if (document.getElementById(`tab-${hashTab}`)) {
+            switchTab(hashTab);
+        }
+    }
+}
+
+function switchTab(tabId) {
+    state.activeTab = tabId;
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+
+    const activeNav = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+    const activePane = document.getElementById(`tab-${tabId}`);
+
+    if (activeNav) activeNav.classList.add('active');
+    if (activePane) activePane.classList.add('active');
+
+    if (tabId === 'drafts') {
+        loadPipeline();
+    } else if (tabId === 'consultants') {
+        renderConsultantsGrid();
+    } else if (tabId === 'students') {
+        if (!state.studentsLoaded) {
+            loadStudents();
+        }
+    } else if (tabId === 'jobs') {
+        if (!state.jobs || state.jobs.length === 0) {
+            searchJobs(false);
+        }
+    }
+}
+
+// =========================================================================
+// 2. US Bench Consultants Hub
+// =========================================================================
+async function initConsultants() {
+    await fetchConsultants();
+
+    const globalSelect = document.getElementById('global-active-consultant');
+    if (globalSelect) {
+        globalSelect.addEventListener('change', (e) => {
+            state.activeConsultantId = parseInt(e.target.value);
+            updateActiveConsultantUI();
+            updateTableConsultantSelects();
+        });
+    }
+
+    const btnAddTab = document.getElementById('btn-add-consultant-tab');
+    if (btnAddTab) {
+        btnAddTab.addEventListener('click', () => openConsultantModal());
+    }
+
+    const btnHeaderAdd = document.getElementById('btn-open-add-consultant');
+    if (btnHeaderAdd) {
+        btnHeaderAdd.addEventListener('click', () => openConsultantModal());
+    }
+
+    const btnHeaderScrape = document.getElementById('btn-header-scrape-us');
+    if (btnHeaderScrape) {
+        btnHeaderScrape.addEventListener('click', () => triggerUsScrape());
+    }
+
+    const btnHeaderPasteDraft = document.getElementById('btn-open-paste-draft-modal');
+    if (btnHeaderPasteDraft) {
+        btnHeaderPasteDraft.addEventListener('click', () => openPasteDraftModal(state.activeConsultantId));
+    }
+}
+
+async function fetchConsultants() {
+    try {
+        const res = await fetch('/api/consultants');
+        const data = await res.json();
+        state.consultants = data;
+        populateConsultantDropdowns();
+        updateActiveConsultantUI();
+        renderConsultantsGrid();
+    } catch (err) {
+        console.error('Error fetching consultants:', err);
+    }
+}
+
+function populateConsultantDropdowns() {
+    const globalSelect = document.getElementById('global-active-consultant');
+    const resumeSelect = document.getElementById('resumebot-consultant-select');
+    const pdSelect = document.getElementById('pd-consultant-select');
+
+    if (globalSelect) {
+        globalSelect.innerHTML = state.consultants.map(c => 
+            `<option value="${c.id}" ${c.id === state.activeConsultantId ? 'selected' : ''}>
+                ${escapeHtml(c.name)} (${escapeHtml(c.title || 'Consultant')})
+            </option>`
+        ).join('');
+    }
+
+    if (pdSelect) {
+        pdSelect.innerHTML = state.consultants.map(c => 
+            `<option value="${c.id}" ${c.id === state.activeConsultantId ? 'selected' : ''}>
+                ${escapeHtml(c.name)} (${escapeHtml(c.title || 'Consultant')}) - ${escapeHtml(c.target_rate || '$90/hr')}
+            </option>`
+        ).join('');
+    }
+
+    if (resumeSelect) {
+        resumeSelect.innerHTML = state.consultants.map(c => 
+            `<option value="${c.id}" ${c.id === state.activeConsultantId ? 'selected' : ''}>
+                ${escapeHtml(c.name)} - ${escapeHtml(c.title || 'Consultant')}
+            </option>`
+        ).join('');
+    }
+}
+
+function updateActiveConsultantUI() {
+    const active = state.consultants.find(c => c.id === state.activeConsultantId) || state.consultants[0];
+    if (!active) return;
+
+    state.activeConsultantId = active.id;
+
+    const gmailBadge = document.getElementById('active-gmail-badge');
+    if (gmailBadge) {
+        if (active.gmail_connected) {
+            gmailBadge.innerHTML = `🟢 ${escapeHtml(active.gmail_account || 'Gmail Connected')}`;
+            gmailBadge.style.color = '#34d399';
+            gmailBadge.style.background = 'rgba(52, 211, 153, 0.15)';
+            gmailBadge.style.border = '1px solid rgba(52, 211, 153, 0.35)';
+        } else {
+            gmailBadge.innerHTML = `⚠️ Connect Gmail`;
+            gmailBadge.style.color = '#fbbf24';
+            gmailBadge.style.background = 'rgba(251, 191, 36, 0.15)';
+            gmailBadge.style.border = '1px solid rgba(251, 191, 36, 0.35)';
+        }
+    }
+
+    const rateBadge = document.getElementById('active-rate-badge');
+    if (rateBadge) {
+        rateBadge.innerText = active.target_rate || '$90/hr C2C';
+    }
+}
+
+function updateTableConsultantSelects() {
+    document.querySelectorAll('.job-consultant-select').forEach(sel => {
+        sel.value = state.activeConsultantId;
+    });
+}
+
+function renderConsultantsGrid() {
+    const container = document.getElementById('consultants-cards-container');
+    if (!container) return;
+
+    if (!state.consultants || state.consultants.length === 0) {
+        container.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align:center; padding: 40px; color: var(--text-muted); background: var(--card-bg); border-radius: 12px;">
+                <p>No consultants found. Click <strong>"Add New Consultant Profile"</strong> to add your first bench candidate.</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = state.consultants.map(c => {
+        const initials = c.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        const hasResume = Boolean(c.resume_filename || c.resume_path);
+        const gmailConnected = Boolean(c.gmail_connected);
+        const cleanName = (c.name || "Consultant").replace(/[,\/]/g, '').trim();
+        const liUrl = (c.linkedin_url && c.linkedin_url.startsWith('http') && !c.linkedin_url.endsWith('-devops/') && !c.linkedin_url.endsWith('-data-analyst/'))
+            ? c.linkedin_url
+            : `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}&origin=GLOBAL_SEARCH_HEADER`;
+
+        return `
+        <div class="consultant-card" data-id="${c.id}">
+            <div class="cand-header">
+                <a href="${liUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;" onclick="event.stopPropagation(); window.open('${liUrl}', '_blank'); return true;">
+                    <div class="cand-avatar" style="cursor:pointer;" title="Click to view LinkedIn">${initials}</div>
+                </a>
+                <div class="cand-details">
+                    <h3>
+                        <a href="${liUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none; display:inline-flex; align-items:center; gap:6px;" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='inherit'" onclick="event.stopPropagation(); window.open('${liUrl}', '_blank'); return true;">
+                            ${escapeHtml(c.name)}
+                            <span title="View LinkedIn Profile" style="color:#38bdf8; font-size:12px;">↗</span>
+                        </a>
+                    </h3>
+                    <div class="cand-title">${escapeHtml(c.title || 'Technical Consultant')}</div>
+                </div>
+            </div>
+
+            <div class="cand-meta-row">
+                <span class="meta-chip green">${escapeHtml(c.target_rate || '$90/hr C2C')}</span>
+                <span class="meta-chip">${escapeHtml(c.visa_status || 'C2C Eligible')}</span>
+                <span class="meta-chip">${c.experience_years || 5}+ Yrs Exp</span>
+                <span class="meta-chip">${escapeHtml(c.location || 'United States')}</span>
+            </div>
+
+            <div class="cand-skills-box">
+                <strong>Primary Skills:</strong> ${escapeHtml(c.primary_skills || 'Full Stack Engineering, Cloud Services')}
+            </div>
+
+            <div class="cand-integrations">
+                <div class="integration-item">
+                    <span><strong>Gmail Mailbox:</strong></span>
+                    ${gmailConnected ? 
+                        `<span style="color: #34d399; font-weight: 600;">✓ Connected (${escapeHtml(c.gmail_account || 'Active')})</span>` : 
+                        `<div>
+                            <button class="btn btn-success btn-xs btn-open-app-pass" data-id="${c.id}" data-name="${escapeHtml(c.name)}" data-email="${escapeHtml(c.email || '')}">🔑 App Password</button>
+                            <a href="/api/consultants/${c.id}/connect-gmail" class="btn btn-outline-primary btn-xs" style="margin-left:4px;">OAuth</a>
+                         </div>`
+                    }
+                </div>
+                <div class="integration-item">
+                    <span><strong>Master Resume:</strong></span>
+                    ${hasResume ? 
+                        `<span style="color: #a5b4fc;">📄 ${escapeHtml(c.resume_filename || 'Resume Attached')}</span>` : 
+                        `<button class="btn btn-secondary btn-xs btn-upload-cand-resume" data-id="${c.id}" data-name="${escapeHtml(c.name)}">Upload .docx</button>`
+                    }
+                </div>
+            </div>
+
+            <div class="cand-card-actions">
+                <a href="${liUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="display:inline-flex; align-items:center; gap:4px; text-decoration:none; background:rgba(14, 118, 168, 0.2); color:#38bdf8; border:1px solid rgba(56, 189, 248, 0.35);" onclick="event.stopPropagation(); window.open('${liUrl}', '_blank'); return true;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.2V10.9H6.46M7.83 6.27a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/></svg>
+                    LinkedIn ↗
+                </a>
+                <button class="btn btn-success btn-sm btn-paste-draft-cand" data-id="${c.id}" data-name="${escapeHtml(c.name)}">
+                    ✉️ Paste JD & Draft
+                </button>
+                <button class="btn btn-primary btn-sm btn-find-jobs-cand" data-id="${c.id}" data-skills="${escapeHtml(c.primary_skills || '')}">
+                    🎯 Find 24h Jobs
+                </button>
+                <button class="btn btn-secondary btn-sm btn-edit-cand" data-id="${c.id}">
+                    Edit Profile
+                </button>
+            </div>
+        </div>
+        `;
+    }).join('');
+
+    // Attach card event listeners
+    container.querySelectorAll('.btn-paste-draft-cand').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            openPasteDraftModal(candId);
+        });
+    });
+
+    container.querySelectorAll('.btn-find-jobs-cand').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const skills = btn.getAttribute('data-skills') || '';
+            state.activeConsultantId = candId;
+            updateActiveConsultantUI();
+            
+            const firstSkill = skills.split(',')[0].trim() || 'Software Engineer';
+            const searchInput = document.getElementById('filter-query');
+            if (searchInput) searchInput.value = firstSkill;
+            
+            // Switch to jobs tab and trigger search
+            switchTab('jobs');
+            setTimeout(() => {
+                searchJobs(false);
+            }, 100);
+        });
+    });
+
+    container.querySelectorAll('.btn-edit-cand').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const c = state.consultants.find(cand => cand.id === candId);
+            if (c) openConsultantModal(c);
+        });
+    });
+
+    container.querySelectorAll('.btn-upload-cand-resume').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const name = btn.getAttribute('data-name');
+            openUploadResumeModal(candId, name);
+        });
+    });
+
+    container.querySelectorAll('.btn-open-app-pass').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const name = btn.getAttribute('data-name');
+            const email = btn.getAttribute('data-email');
+            openAppPasswordModal(candId, name, email);
+        });
+    });
+}
+
+function openConsultantModal(cand = null) {
+    const modal = document.getElementById('modal-consultant');
+    const form = document.getElementById('form-consultant');
+    const title = document.getElementById('modal-consultant-title');
+    const editIdInput = document.getElementById('consultant-edit-id');
+
+    if (form) form.reset();
+
+    if (cand) {
+        if (title) title.innerText = `Edit Profile: ${cand.name}`;
+        if (editIdInput) editIdInput.value = cand.id;
+        document.getElementById('c-name').value = cand.name || '';
+        document.getElementById('c-email').value = cand.email || '';
+        document.getElementById('c-phone').value = cand.phone || '';
+        document.getElementById('c-title').value = cand.title || '';
+        document.getElementById('c-skills').value = cand.primary_skills || '';
+        document.getElementById('c-exp').value = cand.experience_years || 5;
+        document.getElementById('c-rate').value = cand.target_rate || '$90/hr (C2C)';
+        document.getElementById('c-visa').value = cand.visa_status || 'C2C Eligible';
+        document.getElementById('c-location').value = cand.location || 'United States';
+        document.getElementById('c-summary').value = cand.summary || '';
+    } else {
+        if (title) title.innerText = 'Add New US Bench Consultant';
+        if (editIdInput) editIdInput.value = '';
+    }
+
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeConsultantModal() {
+    const modal = document.getElementById('modal-consultant');
+    if (modal) modal.style.display = 'none';
+}
+
+function openUploadResumeModal(candId, candName) {
+    document.getElementById('upload-candidate-id').value = candId;
+    document.getElementById('upload-candidate-name-label').innerText = `Uploading resume for ${candName}`;
+    const modal = document.getElementById('modal-upload-resume');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeUploadResumeModal() {
+    const modal = document.getElementById('modal-upload-resume');
+    if (modal) modal.style.display = 'none';
+}
+
+function openAppPasswordModal(candId, candName, candEmail) {
+    document.getElementById('app-pass-cand-id').value = candId;
+    document.getElementById('app-pass-cand-name').innerText = candName;
+    document.getElementById('app-pass-email').value = candEmail || '';
+    document.getElementById('app-pass-key').value = '';
+    const modal = document.getElementById('modal-app-password');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeAppPasswordModal() {
+    const modal = document.getElementById('modal-app-password');
+    if (modal) modal.style.display = 'none';
+}
+
+function openPasteDraftModal(candId = null) {
+    const modal = document.getElementById('modal-paste-draft');
+    const form = document.getElementById('form-paste-draft');
+    if (form) form.reset();
+
+    const select = document.getElementById('pd-consultant-select');
+    if (select && candId) {
+        select.value = candId;
+    } else if (select && state.activeConsultantId) {
+        select.value = state.activeConsultantId;
+    }
+
+    if (modal) modal.style.display = 'flex';
+}
+
+function closePasteDraftModal() {
+    const modal = document.getElementById('modal-paste-draft');
+    if (modal) modal.style.display = 'none';
+}
+
+// =========================================================================
+// 3. Live 24-Hour USA IT Jobs & 1-Click Outreach Table
+// =========================================================================
+function initJobsTable() {
+    const btnSearch = document.getElementById('btn-search-jobs');
+    const btnLiveScrape = document.getElementById('btn-live-scrape-trigger');
+    const queryInput = document.getElementById('filter-query');
+    const locInput = document.getElementById('filter-location');
+    const sourceSelect = document.getElementById('filter-source');
+
+    if (btnSearch) {
+        btnSearch.addEventListener('click', () => searchJobs(false));
+    }
+
+    if (btnLiveScrape) {
+        btnLiveScrape.addEventListener('click', () => triggerUsScrape());
+    }
+
+    if (queryInput) {
+        queryInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchJobs(false);
+            }
+        });
+    }
+
+    if (sourceSelect) {
+        sourceSelect.addEventListener('change', () => searchJobs(false));
+    }
+
+    // Quick filter inside table if present
+    const quickFilterInput = document.getElementById('quick-job-filter-input');
+    if (quickFilterInput) {
+        quickFilterInput.addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            document.querySelectorAll('#jobs-table-body tr.job-row').forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
+    }
+
+    // Initial load of jobs
+    searchJobs(false);
+}
+
+async function searchJobs(liveScrape = false) {
+    const tbody = document.getElementById('jobs-table-body');
+    const countLabel = document.getElementById('jobs-table-count');
+    const query = document.getElementById('filter-query')?.value?.trim() || '';
+    const location = document.getElementById('filter-location')?.value?.trim() || 'United States';
+    const source = document.getElementById('filter-source')?.value || 'All';
+
+    if (tbody) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
+                    <div class="spinner" style="display:inline-block; margin-right:8px;"></div>
+                    ${liveScrape ? 'Scraping fresh 24h US contract jobs across portals...' : 'Searching US job requisitions...'}
+                </td>
+            </tr>`;
+    }
+
+    try {
+        const res = await fetch('/api/jobs/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: query,
+                location: location,
+                source: source,
+                contract_only: true,
+                is_24h_only: true,
+                live_scrape: liveScrape
+            })
+        });
+
+        const data = await res.json();
+        state.jobs = data.jobs || data.results || [];
+
+        if (countLabel) {
+            countLabel.innerText = `Showing ${state.jobs.length} Fresh US Requisitions`;
+        }
+
+        renderJobsTable(state.jobs);
+    } catch (err) {
+        console.error('Error fetching jobs:', err);
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
+        }
+    }
+}
+
+async function triggerUsScrape() {
+    showToast('🚀 Running Live 24h US Requisition Scraper (LinkedIn, Dice, Indeed, ZipRecruiter)...', 'info', 6000);
+    const query = document.getElementById('filter-query')?.value?.trim() || 'Software Engineer';
+    const location = document.getElementById('filter-location')?.value?.trim() || 'United States';
+
+    try {
+        const res = await fetch('/api/jobs/scrape-us', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                keywords: [query],
+                location: location,
+                contract_only: true
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`✅ Scraped & saved ${data.count || 0} fresh US requisitions!`, 'success');
+            searchJobs(false);
+        } else {
+            showToast(`Scrape completed with notice: ${data.message || 'Ready'}`, 'info');
+            searchJobs(false);
+        }
+    } catch (err) {
+        showToast('Error during live scrape: ' + err.message, 'error');
+        searchJobs(false);
+    }
+}
+
+function renderJobsTable(jobs) {
+    const tbody = document.getElementById('jobs-table-body');
+    if (!tbody) return;
+
+    if (!jobs || jobs.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" style="text-align:center; padding: 40px; color: var(--text-muted);">
+                    No jobs found matching your search. Try adjusting keywords or click <strong>"Live 24h Scrape"</strong> to fetch fresh postings.
+                </td>
+            </tr>`;
+        return;
+    }
+
+    const consultantOptions = state.consultants.map(c => 
+        `<option value="${c.id}" ${c.id === state.activeConsultantId ? 'selected' : ''}>
+            ${escapeHtml(c.name)} (${escapeHtml(c.title || 'Consultant')})
+        </option>`
+    ).join('');
+
+    tbody.innerHTML = jobs.map(j => {
+        const portalClass = (j.source || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const hasEmail = Boolean(j.recruiter_email);
+        const reqUrl = j.url || '#';
+
+        return `
+        <tr class="job-row" data-job-id="${j.id}">
+            <td>
+                <div style="font-weight: 600; color: #fff; margin-bottom: 2px;">
+                    ${escapeHtml(j.title || 'Software Engineer')}
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:8px;">
+                    <span>🏢 ${escapeHtml(j.company || 'Direct Client / Prime Vendor')}</span>
+                    <span>📍 ${escapeHtml(j.location || 'United States')}</span>
+                    ${reqUrl && reqUrl !== '#' ? `<a href="${reqUrl}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:none;" title="Open original job posting">View Req ↗</a>` : ''}
+                </div>
+            </td>
+            <td>
+                <span class="portal-badge badge-${portalClass}">${escapeHtml(j.source || 'Portal')}</span>
+            </td>
+            <td>
+                <span style="color: #34d399; font-weight: 600;">${escapeHtml(j.salary || j.job_type || 'C2C / Contract')}</span>
+            </td>
+            <td>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <input type="email" class="form-control form-control-sm email-inline-input" data-job-id="${j.id}" value="${escapeHtml(j.recruiter_email || '')}" placeholder="Paste recruiter email..." style="min-width: 180px; font-size: 0.85rem;">
+                    <button class="btn btn-secondary btn-xs btn-save-email" data-job-id="${j.id}" title="Save Recruiter Email">💾</button>
+                </div>
+            </td>
+            <td>
+                <select class="form-control form-control-sm job-consultant-select" data-job-id="${j.id}" style="font-size: 0.85rem;">
+                    ${consultantOptions}
+                </select>
+            </td>
+            <td style="text-align: right;">
+                <button class="btn btn-primary btn-sm btn-draft-job" data-job-id="${j.id}" style="display:inline-flex; align-items:center; gap:4px; box-shadow: 0 0 10px rgba(99,102,241,0.3);">
+                    ✉️ 1-Click Draft
+                </button>
+            </td>
+        </tr>
+        `;
+    }).join('');
+
+    // Attach inline email save listeners
+    tbody.querySelectorAll('.email-inline-input').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const jobId = e.target.getAttribute('data-job-id');
+            saveRecruiterEmail(jobId, e.target.value);
+        });
+    });
+
+    tbody.querySelectorAll('.btn-save-email').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const jobId = btn.getAttribute('data-job-id');
+            const row = btn.closest('tr');
+            const input = row.querySelector('.email-inline-input');
+            if (input) {
+                saveRecruiterEmail(jobId, input.value);
+            }
+        });
+    });
+
+    // Attach 1-Click Draft listeners
+    tbody.querySelectorAll('.btn-draft-job').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const jobId = btn.getAttribute('data-job-id');
+            const row = btn.closest('tr');
+            const candSelect = row.querySelector('.job-consultant-select');
+            const emailInput = row.querySelector('.email-inline-input');
+            const candId = candSelect ? parseInt(candSelect.value) : state.activeConsultantId;
+            const recruiterEmail = emailInput ? emailInput.value.trim() : '';
+
+            createJobDraft(jobId, candId, recruiterEmail, btn);
+        });
+    });
+}
+
+async function saveRecruiterEmail(jobId, email) {
+    if (!email) return;
+    try {
+        const res = await fetch('/api/jobs/update-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                job_id: jobId,
+                recruiter_email: email.trim()
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('Recruiter email saved!', 'success', 2000);
+        }
+    } catch (err) {
+        console.error('Error updating email:', err);
+    }
+}
+
+async function createJobDraft(jobId, candId, customToEmail = '', btnElement = null) {
+    if (!candId) {
+        showToast('Please select a consultant first', 'warning');
+        return;
+    }
+
+    if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerText = 'Creating Draft...';
+    }
+
+    try {
+        const res = await fetch('/api/outreach/create-draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                job_id: jobId,
+                candidate_id: candId,
+                custom_to_email: customToEmail
+            })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            showToast(`✉️ Gmail Draft Created for ${data.consultant_name}! Sent to: ${data.recruiter_email || 'Recruiter'}`, 'success', 6000);
+            
+            // Update stats
+            const statDrafts = document.getElementById('stat-drafted-count');
+            if (statDrafts) {
+                const cur = parseInt(statDrafts.innerText) || 0;
+                statDrafts.innerText = cur + 1;
+            }
+        } else {
+            showToast(data.error || 'Failed to create Gmail draft. Please ensure Gmail is connected.', 'error', 6000);
+        }
+    } catch (err) {
+        showToast('Draft error: ' + err.message, 'error');
+    } finally {
+        if (btnElement) {
+            btnElement.disabled = false;
+            btnElement.innerHTML = '✉️ 1-Click Draft';
+        }
+    }
+}
+
+// =========================================================================
+// 4. Outbound Pipeline / Drafts Kanban
+// =========================================================================
+async function loadPipeline() {
+    const container = document.getElementById('pipeline-container');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/pipeline');
+        const data = await res.json();
+        state.pipeline = data;
+        renderPipeline(data);
+    } catch (err) {
+        console.error('Error loading pipeline:', err);
+    }
+}
+
+function renderPipeline(pipeline) {
+    const stages = ['Drafted', 'Applied', 'Interviewing', 'Offer'];
+    
+    stages.forEach(stage => {
+        const colContainer = document.getElementById(`col-${stage}`);
+        const countSpan = document.getElementById(`count-${stage}`);
+        const items = pipeline[stage] || [];
+
+        if (countSpan) countSpan.innerText = items.length;
+
+        if (colContainer) {
+            if (items.length === 0) {
+                colContainer.innerHTML = `<div style="text-align:center; padding: 24px; color: var(--text-muted); font-size: 0.85rem;">No applications in ${stage}</div>`;
+                return;
+            }
+
+            colContainer.innerHTML = items.map(app => {
+                const dateStr = app.created_at ? new Date(app.created_at).toLocaleDateString() : 'Recent';
+                return `
+                <div class="pipeline-card" data-app-id="${app.id}">
+                    <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">${escapeHtml(app.job_title || 'Software Engineering Role')}</div>
+                    <div style="font-size: 0.8rem; color: #38bdf8; margin-bottom: 2px;">👤 ${escapeHtml(app.candidate_name || 'Consultant')}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">🏢 ${escapeHtml(app.company || 'Client')} (${escapeHtml(app.recruiter_email || 'No email')})</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 6px;">
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">${dateStr}</span>
+                        <div class="stage-actions">
+                            ${stage === 'Drafted' ? `<button class="btn btn-xs btn-outline-primary" onclick="updatePipelineStage(${app.id}, 'Applied')">➔ Applied</button>` : ''}
+                            ${stage === 'Applied' ? `<button class="btn btn-xs btn-outline-primary" onclick="updatePipelineStage(${app.id}, 'Interviewing')">➔ Interview</button>` : ''}
+                            ${stage === 'Interviewing' ? `<button class="btn btn-xs btn-success" onclick="updatePipelineStage(${app.id}, 'Offer')">🎉 Offer</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+    });
+}
+
+async function updatePipelineStage(appId, newStage) {
+    try {
+        const res = await fetch('/api/pipeline/update-stage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                application_id: appId,
+                stage: newStage
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Application moved to ${newStage}!`, 'success');
+            loadPipeline();
+        }
+    } catch (err) {
+        showToast('Error updating stage: ' + err.message, 'error');
+    }
+}
+window.updatePipelineStage = updatePipelineStage;
+
+// =========================================================================
+// 5. AI Master Resume Optimization Bot
+// =========================================================================
+function initResumeBot() {
+    const btnOptimize = document.getElementById('btn-run-resume-optimization');
+    const btnDownload = document.getElementById('btn-download-optimized-docx');
+    const candSelect = document.getElementById('resumebot-consultant-select');
+    const fileInput = document.getElementById('resumebot-file-input');
+    const jdTextarea = document.getElementById('resumebot-jd-text');
+    const resumeTextarea = document.getElementById('resumebot-resume-text');
+    const notesInput = document.getElementById('resumebot-custom-notes');
+
+    if (btnOptimize) {
+        btnOptimize.addEventListener('click', async () => {
+            const jd = jdTextarea ? jdTextarea.value.trim() : '';
+            const resume = resumeTextarea ? resumeTextarea.value.trim() : '';
+            const candId = candSelect ? parseInt(candSelect.value) : state.activeConsultantId;
+            const notes = notesInput ? notesInput.value.trim() : '';
+
+            if (!jd) {
+                showToast('Please paste the client Job Description (JD) to optimize against.', 'warning');
+                if (jdTextarea) jdTextarea.focus();
+                return;
+            }
+
+            btnOptimize.disabled = true;
+            btnOptimize.innerHTML = '⚡ Optimizing Resume (ATS Keyword Engine)...';
+
+            try {
+                const res = await fetch('/api/resume-bot/optimize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        candidate_id: candId,
+                        jd_text: jd,
+                        resume_text: resume,
+                        custom_instructions: notes
+                    })
+                });
+
+                const data = await res.json();
+                if (data.error) {
+                    showToast(data.error, 'error');
+                    return;
+                }
+
+                // Populate results
+                state.lastOptimizedResumeText = data.optimized_resume_text || data.optimized_summary || '';
+                const selectedCand = state.consultants.find(c => c.id === candId);
+                state.lastOptimizedCandidateName = selectedCand ? selectedCand.name : 'Consultant';
+
+                const resultsCard = document.getElementById('resumebot-results-card');
+                if (resultsCard) resultsCard.style.display = 'block';
+
+                const scoreInitial = document.getElementById('score-initial');
+                const scoreTarget = document.getElementById('score-target');
+                const scoreBar = document.getElementById('score-progress-bar');
+                const matchedSkills = document.getElementById('result-matched-skills');
+                const addedSkills = document.getElementById('result-added-skills');
+                const domainBadge = document.getElementById('result-domain');
+                const previewText = document.getElementById('result-preview-text');
+
+                if (scoreInitial) scoreInitial.innerText = `${data.initial_score || 55}%`;
+                if (scoreTarget) scoreTarget.innerText = `${data.target_score || 95}%`;
+                if (scoreBar) scoreBar.style.width = `${data.target_score || 95}%`;
+
+                if (domainBadge) domainBadge.innerText = `Domain: ${data.domain || 'US Enterprise IT'}`;
+
+                if (matchedSkills) {
+                    const matched = data.matched_skills || ['Cloud Architecture', 'REST APIs', 'CI/CD'];
+                    matchedSkills.innerHTML = matched.map(s => `<span class="skill-tag green">✓ ${escapeHtml(s)}</span>`).join(' ');
+                }
+
+                if (addedSkills) {
+                    const added = data.added_skills || ['High-Throughput Systems', 'Microservices', 'Kubernetes'];
+                    addedSkills.innerHTML = added.map(s => `<span class="skill-tag blue">+ ${escapeHtml(s)}</span>`).join(' ');
+                }
+
+                if (previewText) {
+                    previewText.innerText = data.optimized_summary || data.optimized_resume_text || 'Optimized resume content ready.';
+                }
+
+                showToast('✨ Resume successfully optimized for ATS & keywords!', 'success');
+                if (resultsCard) resultsCard.scrollIntoView({ behavior: 'smooth' });
+
+            } catch (err) {
+                showToast('Optimization error: ' + err.message, 'error');
+            } finally {
+                btnOptimize.disabled = false;
+                btnOptimize.innerHTML = '⚡ Optimize & Calculate Match %';
+            }
+        });
+    }
+
+    if (btnDownload) {
+        btnDownload.addEventListener('click', async () => {
+            if (!state.lastOptimizedResumeText) {
+                showToast('Please run optimization first before downloading.', 'warning');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/resume-bot/download-docx', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        resume_text: state.lastOptimizedResumeText,
+                        candidate_name: state.lastOptimizedCandidateName
+                    })
+                });
+
+                if (!res.ok) {
+                    showToast('Failed to generate .docx resume.', 'error');
+                    return;
+                }
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const safeName = state.lastOptimizedCandidateName.replace(/[^a-zA-Z0-9_-]/g, '_');
+                a.download = `${safeName}_ATS_Tailored_Resume.docx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                showToast('📥 Word resume (.docx) downloaded successfully!', 'success');
+            } catch (err) {
+                showToast('Download error: ' + err.message, 'error');
+            }
+        });
+    }
+}
+
+// =========================================================================
+// 6. Modals Controller & Form Submissions
+// =========================================================================
+function initModals() {
+    // 1. Consultant Modal Close / Cancel
+    const btnCloseCand = document.getElementById('btn-close-consultant-modal');
+    const btnCancelCand = document.getElementById('btn-cancel-consultant');
+    if (btnCloseCand) btnCloseCand.addEventListener('click', closeConsultantModal);
+    if (btnCancelCand) btnCancelCand.addEventListener('click', closeConsultantModal);
+
+    // 2. Upload Resume Modal Close / Cancel
+    const btnCloseUpload = document.getElementById('btn-close-upload-modal');
+    const btnCancelUpload = document.getElementById('btn-cancel-upload');
+    if (btnCloseUpload) btnCloseUpload.addEventListener('click', closeUploadResumeModal);
+    if (btnCancelUpload) btnCancelUpload.addEventListener('click', closeUploadResumeModal);
+
+    // 3. App Password Modal Close / Cancel
+    const btnCloseAppPass = document.getElementById('btn-close-app-pass-modal');
+    const btnCancelAppPass = document.getElementById('btn-cancel-app-pass');
+    if (btnCloseAppPass) btnCloseAppPass.addEventListener('click', closeAppPasswordModal);
+    if (btnCancelAppPass) btnCancelAppPass.addEventListener('click', closeAppPasswordModal);
+
+    // 4. Paste & Draft Modal Close / Cancel
+    const btnClosePasteDraft = document.getElementById('btn-close-paste-draft-modal');
+    const btnCancelPasteDraft = document.getElementById('btn-cancel-paste-draft');
+    if (btnClosePasteDraft) btnClosePasteDraft.addEventListener('click', closePasteDraftModal);
+    if (btnCancelPasteDraft) btnCancelPasteDraft.addEventListener('click', closePasteDraftModal);
+
+    // Close on backdrop click for all modals
+    document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+    });
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal-backdrop, .modal-overlay').forEach(m => m.style.display = 'none');
+        }
+    });
+
+    // --- FORM: Save Consultant Profile ---
+    const formConsultant = document.getElementById('form-consultant');
+    if (formConsultant) {
+        formConsultant.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const editId = document.getElementById('consultant-edit-id')?.value;
+            const submitBtn = document.getElementById('btn-save-consultant');
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerText = 'Saving...';
+            }
+
+            try {
+                if (editId) {
+                    // Update via PUT
+                    const payload = {
+                        name: document.getElementById('c-name').value.trim(),
+                        email: document.getElementById('c-email').value.trim(),
+                        phone: document.getElementById('c-phone').value.trim(),
+                        title: document.getElementById('c-title').value.trim(),
+                        primary_skills: document.getElementById('c-skills').value.trim(),
+                        experience_years: parseInt(document.getElementById('c-exp').value) || 5,
+                        target_rate: document.getElementById('c-rate').value.trim(),
+                        visa_status: document.getElementById('c-visa').value.trim(),
+                        location: document.getElementById('c-location').value.trim(),
+                        summary: document.getElementById('c-summary').value.trim()
+                    };
+
+                    const res = await fetch(`/api/consultants/${editId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json();
+                    showToast('Consultant profile updated!', 'success');
+                } else {
+                    // Create via POST (multipart/form-data to support resume upload)
+                    const formData = new FormData(formConsultant);
+                    const res = await fetch('/api/consultants', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    showToast('New US Bench Consultant created!', 'success');
+                }
+
+                closeConsultantModal();
+                await fetchConsultants();
+            } catch (err) {
+                showToast('Error saving consultant: ' + err.message, 'error');
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Save Consultant';
+                }
+            }
+        });
+    }
+
+    // --- FORM: Upload Resume Only ---
+    const formUploadResume = document.getElementById('form-upload-resume-only');
+    if (formUploadResume) {
+        formUploadResume.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const candId = document.getElementById('upload-candidate-id')?.value;
+            const fileInput = document.getElementById('quick-resume-file');
+
+            if (!candId || !fileInput || !fileInput.files[0]) {
+                showToast('Please select a resume file to upload.', 'warning');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('resume_file', fileInput.files[0]);
+
+            try {
+                const res = await fetch(`/api/consultants/${candId}/upload-resume`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Resume uploaded and attached to consultant!', 'success');
+                    closeUploadResumeModal();
+                    await fetchConsultants();
+                } else {
+                    showToast(data.error || 'Failed to upload resume', 'error');
+                }
+            } catch (err) {
+                showToast('Upload error: ' + err.message, 'error');
+            }
+        });
+    }
+
+    // --- FORM: App Password Verification ---
+    const formAppPass = document.getElementById('form-app-password');
+    if (formAppPass) {
+        formAppPass.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const candId = document.getElementById('app-pass-cand-id')?.value;
+            const email = document.getElementById('app-pass-email')?.value?.trim();
+            const appPass = document.getElementById('app-pass-key')?.value?.trim();
+            const submitBtn = document.getElementById('btn-submit-app-pass');
+
+            if (!candId || !email || !appPass) {
+                showToast('Gmail address and 16-character App Password are required.', 'warning');
+                return;
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerText = 'Verifying with Gmail...';
+            }
+
+            try {
+                const res = await fetch(`/api/consultants/${candId}/set-app-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        gmail_account: email,
+                        app_password: appPass
+                    })
+                });
+
+                const data = await res.json();
+                if (data.error) {
+                    showToast(data.error, 'error', 7000);
+                } else {
+                    showToast('✅ Gmail App Password verified and connected successfully!', 'success', 5000);
+                    closeAppPasswordModal();
+                    await fetchConsultants();
+                }
+            } catch (err) {
+                showToast('Verification error: ' + err.message, 'error');
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Verify & Connect';
+                }
+            }
+        });
+    }
+
+    // --- FORM: Paste Requirement ➔ 1-Click Draft ---
+    const formPasteDraft = document.getElementById('form-paste-draft');
+    const rawTextarea = document.getElementById('pd-raw-text');
+
+    if (rawTextarea) {
+        rawTextarea.addEventListener('input', (e) => {
+            const val = e.target.value;
+            // Real-time Regex Extraction
+            const emailMatch = val.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+            if (emailMatch) {
+                const emailInput = document.getElementById('pd-email');
+                if (emailInput && !emailInput.value) emailInput.value = emailMatch[1];
+            }
+
+            const titleMatch = val.match(/(?:title|role|position|opening)\s*[:\-]?\s*([A-Za-z0-9\s\/\-#+]{4,40})/i);
+            if (titleMatch) {
+                const titleInput = document.getElementById('pd-title');
+                if (titleInput && !titleInput.value) titleInput.value = titleMatch[1].trim();
+            }
+
+            const rateMatch = val.match(/(\$\s*\d+(?:\.\d+)?\s*(?:\/hr|\/hour|hr|c2c|w2)?)/i);
+            if (rateMatch) {
+                const rateInput = document.getElementById('pd-rate');
+                if (rateInput && !rateInput.value) rateInput.value = rateMatch[1].trim();
+            }
+        });
+    }
+
+    if (formPasteDraft) {
+        formPasteDraft.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const candId = document.getElementById('pd-consultant-select')?.value;
+            const rawText = document.getElementById('pd-raw-text')?.value?.trim();
+            const recruiterEmail = document.getElementById('pd-email')?.value?.trim();
+            const jobTitle = document.getElementById('pd-title')?.value?.trim();
+            const company = document.getElementById('pd-company')?.value?.trim();
+            const rate = document.getElementById('pd-rate')?.value?.trim();
+            const notes = document.getElementById('pd-notes')?.value?.trim();
+            const submitBtn = document.getElementById('btn-submit-paste-draft');
+
+            if (!candId) {
+                showToast('Please select a consultant first', 'warning');
+                return;
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerText = 'Creating Gmail Draft with Attached Resume...';
+            }
+
+            try {
+                const res = await fetch('/api/outreach/paste-and-draft', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        candidate_id: parseInt(candId),
+                        raw_jd_text: rawText,
+                        recruiter_email: recruiterEmail,
+                        job_title: jobTitle,
+                        company: company,
+                        salary: rate,
+                        custom_notes: notes
+                    })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`⚡ Draft created in ${data.consultant_name}'s Gmail with attached .docx resume!`, 'success', 6000);
+                    closePasteDraftModal();
+                    
+                    // Update stats
+                    const statDrafts = document.getElementById('stat-drafted-count');
+                    if (statDrafts) {
+                        const cur = parseInt(statDrafts.innerText) || 0;
+                        statDrafts.innerText = cur + 1;
+                    }
+                } else {
+                    showToast(data.error || 'Failed to create draft.', 'error', 6000);
+                }
+            } catch (err) {
+                showToast('Draft error: ' + err.message, 'error');
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '⚡ Create Gmail Draft (Attached .docx)';
+                }
+            }
+        });
+    }
+}
+
+// =========================================================================
+// 7. USA Talent Sourcing & Students (2018 - 2026)
+// =========================================================================
+function setPresetFilter(keyword, fromYear, toYear) {
+    const kwInput = document.getElementById('filter-student-keyword');
+    const fyInput = document.getElementById('filter-student-from-year');
+    const tyInput = document.getElementById('filter-student-to-year');
+
+    if (kwInput && keyword) kwInput.value = keyword;
+    if (fyInput && fromYear) fyInput.value = fromYear;
+    if (tyInput && toYear) tyInput.value = toYear;
+
+    loadStudents(true);
+}
+
+async function loadStudents(isScrape = false) {
+    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Master OPT';
+    const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
+    const fy = document.getElementById('filter-student-from-year')?.value || '2018';
+    const ty = document.getElementById('filter-student-to-year')?.value || '2026';
+
+    const loadingElem = document.getElementById('students-loading-state');
+    const resultsElem = document.getElementById('students-results-wrapper');
+    const tbody = document.getElementById('students-table-body');
+
+    if (loadingElem) loadingElem.style.display = 'block';
+    if (tbody) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align:center; padding: 36px; color: var(--text-muted);">
+                    <div style="display:inline-block; width:32px; height:32px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation: spin 0.8s linear infinite; margin-bottom:12px;"></div>
+                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching US Indian Masters & Tech Graduates (${fy}–${ty})...</div>
+                    <div style="font-size:0.85rem; margin-top:4px;">Scanning live LinkedIn US dataset...</div>
+                </td>
+            </tr>`;
+    }
+
+    try {
+        const res = await fetch('/api/students/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                keyword: kw,
+                location: loc,
+                from_year: fy,
+                to_year: ty,
+                scrape: isScrape
+            })
+        });
+
+        const data = await res.json();
+        state.students = data.students || data.candidates || data.results || [];
+        state.studentsLoaded = true;
+
+        updateStudentMetrics(state.students);
+        renderStudentsGrid(state.students);
+
+    } catch (err) {
+        console.error('Error fetching students:', err);
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load candidate profiles. Please try searching again.</td></tr>`;
+        }
+    } finally {
+        if (loadingElem) loadingElem.style.display = 'none';
+        if (resultsElem) resultsElem.style.display = 'block';
+    }
+}
+
+function updateStudentMetrics(students) {
+    const totalElem = document.getElementById('stat-students-count');
+    const optElem = document.getElementById('stat-students-opt');
+    const switchersElem = document.getElementById('stat-students-switchers');
+    const onboardedElem = document.getElementById('stat-students-onboarded');
+
+    const total = students.length;
+    const optCount = students.filter(s => (s.status_tag || '').includes('OPT') || (s.status_tag || '').includes('CPT') || (s.grad_year && parseInt(s.grad_year) >= 2024)).length;
+    const switchersCount = students.filter(s => s.grad_year && parseInt(s.grad_year) >= 2018 && parseInt(s.grad_year) <= 2023).length;
+
+    if (totalElem) totalElem.innerText = total;
+    if (optElem) optElem.innerText = optCount;
+    if (switchersElem) switchersElem.innerText = switchersCount;
+    if (onboardedElem) onboardedElem.innerText = state.consultants.length || 3;
+}
+
+function renderStudentsGrid(candidates) {
+    const tbody = document.getElementById('students-table-body');
+    if (!tbody) return;
+
+    if (!candidates || candidates.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align:center; padding: 40px; color: var(--text-muted);">
+                    No candidates found for the selected criteria. Try changing keyword filters or graduation year range.
+                </td>
+            </tr>`;
+        return;
+    }
+
+        tbody.innerHTML = candidates.map(c => {
+        let targetLiUrl = (c.linkedin_url || c.profile_url || '').trim();
+        const isSynthetic = /-security\/?$|-cyber\/?$|-sec\/?$|-salesforce\/?$|-devops\/?$|-data-analyst\/?$|-analytics\/?$|-java-dev\/?$|-fullstack\/?$/.test(targetLiUrl);
+        if (!targetLiUrl || !targetLiUrl.startsWith('http') || isSynthetic) {
+            const cleanName = (c.name || 'Candidate')
+                .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect)\b/gi, '')
+                .replace(/[,\/()]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            targetLiUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}&origin=GLOBAL_SEARCH_HEADER`;
+        }
+
+        const initials = (c.name || 'US').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+        return `
+        <tr style="border-bottom: 1px solid #1e2230; transition: background 0.15s ease;" onmouseover="this.style.background='rgba(99,102,241,0.04)'" onmouseout="this.style.background='transparent'">
+            <td style="padding: 14px 16px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return true;">
+                        <div style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg, #4f46e5, #06b6d4); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; cursor:pointer;" title="View LinkedIn Profile">
+                            ${initials}
+                        </div>
+                    </a>
+                    <div>
+                        <div style="font-weight:600; color:#fff; font-size:0.95rem;">
+                            <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none; display:inline-flex; align-items:center; gap:6px;" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='inherit'" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return true;">
+                                <span>${escapeHtml(c.name || 'US Candidate')}</span>
+                                <span style="color:#0a66c2; font-size:11px; font-weight:700; background:rgba(10,102,194,0.18); padding:1px 6px; border-radius:4px; border:1px solid rgba(10,102,194,0.4);">in &#x2197;</span>
+                            </a>
+                        </div>
+                        <div style="font-size:0.8rem; color:#8e95aa; margin-top:2px;">
+                            ${escapeHtml(c.headline || c.skills || 'Master Graduate in Computer Science')}
+                        </div>
+                    </div>
+                </div>
+            </td>
+            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.88rem;">
+                <div style="font-weight:500;">${escapeHtml(c.university || 'US Accredited University')}</div>
+                <div style="font-size:0.75rem; color:#8e95aa;">${escapeHtml(c.degree || "Master's Degree")}</div>
+            </td>
+            <td style="padding: 14px 16px; font-size:0.88rem; color:#38bdf8; font-weight:600;">
+                ${escapeHtml(c.grad_year || '2024')}
+            </td>
+            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.88rem;">
+                &#x1F4CD; ${escapeHtml(c.location || 'United States')}
+            </td>
+            <td style="padding: 14px 16px;">
+                <span style="display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.75rem; font-weight:600; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);">
+                    ${escapeHtml(c.status_tag || 'OPT / C2C Eligible')}
+                </span>
+            </td>
+            <td style="padding: 14px 16px; max-width:220px;">
+                <div style="font-size:0.8rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    ${escapeHtml(c.skills || 'Java, Python, Cloud, Full Stack')}
+                </div>
+            </td>
+            <td style="padding: 14px 16px; text-align:right;">
+                <div style="display:inline-flex; gap:6px; align-items:center;">
+                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; background:rgba(10,102,194,0.22); border:1px solid #0a66c2; color:#60a5fa; font-weight:600; padding:4px 9px;" title="View Verified LinkedIn Profile" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return false;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                        LinkedIn &#x2197;
+                    </a>
+                    <button class="btn btn-secondary btn-xs" onclick='onOpenStudentPitch(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3);">
+                        Pitch
+                    </button>
+                    <button class="btn btn-success btn-xs" onclick='onAddStudentToBench(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);">
+                        + Bench
+                    </button>
+                </div>
+            </td>
+        </tr>
+        `;
+    }).join('');
+}
+
+async function onAddStudentToBench(cardObj) {
+    const c = typeof cardObj === 'string' ? JSON.parse(cardObj) : cardObj;
+    try {
+        const res = await fetch('/api/students/add-to-bench', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: c.name,
+                email: c.email || '',
+                phone: c.phone || '',
+                headline: c.headline || `${c.skills || 'Software Engineer'}`,
+                location: c.location || 'United States',
+                skills: c.skills || 'Full Stack, Cloud',
+                grad_year: c.grad_year || '2024',
+                university: c.university || 'US University',
+                profile_url: c.profile_url || c.linkedin_url || ''
+            })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            showToast(`🎉 ${c.name} added to US Bench Consultants!`, 'success');
+            await fetchConsultants();
+        } else {
+            showToast(data.error || 'Failed to add to bench.', 'error');
+        }
+    } catch (err) {
+        showToast('Error adding to bench: ' + err.message, 'error');
+    }
+}
+window.onAddStudentToBench = onAddStudentToBench;
+
+async function onOpenStudentPitch(cardObj) {
+    const c = typeof cardObj === 'string' ? JSON.parse(cardObj) : cardObj;
+    try {
+        const res = await fetch('/api/students/generate-pitch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: c.name,
+                headline: c.headline,
+                university: c.university,
+                skills: c.skills,
+                grad_year: c.grad_year
+            })
+        });
+
+        const data = await res.json();
+        const subjInput = document.getElementById('pitch-modal-subject');
+        const bodyTextarea = document.getElementById('pitch-modal-body');
+        const modal = document.getElementById('modal-student-pitch');
+
+        if (subjInput) subjInput.value = data.subject || `Exclusive Bench Placement & Marketing Opportunity - Adroit ATS`;
+        if (bodyTextarea) bodyTextarea.value = data.pitch_body || '';
+
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+    } catch (err) {
+        showToast('Error generating pitch: ' + err.message, 'error');
+    }
+}
+window.onOpenStudentPitch = onOpenStudentPitch;
+
+function closeStudentPitchModal() {
+    const modal = document.getElementById('modal-student-pitch');
+    if (modal) modal.style.display = 'none';
+}
+window.closeStudentPitchModal = closeStudentPitchModal;
+
+function exportStudentsCSV() {
+    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || '';
+    const loc = document.getElementById('filter-student-location')?.value?.trim() || '';
+    const fy = document.getElementById('filter-student-from-year')?.value || '2018';
+    const ty = document.getElementById('filter-student-to-year')?.value || '2026';
+
+    fetch('/api/students/export-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            keyword: kw,
+            location: loc,
+            from_year: fy,
+            to_year: ty
+        })
+    })
+    .then(res => res.blob())
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Adroit_US_Candidates_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        showToast('Candidates exported to CSV successfully!', 'success');
+    })
+    .catch(err => {
+        showToast('Failed to export CSV: ' + err.message, 'error');
+    });
+}
+window.exportStudentsCSV = exportStudentsCSV;
+
+function initStudentsTab() {
+    const btnFilter = document.getElementById('btn-apply-student-filter');
+    const formSearch = document.getElementById('form-student-search');
+    const btnScrape = document.getElementById('btn-trigger-students-scrape');
+    const btnExport = document.getElementById('btn-export-students-csv');
+    const btnClosePitch = document.getElementById('btn-close-pitch');
+    const btnClosePitchX = document.getElementById('btn-close-pitch-modal');
+    const btnCopyPitch = document.getElementById('btn-copy-pitch');
+    const kwInput = document.getElementById('filter-student-keyword');
+
+    const btnLiveLi = document.getElementById('btn-open-live-linkedin');
+    if (btnLiveLi) {
+        btnLiveLi.addEventListener('click', () => {
+            const kw = kwInput ? kwInput.value.trim() : 'Computer Science';
+            const liUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(kw)}&origin=GLOBAL_SEARCH_HEADER`;
+            window.open(liUrl, '_blank');
+        });
+    }
+
+    if (formSearch) {
+        formSearch.addEventListener('submit', (e) => {
+            e.preventDefault();
+            loadStudents(true);
+        });
+    }
+
+    if (btnFilter) {
+        btnFilter.addEventListener('click', () => loadStudents(true));
+    }
+    if (btnScrape) {
+        btnScrape.addEventListener('click', () => {
+            showToast("Scanning LinkedIn live index for US candidates...", "info");
+            loadStudents(true);
+        });
+    }
+    if (kwInput) {
+        kwInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                loadStudents(true);
+            }
+        });
+    }
+    if (btnExport) {
+        btnExport.addEventListener('click', () => exportStudentsCSV());
+    }
+    if (btnClosePitch) {
+        btnClosePitch.addEventListener('click', () => closeStudentPitchModal());
+    }
+    if (btnClosePitchX) {
+        btnClosePitchX.addEventListener('click', () => closeStudentPitchModal());
+    }
+    if (btnCopyPitch) {
+        btnCopyPitch.addEventListener('click', () => {
+            const bodyText = document.getElementById('pitch-modal-body').value;
+            navigator.clipboard.writeText(bodyText);
+            showToast('Outreach pitch copied to clipboard!', 'success');
+        });
+    }
+
+    // Explicitly expose on window
+    window.setPresetFilter = setPresetFilter;
+    window.loadStudents = loadStudents;
+    window.renderStudentsGrid = renderStudentsGrid;
+    window.onAddStudentToBench = onAddStudentToBench;
+    window.onOpenStudentPitch = onOpenStudentPitch;
+    window.closeStudentPitchModal = closeStudentPitchModal;
+    window.exportStudentsCSV = exportStudentsCSV;
+
+    // Auto-load if empty
+    if (!state.studentsLoaded) {
+        loadStudents(false);
+    }
+}
+
+// =========================================================================
+// 8. Utility Functions
+// =========================================================================
+function showToast(message, type = 'info', duration = 4000) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerText = message;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}

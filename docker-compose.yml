@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  aventra-ats:
+    build: .
+    container_name: aventra_ats_app
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=aventra-production-secret-key-2026
+      - APIFY_API_TOKEN=your_apify_token_here
+    volumes:
+      - ats_data:/app
+
+volumes:
+  ats_data:

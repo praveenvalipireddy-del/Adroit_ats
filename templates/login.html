@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adroit AI - Sourcing & Resume Bot Studio</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .login-wrapper {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.2) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.15) 0px, transparent 50%);
+        }
+        .login-card {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 440px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(99, 102, 241, 0.2);
+            text-align: center;
+        }
+        .login-logo {
+            width: 54px;
+            height: 54px;
+            background: linear-gradient(135deg, var(--primary), var(--accent-cyan));
+            border-radius: 14px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.75rem;
+            font-weight: 800;
+            color: white;
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+        }
+        .auth-divider {
+            display: flex;
+            align-items: center;
+            margin: 24px 0;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .auth-divider::before, .auth-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-subtle);
+        }
+        .auth-divider span {
+            padding: 0 12px;
+        }
+        .feature-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: var(--radius-full);
+            color: #a5b4fc;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="login-logo">A</div>
+            <div class="feature-badge">
+                <span>⚡</span> AI Sourcing & Resume Alignment Studio
+            </div>
+            <h1 style="font-size: 1.75rem; margin-bottom: 8px;">Adroit AI Studio</h1>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 28px;">
+                24-Hour Live Contract Job Scraping (LinkedIn / Indeed / Dice) & Master Resume Alignment.
+            </p>
+
+            <!-- 1-Click Test Login -->
+            <a href="/dev-login" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px; font-size: 1rem; margin-bottom: 12px; border-radius: var(--radius-md);">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                Launch Studio (1-Click Recruiter Access)
+            </a>
+            <div style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 8px;">
+                Instant session as <strong>Praveen Valipireddy</strong> (Lead Recruiter)
+            </div>
+
+            <div class="auth-divider">
+                <span>or Enterprise Single Sign-On</span>
+            </div>
+
+            <!-- Microsoft 365 SSO Login -->
+            <a href="/auth/azure" class="btn-secondary" style="width: 100%; justify-content: center; padding: 12px; font-size: 0.9rem; border-radius: var(--radius-md);">
+                <svg width="18" height="18" viewBox="0 0 23 23" fill="none">
+                    <path fill="#f35325" d="M1 1h10v10H1z"/>
+                    <path fill="#81bc06" d="M12 1h10v10H12z"/>
+                    <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+                    <path fill="#ffba08" d="M12 12h10v10H12z"/>
+                </svg>
+                Sign in with Microsoft 365
+            </a>
+
+            <div style="margin-top: 24px; font-size: 0.75rem; color: var(--text-muted);">
+                Powered by Adroit AI • Production Ready
+            </div>
+        </div>
+    </div>
+</body>
+</html>

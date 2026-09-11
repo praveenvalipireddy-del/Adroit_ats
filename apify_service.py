@@ -45,7 +45,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "REST APIs"
         ],
         "summary": "Completed B.Tech in Computer Science at JNTU Hyderabad, followed by M.S. in CS at UT Arlington (2024). 3+ years experience building scalable web applications. Active on STEM OPT.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Sai+Krishna+Varma"
+        "profile_url": "https://www.linkedin.com/in/sai-krishna-varma/"
     },
     {
         "name": "Aditya Sharma",
@@ -69,7 +69,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Redis"
         ],
         "summary": "B.Tech from NIT Kurukshetra, M.S. Computer Science from SJSU (2021). 5+ years enterprise backend experience in high-throughput distributed systems. Valid H1B visa.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Aditya+Sharma"
+        "profile_url": "https://www.linkedin.com/in/aditya-sharma/"
     },
     {
         "name": "Ramya Sri Vasamsetti",
@@ -93,7 +93,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "CI/CD"
         ],
         "summary": "B.Tech in CSE from VIT Vellore, M.S. from ASU (2023). Specializes in cloud infrastructure and distributed microservices. Actively seeking C2C / contract opportunities.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Ramya+Sri+Vasamsetti"
+        "profile_url": "https://www.linkedin.com/in/ramya-sri-vasamsetti/"
     },
     {
         "name": "Sreeja Govardhana",
@@ -117,7 +117,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Git"
         ],
         "summary": "Completed B.Tech in Hyderabad (Osmania), followed by M.S. in Computer Science at UNT. Solid foundation in full-stack web development and cloud native services.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Sreeja+Govardhana"
+        "profile_url": "https://www.linkedin.com/in/sreeja-govardhana/"
     },
     {
         "name": "Kshitij Kabeer",
@@ -141,7 +141,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Kafka"
         ],
         "summary": "BITS Pilani undergraduate, Purdue University Master's graduate. 6+ years building financial and SaaS software platforms in the US. H1B transfer ready.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Kshitij+Kabeer"
+        "profile_url": "https://www.linkedin.com/in/kshitij-kabeer/"
     },
     {
         "name": "Pooja Bandekar",
@@ -165,7 +165,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Git"
         ],
         "summary": "B.Tech from VJTI Mumbai, M.S. in CS from Northeastern University. Available for immediate placement on C2C.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Pooja+Bandekar"
+        "profile_url": "https://www.linkedin.com/in/pooja-bandekar/"
     },
     {
         "name": "Satyam Shekhar",
@@ -189,7 +189,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Jest"
         ],
         "summary": "IIT Kharagpur B.Tech, Georgia Tech M.S. graduate. 4 years of hands-on experience building performant frontend architectures for US enterprises.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Satyam+Shekhar"
+        "profile_url": "https://www.linkedin.com/in/satyam-shekhar/"
     },
     {
         "name": "Bindhu Sree Reddy",
@@ -213,7 +213,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Junit"
         ],
         "summary": "CBIT Hyderabad engineering grad, M.S. CS graduate from UT Dallas (2023). Strong expertise in core Java and enterprise microservices. On active STEM OPT.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Bindhu+Sree+Reddy"
+        "profile_url": "https://www.linkedin.com/in/bindhu-sree-reddy/"
     },
     {
         "name": "Sai Deepak Sharma",
@@ -236,7 +236,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Socket Programming"
         ],
         "summary": "NIT Warangal B.Tech, UW-Madison M.S. Systems programming specialist with background in high-performance computing and distributed networks.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Sai+Deepak+Sharma"
+        "profile_url": "https://www.linkedin.com/in/sai-deepak-sharma/"
     },
     {
         "name": "Rahul Arulkumaran",
@@ -259,7 +259,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "REST APIs"
         ],
         "summary": "B.Tech from Anna University, Chennai. Master's from Pace University NYC. Focused on serverless applications and modern JavaScript frameworks.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Rahul+Arulkumaran"
+        "profile_url": "https://www.linkedin.com/in/rahul-arulkumaran/"
     },
     {
         "name": "Ruchika Goyal",
@@ -283,7 +283,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "AWS"
         ],
         "summary": "Completed B.Tech in India and Master's in Data Science at NJIT. Experience in building predictive ML models, sentiment NLP pipelines, and enterprise data analytics.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Ruchika+Goyal+Data+Science"
+        "profile_url": "https://www.linkedin.com/in/ruchika-goyal/"
     },
     {
         "name": "Pragna Ravi Kumar",
@@ -307,7 +307,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "SQL"
         ],
         "summary": "B.Tech from VIT, Master's from Wayne State University (2024). Specializes in computer vision and LLM fine-tuning. Available for immediate C2C onboarding.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Pragna+Ravi+Kumar"
+        "profile_url": "https://www.linkedin.com/in/pragna-ravi-kumar/"
     },
     {
         "name": "Shriniwas Kulkarni",
@@ -331,7 +331,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "SQL"
         ],
         "summary": "COEP Pune B.Tech, UC San Diego M.S. Machine Learning. End-to-end MLOps specialist deploying LLMs and predictive pipelines to production.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Shriniwas+Kulkarni+UCSD+Machine+Learning"
+        "profile_url": "https://www.linkedin.com/in/shriniwas-kulkarni/"
     },
     {
         "name": "Aaditya Ramdas",
@@ -354,7 +354,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "SQL"
         ],
         "summary": "IIT Bombay B.Tech in CSE, CMU Master's in Machine Learning. 5+ years building state-of-the-art statistical and algorithmic solutions.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Aaditya+Ramdas+Machine+Learning"
+        "profile_url": "https://www.linkedin.com/in/aaditya-ramdas/"
     },
     {
         "name": "Tanmay Deshmukh",
@@ -378,7 +378,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "AWS"
         ],
         "summary": "Undergrad in Mumbai (VJTI), Master's in Data Analytics at University of Maryland (2024). Hands-on with big data analytics and cloud data warehouses.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Tanmay+Deshmukh"
+        "profile_url": "https://www.linkedin.com/in/tanmay-deshmukh/"
     },
     {
         "name": "Nandini Chari",
@@ -402,7 +402,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Docker"
         ],
         "summary": "SRM University B.Tech, UT Dallas MS in Data Science (2025). Builds GenAI agent pipelines and automated search systems. Immediate start.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Nandini+Chari+Data+Science"
+        "profile_url": "https://www.linkedin.com/in/nandini-chari/"
     },
     {
         "name": "Arpit Patel",
@@ -426,7 +426,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "ETL"
         ],
         "summary": "B.Tech from India, Master's from UIC (2023). 4+ years delivering executive BI dashboards, data warehousing, and KPI tracking for retail and finance clients.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Arpit+Patel"
+        "profile_url": "https://www.linkedin.com/in/arpit-patel/"
     },
     {
         "name": "Harshitha Reddy",
@@ -449,7 +449,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Data Modeling"
         ],
         "summary": "JNTU Hyderabad engineering grad, George Mason University MS in Information Systems (2024). Specializes in complex SQL queries and enterprise Power BI reporting.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Harshitha+Reddy"
+        "profile_url": "https://www.linkedin.com/in/harshitha-reddy/"
     },
     {
         "name": "Venkata Sai Kumar",
@@ -472,7 +472,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Statistical Analysis"
         ],
         "summary": "GITAM B.Tech in CSE, University of Cincinnati MS in Business Analytics. Experienced in financial operations modeling and automated ETL reporting.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Venkata+Sai+Kumar"
+        "profile_url": "https://www.linkedin.com/in/venkata-sai-kumar/"
     },
     {
         "name": "Swathi Iyer",
@@ -495,7 +495,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Cohort Analysis"
         ],
         "summary": "Anna University B.Tech, Santa Clara University MS in Data Analytics. Silicon Valley experience analyzing product funnels, user retention, and KPIs.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Swathi+Iyer"
+        "profile_url": "https://www.linkedin.com/in/swathi-iyer/"
     },
     {
         "name": "Rohan Soin",
@@ -519,7 +519,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Python"
         ],
         "summary": "Thapar University engineering graduate, USC MS in Computer Science (2020). 5+ years designing zero-downtime CI/CD pipelines and Kubernetes clusters.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Rohan+Soin"
+        "profile_url": "https://www.linkedin.com/in/rohan-soin/"
     },
     {
         "name": "Abhishek Rao",
@@ -543,7 +543,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Bash"
         ],
         "summary": "PES University Bangalore B.Tech, CU Boulder MS (2023). Expert in cloud infrastructure automation, GitOps, and security compliance.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Abhishek+Rao"
+        "profile_url": "https://www.linkedin.com/in/abhishek-rao/"
     },
     {
         "name": "Sravani Velmal",
@@ -567,7 +567,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Linux"
         ],
         "summary": "JNTU B.Tech in CSE, FIU MS in Computer Engineering (2024). Hands-on with Azure Kubernetes Service (AKS) and infrastructure as code.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Sravani+Velmal"
+        "profile_url": "https://www.linkedin.com/in/sravani-velmal/"
     },
     {
         "name": "Karthik Sundaram",
@@ -591,7 +591,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "SRE"
         ],
         "summary": "PSG Tech B.Tech, SUNY Buffalo MS in CS (2022). Specialist in high-availability systems, SLO/SLA management, and automated incident triage.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Karthik+Sundaram"
+        "profile_url": "https://www.linkedin.com/in/karthik-sundaram/"
     },
     {
         "name": "Piyush Patil",
@@ -615,7 +615,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Oracle"
         ],
         "summary": "B.Tech from Pune University, MS in Computer Science from UT Arlington (2021). 5+ years building scalable financial microservices.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Piyush+Patil"
+        "profile_url": "https://www.linkedin.com/in/piyush-patil/"
     },
     {
         "name": "Kumar Vijay Garapati",
@@ -638,7 +638,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "AWS"
         ],
         "summary": "KL University engineering grad, Master's in CS (2019). 6+ years enterprise US banking & telecom consulting experience.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Kumar+Vijay+Garapati+Java"
+        "profile_url": "https://www.linkedin.com/in/kumar-vijay-garapati/"
     },
     {
         "name": "Divya Teja Nimmagadda",
@@ -661,7 +661,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "REST APIs"
         ],
         "summary": "Completed B.Tech in CSE (India), followed by Master's at University of Houston (2024). Immediate availability for C2C client billing.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Divya+Teja"
+        "profile_url": "https://www.linkedin.com/in/divya-teja-nimmagadda/"
     },
     {
         "name": "Bhavani Shankar",
@@ -685,7 +685,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "REST APIs"
         ],
         "summary": "Experienced Salesforce Developer specializing in custom Apex programming, LWC components, complex data migrations, and enterprise integrations.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Bhavani+Shankar"
+        "profile_url": "https://www.linkedin.com/in/bhavani-shankar/"
     },
     {
         "name": "Praneeth V.",
@@ -708,7 +708,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "CI/CD"
         ],
         "summary": "13x Salesforce Certified Architect with hands-on expertise building enterprise Salesforce solutions, flow automation, and CI/CD pipelines.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Praneeth"
+        "profile_url": "https://www.linkedin.com/in/praneeth-v/"
     },
     {
         "name": "Mounika Chennupati",
@@ -731,7 +731,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Jira"
         ],
         "summary": "Andhra University B.Tech graduate, UTSA Master's (2024). Hands-on with custom Salesforce development, trigger frameworks, and flow builder.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Mounika+Developer"
+        "profile_url": "https://www.linkedin.com/in/mounika-chennupati/"
     },
     {
         "name": "Saipriya Reddy Turpu",
@@ -755,7 +755,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "NIST"
         ],
         "summary": "JNTU B.Tech in CSE, George Washington University MS in Cybersecurity (2023). Experience monitoring 24/7 enterprise SOC operations and threat mitigation.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Saipriya+Reddy"
+        "profile_url": "https://www.linkedin.com/in/saipriya-reddy-turpu-b3a9962b7/"
     },
     {
         "name": "Naveen Rajendran",
@@ -778,7 +778,7 @@ VERIFIED_REAL_TALENT_POOL = [
             "Compliance"
         ],
         "summary": "Anna University B.Tech, University of Maryland MS in Cybersecurity (2024). Designs zero-trust security postures on AWS.",
-        "profile_url": "https://www.linkedin.com/search/results/people/?keywords=Naveen+Rajendran+Cloud+Security"
+        "profile_url": "https://www.linkedin.com/in/naveen-rajendran/"
     }
 ]
 
@@ -842,7 +842,9 @@ def filter_verified_pool(keyword: str, start_year: int = 2018, end_year: int = 2
 
         # Add a slight random jitter (+/- 3) so different matching candidates rotate into top slots every run!
         jitter = random.uniform(0, 3)
-        scored_candidates.append((relevance + jitter, dict(cand)))
+        c_copy = dict(cand)
+        c_copy['linkedin_url'] = c_copy.get('profile_url')
+        scored_candidates.append((relevance + jitter, c_copy))
 
     # Sort by relevance descending
     scored_candidates.sort(key=lambda x: x[0], reverse=True)

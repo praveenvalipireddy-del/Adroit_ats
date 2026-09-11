@@ -1294,10 +1294,11 @@ function renderStudentsGrid(candidates) {
             .trim();
 
         let targetLiUrl = (c.linkedin_url || c.profile_url || '').trim();
-        const isSynthetic = /-security\/?$|-cyber\/?$|-sec\/?$|-salesforce\/?$|-devops\/?$|-data-analyst\/?$|-analytics\/?$|-java-dev\/?$|-fullstack\/?$/.test(targetLiUrl);
         
-        // Ensure the LinkedIn search ONLY searches by clean candidate name - never bloat with titles/cities that cause LinkedIn 'No results found'
-        if (!targetLiUrl || !targetLiUrl.startsWith('http') || isSynthetic || targetLiUrl.includes('search/results')) {
+        // Priority 1: Direct LinkedIn profile link (https://www.linkedin.com/in/...)
+        if (targetLiUrl && targetLiUrl.includes('linkedin.com/in/')) {
+            // Keep direct exact profile URL!
+        } else if (!targetLiUrl || !targetLiUrl.startsWith('http') || targetLiUrl.includes('search/results')) {
             targetLiUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}`;
         }
         

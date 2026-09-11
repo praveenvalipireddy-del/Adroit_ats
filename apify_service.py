@@ -884,7 +884,7 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
                     max_items=max_items,
                     force_fresh=True
                 )
-                live_results = future.result(timeout=2.5)
+                live_results = future.result(timeout=25.0)
         except concurrent.futures.TimeoutError:
             logger.info("Live candidate scraping reached 2.5s limit. Using instant pool.")
             live_results = []

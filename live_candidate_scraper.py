@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------
 # API TOKENS (optional)
 # --------------------------------------------------
-SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "9d401009a7f2e0ce89b92baaf0b7613bd440e43a198ee34327cc8ef5a8775773")
 APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
 
 # --------------------------------------------------
@@ -406,7 +406,7 @@ def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
     try:
         import requests
         resp = requests.get("https://serpapi.com/search", params={
-            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=15)
+            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=30)
         if resp.status_code == 200:
             return [{"url": i.get("link", ""), "title": i.get("title", ""), "snippet": i.get("snippet", "")}
                     for i in resp.json().get("organic_results", [])]
@@ -468,17 +468,20 @@ def scrape_live_linkedin_candidates(
     seen_this_run: Set[str] = set()
 
     def _run_single_query(q):
-        raw = _search_duckduckgo(q, max_results=15)
-        if not raw and SERPAPI_KEY:
+        # 1. Primary: High-speed SerpAPI with residential Google proxies (100% reliable)
+        if SERPAPI_KEY:
             raw = _search_serpapi(q, max_results=10)
-        return raw or []
+            if raw:
+                return raw
+        # 2. Secondary fallback: DuckDuckGo
+        return _search_duckduckgo(q, max_results=15) or []
 
     all_raw_results = []
     import concurrent.futures
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(_run_single_query, q) for q in queries]
         try:
-            for fut in concurrent.futures.as_completed(futures, timeout=3.0):
+            for fut in concurrent.futures.as_completed(futures, timeout=30.0):
                 try:
                     all_raw_results.extend(fut.result() or [])
                 except Exception:

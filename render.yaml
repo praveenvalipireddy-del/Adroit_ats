@@ -13,3 +13,5 @@ services:
         generateValue: true
       - key: APIFY_API_TOKEN
         value: your_apify_token_here
+      - key: SERPAPI_KEY
+        value: 9d401009a7f2e0ce89b92baaf0b7613bd440e43a198ee34327cc8ef5a8775773

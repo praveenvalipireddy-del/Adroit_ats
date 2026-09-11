@@ -1287,16 +1287,21 @@ function renderStudentsGrid(candidates) {
     }
 
         tbody.innerHTML = candidates.map(c => {
+        const cleanName = (c.name || 'Candidate')
+            .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect|Senior|Junior|Associate)\b/gi, '')
+            .replace(/[,\/()]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
         let targetLiUrl = (c.linkedin_url || c.profile_url || '').trim();
         const isSynthetic = /-security\/?$|-cyber\/?$|-sec\/?$|-salesforce\/?$|-devops\/?$|-data-analyst\/?$|-analytics\/?$|-java-dev\/?$|-fullstack\/?$/.test(targetLiUrl);
-        if (!targetLiUrl || !targetLiUrl.startsWith('http') || isSynthetic) {
-            const cleanName = (c.name || 'Candidate')
-                .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect)\b/gi, '')
-                .replace(/[,\/()]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            targetLiUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}&origin=GLOBAL_SEARCH_HEADER`;
+        
+        // Ensure the LinkedIn search ONLY searches by clean candidate name - never bloat with titles/cities that cause LinkedIn 'No results found'
+        if (!targetLiUrl || !targetLiUrl.startsWith('http') || isSynthetic || targetLiUrl.includes('search/results')) {
+            targetLiUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}`;
         }
+        
+        const googleLiUrl = `https://www.google.com/search?q=site:linkedin.com/in/+${encodeURIComponent('"' + cleanName + '"')}+USA`;
 
         const initials = (c.name || 'US').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
@@ -1344,9 +1349,12 @@ function renderStudentsGrid(candidates) {
             </td>
             <td style="padding: 14px 16px; text-align:right;">
                 <div style="display:inline-flex; gap:6px; align-items:center;">
-                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; background:rgba(10,102,194,0.22); border:1px solid #0a66c2; color:#60a5fa; font-weight:600; padding:4px 9px;" title="View Verified LinkedIn Profile" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return false;">
+                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; background:rgba(10,102,194,0.22); border:1px solid #0a66c2; color:#60a5fa; font-weight:600; padding:4px 9px;" title="Search on LinkedIn" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return false;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
                         LinkedIn &#x2197;
+                    </a>
+                    <a href="${googleLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:3px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-weight:500; padding:4px 7px;" title="Find Exact Profile via Google" onclick="event.stopPropagation(); window.open('${googleLiUrl}', '_blank'); return false;">
+                        G &#x2197;
                     </a>
                     <button class="btn btn-secondary btn-xs" onclick='onOpenStudentPitch(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3);">
                         Pitch

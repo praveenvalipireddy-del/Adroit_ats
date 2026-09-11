@@ -384,13 +384,13 @@ def _parse_candidate_from_result(
 def _search_duckduckgo(query: str, max_results: int = 15) -> List[Dict]:
     try:
         from ddgs import DDGS
-        with DDGS() as ddgs:
+        with DDGS(timeout=3) as ddgs:
             return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
                     for r in ddgs.text(query, max_results=max_results)]
     except ImportError:
         try:
             from duckduckgo_search import DDGS as DDGS2
-            with DDGS2() as ddgs:
+            with DDGS2(timeout=3) as ddgs:
                 return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
                         for r in ddgs.text(query, max_results=max_results)]
         except Exception as e:
@@ -451,7 +451,7 @@ def scrape_live_linkedin_candidates(
     2. Did Master's (MS) in USA
     3. Are currently working in USA on OPT / STEM OPT / H1B
 
-    ★★★ Ideal profiles are automatically sorted to the top.
+    Ideal profiles are automatically sorted to the top.
     Every run returns DIFFERENT candidates (rotating queries + global dedup).
     """
     global start_year_global, end_year_global
@@ -461,58 +461,64 @@ def scrape_live_linkedin_candidates(
     clean_keyword = (keyword or "Data Scientist").strip()
     logger.info(f"Scraping '{clean_keyword}' | B.Tech India + MS USA | {start_year}-{end_year}")
 
-    num_queries = max(3, min(6, (max_items // 5) + 2))
+    num_queries = 2
     queries = build_rotating_queries(clean_keyword, start_year, end_year, num_queries)
 
     collected: List[Dict] = []
     seen_this_run: Set[str] = set()
 
-    for q_idx, query in enumerate(queries):
+    def _run_single_query(q):
+        raw = _search_duckduckgo(q, max_results=15)
+        if not raw and SERPAPI_KEY:
+            raw = _search_serpapi(q, max_results=10)
+        return raw or []
+
+    all_raw_results = []
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(_run_single_query, q) for q in queries]
+        try:
+            for fut in concurrent.futures.as_completed(futures, timeout=3.0):
+                try:
+                    all_raw_results.extend(fut.result() or [])
+                except Exception:
+                    pass
+        except concurrent.futures.TimeoutError:
+            logger.info("Parallel query timeout reached (3.0s)")
+
+    logger.info(f"Parallel fetch collected {len(all_raw_results)} raw results")
+    random.shuffle(all_raw_results)
+
+    for item in all_raw_results:
         if len(collected) >= max_items:
             break
 
-        raw_results = _search_duckduckgo(query, max_results=15)
-        if not raw_results and SERPAPI_KEY:
-            raw_results = _search_serpapi(query, max_results=10)
-        if not raw_results and APIFY_TOKEN and APIFY_TOKEN != "your_apify_token_here":
-            raw_results = _search_apify(query, max_results=10)
+        candidate = _parse_candidate_from_result(
+            url=item.get("url", ""),
+            title=item.get("title", ""),
+            snippet=item.get("snippet", ""),
+            query_category=clean_keyword,
+        )
+        if not candidate:
+            continue
 
-        logger.info(f"Query {q_idx+1}/{len(queries)}: {len(raw_results)} raw results")
-        random.shuffle(raw_results)
+        url = candidate["linkedin_url"]
+        if url in seen_this_run or url in GLOBALLY_SEEN_URLS:
+            continue
 
-        for item in raw_results:
-            if len(collected) >= max_items:
-                break
+        years_in_snippet = re.findall(r'\b(201[8-9]|202[0-6])\b', item.get("snippet", ""))
+        if years_in_snippet:
+            try:
+                if not (start_year <= int(candidate["grad_year"]) <= end_year):
+                    continue
+            except (ValueError, TypeError):
+                pass
 
-            candidate = _parse_candidate_from_result(
-                url=item.get("url", ""),
-                title=item.get("title", ""),
-                snippet=item.get("snippet", ""),
-                query_category=clean_keyword,
-            )
-            if not candidate:
-                continue
+        seen_this_run.add(url)
+        GLOBALLY_SEEN_URLS.add(url)
+        collected.append(candidate)
 
-            url = candidate["linkedin_url"]
-            if url in seen_this_run or url in GLOBALLY_SEEN_URLS:
-                continue
-
-            years_in_snippet = re.findall(r'\b(201[8-9]|202[0-6])\b', item.get("snippet", ""))
-            if years_in_snippet:
-                try:
-                    if not (start_year <= int(candidate["grad_year"]) <= end_year):
-                        continue
-                except (ValueError, TypeError):
-                    pass
-
-            seen_this_run.add(url)
-            GLOBALLY_SEEN_URLS.add(url)
-            collected.append(candidate)
-
-        if q_idx < len(queries) - 1:
-            time.sleep(random.uniform(0.3, 1.0))
-
-    # Sort: ★★★ (B.Tech India + MS USA) first, then ★★, then ★
+    # Sort: [IDEAL] (B.Tech India + MS USA) first, then [GOOD], then [OK]
     collected.sort(key=lambda c: (
         0 if (c.get("has_indian_edu") and c.get("has_us_masters")) else
         1 if c.get("has_us_masters") else
@@ -520,5 +526,5 @@ def scrape_live_linkedin_candidates(
     ))
 
     ideal_count = sum(1 for c in collected if c.get("has_indian_edu") and c.get("has_us_masters"))
-    logger.info(f"Done: {len(collected)} candidates | ★★★ Ideal: {ideal_count} | ★★ MS USA: {sum(1 for c in collected if c.get('has_us_masters') and not c.get('has_indian_edu'))} | ★ Other: {len(collected) - ideal_count - sum(1 for c in collected if c.get('has_us_masters') and not c.get('has_indian_edu'))}")
+    logger.info(f"Done: {len(collected)} candidates | Ideal: {ideal_count}")
     return collected[:max_items]

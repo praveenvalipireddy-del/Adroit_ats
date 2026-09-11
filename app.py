@@ -852,7 +852,7 @@ def api_search_students():
 
     location = data.get("location", "United States")
     max_items = int(data.get("max_items") or data.get("limit") or 30)
-    force_live = bool(data.get("scrape") or data.get("live") or data.get("force_live") or True)
+    force_live = bool(data.get("scrape") or data.get("live") or data.get("force_live"))
 
     candidates = apify_service.scrape_bench_candidates(
         category=category,

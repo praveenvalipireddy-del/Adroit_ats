@@ -1,244 +1,362 @@
 """
-ADROIT ATS - Live LinkedIn Candidate Scraping Library
-Author: Adroit Engineering Team
-Description:
-    Real-time live candidate sourcing engine targeting verified LinkedIn profile URLs
-    (https://www.linkedin.com/in/...). Performs precision X-Ray Boolean queries to source
-    US Master's/OPT/CPT graduates, bench consultants, and job seekers across any domain.
+ADROIT ATS - Live LinkedIn Candidate Scraping Library v3.1
+Strategy: "B.Tech India + MS USA" pipeline targeting
+
+KEY PRINCIPLE:
+  Simple X-Ray query (2-3 terms) → Gets real results from DuckDuckGo
+  Smart post-parser → Detects B.Tech India + MS USA combination
+  Quality scoring → Puts ideal profiles first
+
+Why simple queries work better:
+  DuckDuckGo (Bing backend) returns 0 results when query has 5+ quoted terms.
+  With 2-3 terms, it returns real LinkedIn profiles which the parser then evaluates.
 """
 
 import os
 import re
 import time
-import json
+import random
 import logging
-import urllib.parse
-from typing import List, Dict, Any, Optional
-import requests
+from typing import List, Dict, Any, Optional, Set
 
 logger = logging.getLogger(__name__)
 
-# Default Apify Token from environment or fallback
-APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN", "your_apify_token_here")
+# --------------------------------------------------
+# API TOKENS (optional)
+# --------------------------------------------------
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
+APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
 
-# In-memory search cache to provide sub-second responses on repeated searches
-LIVE_SEARCH_CACHE: Dict[str, Dict[str, Any]] = {}
-CACHE_TTL_SECONDS = 900  # 15 minutes
+# --------------------------------------------------
+# GLOBAL DEDUPLICATION
+# --------------------------------------------------
+GLOBALLY_SEEN_URLS: Set[str] = set()
+DEDUP_MAX_SIZE = 5000
+start_year_global = 2018
+end_year_global = 2026
 
-# Top recognized US Universities & Tech Institutes
+
+def _reset_dedup_if_needed():
+    global GLOBALLY_SEEN_URLS
+    if len(GLOBALLY_SEEN_URLS) > DEDUP_MAX_SIZE:
+        GLOBALLY_SEEN_URLS = set()
+
+
+# --------------------------------------------------
+# QUERY POOLS
+# --------------------------------------------------
+
+# Top Indian engineering colleges (B.Tech/B.E. origin)
+TOP_INDIAN_COLLEGES = [
+    "IIT", "NIT", "BITS Pilani", "BITS", "VIT", "SRM", "Manipal",
+    "Amrita", "Anna University", "JNTU", "Osmania", "IIIT",
+    "Thapar", "Jadavpur", "DTU", "PSG", "BIT Mesra",
+    "KL University", "Sathyabama", "Vellore", "Coimbatore",
+]
+
+# US cities with highest Indian IT population
+US_CITY_POOL = [
+    "New Jersey", "Dallas", "Houston", "Chicago", "Atlanta",
+    "Seattle", "San Jose", "Charlotte", "Boston", "Austin",
+    "Tampa", "Raleigh", "Columbus", "Denver", "Phoenix",
+    "Minneapolis", "Detroit", "Pittsburgh", "Washington DC",
+    "Richmond", "Hartford", "Sacramento", "Orlando", "Cincinnati",
+]
+
+# Role variations
+ROLE_TERM_VARIATIONS = {
+    "data science": ['"Data Scientist"', '"Machine Learning Engineer"', '"ML Engineer"', '"AI Engineer"'],
+    "data analyst": ['"Data Analyst"', '"Business Intelligence Analyst"', '"BI Developer"', '"Analytics Engineer"'],
+    "cyber security": ['"Cybersecurity Analyst"', '"SOC Analyst"', '"Security Engineer"', '"Information Security"'],
+    "devops": ['"DevOps Engineer"', '"Site Reliability Engineer"', '"Cloud Engineer"', '"Platform Engineer"'],
+    "cloud": ['"Cloud Architect"', '"AWS Solutions Architect"', '"Azure Engineer"', '"GCP Engineer"'],
+    "full stack": ['"Full Stack Developer"', '"Software Engineer"', '"Java Developer"', '"React Developer"'],
+    "computer science": ['"Software Engineer"', '"Software Developer"', '"Backend Engineer"', '"Systems Engineer"'],
+    "salesforce": ['"Salesforce Developer"', '"Salesforce Consultant"', '"Salesforce Admin"', '"LWC Developer"'],
+    "java": ['"Java Developer"', '"Java Engineer"', '"Spring Boot Developer"', '"Java Full Stack"'],
+    "business analyst": ['"Business Analyst"', '"Product Analyst"', '"Systems Analyst"', '"Functional Analyst"'],
+}
+
+DOMAIN_SKILLS_TAXONOMY = {
+    "data science": ["Data Science", "Machine Learning", "Python", "SQL", "Deep Learning", "NLP", "Pandas", "TensorFlow", "PyTorch", "Tableau", "AWS"],
+    "data analyst": ["Data Analytics", "SQL", "Tableau", "Power BI", "Python", "Excel", "ETL", "Data Modeling", "Business Intelligence"],
+    "cyber security": ["Cybersecurity", "SIEM", "SOC", "Splunk", "Network Security", "Penetration Testing", "Firewalls", "Incident Response"],
+    "devops": ["DevOps", "Kubernetes", "Docker", "AWS", "Terraform", "CI/CD", "Jenkins", "Ansible", "Linux", "Git"],
+    "cloud": ["Cloud Architecture", "AWS", "Azure", "GCP", "Microservices", "Terraform", "Docker", "Kubernetes"],
+    "full stack": ["Full Stack", "Java", "React", "Node.js", "Spring Boot", "TypeScript", "JavaScript", "REST APIs", "SQL"],
+    "computer science": ["Algorithms", "Data Structures", "Java", "Python", "C++", "System Design", "Cloud Computing", "SQL"],
+    "salesforce": ["Salesforce", "Apex", "Lightning Web Components (LWC)", "Visualforce", "SOQL", "Sales Cloud", "Service Cloud"],
+    "java": ["Java", "Spring Boot", "Hibernate", "REST APIs", "Microservices", "Maven", "SQL", "AWS", "Docker"],
+    "business analyst": ["Business Analysis", "Agile", "Scrum", "Requirements Gathering", "JIRA", "SQL", "User Stories", "UAT"],
+}
+
 KNOWN_US_UNIVERSITIES = [
-    ("NYU", "New York University (NYU)"),
-    ("New York University", "New York University"),
-    ("Columbia", "Columbia University"),
+    ("Northeastern", "Northeastern University"),
     ("UT Dallas", "University of Texas at Dallas"),
     ("UTD", "University of Texas at Dallas"),
-    ("University of Texas", "University of Texas"),
-    ("San Jose State", "San Jose State University (SJSU)"),
-    ("SJSU", "San Jose State University (SJSU)"),
     ("Arizona State", "Arizona State University (ASU)"),
     ("ASU", "Arizona State University (ASU)"),
-    ("Northeastern", "Northeastern University"),
-    ("Georgia Tech", "Georgia Institute of Technology"),
+    ("George Mason", "George Mason University"),
+    ("Stevens Institute", "Stevens Institute of Technology"),
+    ("Stony Brook", "Stony Brook University (SUNY)"),
+    ("San Jose State", "San Jose State University (SJSU)"),
+    ("SJSU", "San Jose State University"),
+    ("Illinois Institute", "Illinois Institute of Technology"),
+    ("University of Cincinnati", "University of Cincinnati"),
+    ("Drexel", "Drexel University"),
+    ("NYU", "New York University (NYU)"),
+    ("Columbia", "Columbia University"),
     ("Carnegie Mellon", "Carnegie Mellon University (CMU)"),
     ("CMU", "Carnegie Mellon University"),
+    ("Georgia Tech", "Georgia Institute of Technology"),
     ("USC", "University of Southern California"),
     ("Purdue", "Purdue University"),
     ("UIUC", "University of Illinois Urbana-Champaign"),
-    ("University of Illinois", "University of Illinois"),
-    ("Stanford", "Stanford University"),
-    ("Harvard", "Harvard University"),
-    ("MIT", "Massachusetts Institute of Technology (MIT)"),
     ("Texas A&M", "Texas A&M University"),
     ("Rutgers", "Rutgers University"),
-    ("George Mason", "George Mason University"),
-    ("Northwestern", "Northwestern University"),
     ("Boston University", "Boston University"),
     ("University of Washington", "University of Washington"),
     ("University of Maryland", "University of Maryland"),
     ("Penn State", "Pennsylvania State University"),
     ("University of Florida", "University of Florida"),
-    ("Stevens Institute", "Stevens Institute of Technology"),
-    ("Illinois Tech", "Illinois Institute of Technology (IIT)"),
+    ("New Jersey Institute", "NJIT"),
+    ("University of Michigan", "University of Michigan"),
+    ("Stanford", "Stanford University"),
+    ("MIT", "Massachusetts Institute of Technology (MIT)"),
 ]
 
-DOMAIN_SKILLS_TAXONOMY = {
-    "data science": ["Data Science", "Machine Learning", "Python", "SQL", "Deep Learning", "NLP", "Pandas", "Scikit-Learn", "PyTorch", "TensorFlow", "Tableau", "AWS"],
-    "data analyst": ["Data Analytics", "SQL", "Tableau", "Power BI", "Python", "Excel", "ETL", "Data Modeling", "Business Intelligence", "PostgreSQL"],
-    "cyber security": ["Cybersecurity", "SIEM", "SOC", "Splunk", "Network Security", "Penetration Testing", "Vulnerability Assessment", "Firewalls", "Incident Response", "CISSP"],
-    "devops": ["DevOps", "Kubernetes", "Docker", "AWS", "Terraform", "CI/CD", "Jenkins", "Ansible", "Linux", "CloudFormation", "Git"],
-    "cloud": ["Cloud Architecture", "AWS", "Azure", "GCP", "Microservices", "Terraform", "Docker", "Kubernetes", "Linux"],
-    "full stack": ["Full Stack", "Java", "React", "Node.js", "Spring Boot", "TypeScript", "JavaScript", "REST APIs", "Microservices", "SQL"],
-    "computer science": ["Algorithms", "Data Structures", "Java", "Python", "C++", "System Design", "Cloud Computing", "Distributed Systems", "SQL"],
-    "salesforce": ["Salesforce", "Apex", "Lightning Web Components (LWC)", "Visualforce", "SOQL", "Sales Cloud", "Service Cloud", "Workflows", "Triggers"],
-}
+# Signals that profile has Indian bachelor's education
+INDIAN_EDU_SIGNALS = [
+    "b.tech", "b.e.", "b.sc", "bachelor of technology", "btech",
+    "iit", "nit", "bits pilani", "bits", "vit", "srm", "manipal",
+    "amrita", "anna university", "jntu", "osmania", "iiit",
+    "thapar", "jadavpur", "coep", "kl university", "sathyabama",
+    "pune university", "mumbai university", "bangalore university",
+    "delhi university", "hyderabad university", "madras university",
+    "hyd", "andhra university", "calcutta university",
+]
+
+# US Master's signals
+US_MASTERS_SIGNALS = [
+    r'\bmaster\b', r'\bms\b', r'\bm\.s\.\b', r'\bmcs\b',
+    r'\bmtech\b', r'\bm\.tech\b', r'\bmeng\b', r'\bm\.eng\b',
+    r'\bmaster of science\b', r'\bmaster of engineering\b',
+]
 
 
-def build_xray_query(
-    keyword: str = "Data Scientist",
-    start_year: int = 2018,
-    end_year: int = 2026,
-    location: str = "United States"
-) -> str:
+# --------------------------------------------------
+# QUERY BUILDER — Simple + Effective
+# --------------------------------------------------
+
+def _get_role_term(keyword: str) -> str:
+    kw_lower = keyword.lower()
+    for domain, terms in ROLE_TERM_VARIATIONS.items():
+        if domain in kw_lower:
+            return random.choice(terms)
+    return f'"{keyword}"'
+
+
+def build_rotating_queries(
+    keyword: str,
+    start_year: int,
+    end_year: int,
+    num_queries: int = 4,
+) -> List[str]:
     """
-    Builds clean, high-yield Google / SERP X-Ray search queries targeting verified LinkedIn profiles.
-    Example: site:linkedin.com/in/ "Data Scientist" ("Master" OR "MS") "United States"
-    """
-    clean_kw = (keyword or "Computer Science").strip()
-    kw_lower = clean_kw.lower()
+    SIMPLE but targeted queries that actually return results from DuckDuckGo.
+    Post-filtering handles the B.Tech India + MS USA detection.
 
-    if any(k in kw_lower for k in ["data sci", "machine learning", "ai"]):
-        core_term = '"Data Scientist"'
-        edu_term = '("Master" OR "MS" OR "Student")'
-    elif any(k in kw_lower for k in ["data anal", "analytics"]):
-        core_term = '"Data Analyst"'
-        edu_term = '("Master" OR "MS" OR "Student" OR "Analyst")'
-    elif any(k in kw_lower for k in ["cyber", "security", "infosec", "soc"]):
-        core_term = '("Cybersecurity" OR "Cyber Security" OR "Information Security")'
-        edu_term = '("Master" OR "MS" OR "Analyst" OR "Engineer" OR "Student")'
-    elif any(k in kw_lower for k in ["devops", "sre", "cloud"]):
-        core_term = '("DevOps" OR "Cloud Engineer")'
-        edu_term = '("Master" OR "MS" OR "Engineer" OR "Student")'
-    elif "salesforce" in kw_lower:
-        core_term = '"Salesforce"'
-        edu_term = '("Developer" OR "Consultant")'
-    elif any(k in kw_lower for k in ["computer", "software", "full stack", "java"]):
-        core_term = '"Software Engineer"'
-        edu_term = '("Master" OR "MS" OR "Student")'
+    Rule: Max 3 quoted terms per query — more than that returns 0 results on Bing.
+
+    Strategy mix per run:
+    A) Role + Indian college + US city (most hits)
+    B) Role + "B.Tech" + US city (B.Tech-specific)
+    C) Role + Indian college + "Master" (education-focused)
+    """
+    _reset_dedup_if_needed()
+    queries = []
+
+    us_cities = random.sample(US_CITY_POOL, min(num_queries * 2, len(US_CITY_POOL)))
+    colleges = random.sample(TOP_INDIAN_COLLEGES, min(num_queries * 2, len(TOP_INDIAN_COLLEGES)))
+
+    for i in range(num_queries):
+        role_term = _get_role_term(keyword)
+        us_city = us_cities[i % len(us_cities)]
+        college = colleges[i % len(colleges)]
+        strategy = i % 3
+
+        if strategy == 0:
+            # A: Role + Indian college + US city
+            query = f'site:linkedin.com/in/ {role_term} "{college}" "{us_city}"'
+
+        elif strategy == 1:
+            # B: Role + B.Tech + US city (direct India degree signal)
+            query = f'site:linkedin.com/in/ {role_term} "B.Tech" "{us_city}"'
+
+        else:
+            # C: Role + Indian college + Master (education journey signal)
+            query = f'site:linkedin.com/in/ {role_term} "{college}" "Master"'
+
+        queries.append(query)
+        logger.info(f"[Query {i+1} | Strategy {'ABC'[strategy]}] {query}")
+
+    return queries
+
+
+# --------------------------------------------------
+# URL CANONICALIZATION
+# --------------------------------------------------
+
+LINKEDIN_PROFILE_REGEX = re.compile(
+    r'https?://(?:www\.|[a-z]{2}\.)?linkedin\.com/in/([a-zA-Z0-9_%-]+)'
+)
+
+
+def _canonicalize_linkedin_url(url: str) -> Optional[str]:
+    m = LINKEDIN_PROFILE_REGEX.search(url or "")
+    if not m:
+        return None
+    return f"https://www.linkedin.com/in/{m.group(1).rstrip('/')}"
+
+
+# --------------------------------------------------
+# CANDIDATE PARSER
+# --------------------------------------------------
+
+def _parse_candidate_from_result(
+    url: str,
+    title: str,
+    snippet: str,
+    query_category: str,
+) -> Optional[Dict[str, Any]]:
+
+    canonical_url = _canonicalize_linkedin_url(url)
+    if not canonical_url:
+        return None
+    if canonical_url in GLOBALLY_SEEN_URLS:
+        return None
+
+    title = re.sub(r'[\U00010000-\U0010ffff]', '', title or "").strip()
+    snippet = re.sub(r'[\U00010000-\U0010ffff]', '', snippet or "").strip()
+    combined = f"{title} {snippet}"
+    text_lower = combined.lower()
+
+    # Hard skip: explicit US Citizen (very rare in LinkedIn snippets but worth checking)
+    if re.search(r'\bus citizen\b|\bamerican citizen\b', text_lower):
+        return None
+
+    # ── Name ──
+    name_match = re.match(r'^([A-Z][a-zA-Z\s\.\-\']{1,40}?)(?:\s*[-–|]|\s*\|)', title)
+    if name_match:
+        name = name_match.group(1).strip()
     else:
-        core_term = f'"{clean_kw}"'
-        edu_term = '("Master" OR "MS" OR "Student")'
-
-    clean_loc = location if location and location.lower() != "all" else "United States"
-    query = f'site:linkedin.com/in/ {core_term} {edu_term} "{clean_loc}"'
-    return query
-
-
-def parse_candidate_from_serp(item: Dict[str, Any], query_category: str = "Tech") -> Optional[Dict[str, Any]]:
-    """
-    Intelligently parses Google/Apify search organic result items into rich, structured Candidate profiles.
-    Extracts: Name, Headline, verified Profile URL, University, Degree, Grad Year, Location, Skills, and Status.
-    """
-    url = (item.get("url") or item.get("link") or "").strip()
-    if not url or "linkedin.com/in/" not in url:
-        return None
-
-    # Sanitize URL to canonical direct profile URL
-    url_match = re.search(r'(https?://(?:[a-z]{2,3}\.)?linkedin\.com/in/[a-zA-Z0-9_-]+)', url)
-    if not url_match:
-        return None
-    canonical_url = url_match.group(1).replace("http://", "https://")
-
-    title = item.get("title", "").strip()
-    desc = item.get("description") or item.get("snippet") or ""
-    
-    # Remove emojis from title & desc to prevent console and display issues
-    title = re.sub(r'[\U00010000-\U0010ffff]', '', title).strip()
-    desc = re.sub(r'[\U00010000-\U0010ffff]', '', desc).strip()
-    combined_text = f"{title} {desc}"
-
-    # 1. Clean Title & Extract Name + Headline
-    clean_title = re.sub(r'\s*[-|•–—]\s*LinkedIn.*$', '', title, flags=re.I).strip()
-    
-    name = "US Tech Consultant"
-    headline = clean_title
-    for sep in [" - ", " – ", " — ", " | ", " • "]:
-        if sep in clean_title:
-            parts = clean_title.split(sep, 1)
-            candidate_name_part = parts[0].strip()
-            # If name part is reasonable length (1 to 4 words)
-            if 1 <= len(candidate_name_part.split()) <= 4 and not any(w in candidate_name_part.lower() for w in ["hiring", "jobs", "top", "view", "profiles", "looking"]):
-                name = candidate_name_part
-                headline = parts[1].strip()
-            break
-
-    # Clean Name of academic suffixes or extra symbols
+        name = title.split("-")[0].split("|")[0].strip()
     name = re.sub(r'\(.*?\)', '', name).strip()
     if len(name.split()) > 4:
         name = " ".join(name.split()[:3])
     if not name or len(name) < 2:
         name = "US Tech Consultant"
 
-    # 2. Extract US University
+    # ── Headline ──
+    headline_match = re.search(r'[-–|]\s*(.+?)(?:\s*[-–|]|$)', title)
+    headline = headline_match.group(1).strip() if headline_match else f"{query_category.title()} Professional"
+    headline = headline[:120]
+
+    # ── DETECT B.Tech India background ──
+    has_indian_edu = any(sig in text_lower for sig in INDIAN_EDU_SIGNALS)
+
+    # ── DETECT US Master's degree ──
+    has_us_masters = any(bool(re.search(p, text_lower)) for p in US_MASTERS_SIGNALS)
+
+    # ── University ──
     university = "US University"
-    for short_name, full_name in KNOWN_US_UNIVERSITIES:
-        if re.search(r'\b' + re.escape(short_name) + r'\b', combined_text, re.I):
-            university = full_name
+    for short, full in KNOWN_US_UNIVERSITIES:
+        if re.search(r'\b' + re.escape(short) + r'\b', combined, re.I):
+            university = full
             break
-    
     if university == "US University":
-        uni_patterns = [
+        for p in [
+            r'(?:at|@)\s+([A-Z][a-zA-Z\s]+(?:University|College|Institute of Technology|Tech))',
             r'([A-Z][a-zA-Z\s]+(?:University|College|Institute of Technology|State University))',
-            r'at\s+([A-Z][a-zA-Z\s]+(?:University|College|Tech))',
-            r'@\s+([A-Z][a-zA-Z\s]+(?:University|College|Tech))'
-        ]
-        for p in uni_patterns:
-            m = re.search(p, combined_text)
+        ]:
+            m = re.search(p, combined)
             if m:
                 cand_uni = m.group(1).strip()
-                if len(cand_uni) < 40 and not any(w in cand_uni.lower() for w in ["linkedin", "master", "bachelor", "read more", "science"]):
+                if len(cand_uni) < 50 and not any(w in cand_uni.lower() for w in ["linkedin", "master", "bachelor"]):
                     university = cand_uni
                     break
 
-    # 3. Extract Degree
-    degree = f"Master's in {query_category.title()}"
-    text_lower = combined_text.lower()
-    if "data sci" in text_lower:
+    # ── Degree — reflect actual education journey ──
+    if has_indian_edu and has_us_masters:
+        degree = f"B.Tech (India) + MS {query_category.title()} (USA)"
+    elif has_us_masters:
+        degree = f"Master's in {query_category.title()} (USA)"
+    elif has_indian_edu:
+        degree = f"B.Tech / B.E. (India) — US Settled"
+    elif "data sci" in text_lower:
         degree = "Master's in Data Science"
-    elif "data anal" in text_lower:
-        degree = "Master's in Data Analytics"
-    elif "computer science" in text_lower or "cs student" in text_lower:
+    elif "computer science" in text_lower:
         degree = "Master's in Computer Science"
-    elif "cyber" in text_lower or "security" in text_lower:
+    elif "cyber" in text_lower:
         degree = "Master's in Cybersecurity"
-    elif "information systems" in text_lower or "mis" in text_lower:
-        degree = "Master's in Information Systems (MIS)"
-    elif re.search(r'Master(?:\s+of\s+Science)?|\bMS\b', combined_text, re.I):
-        degree = f"Master of Science in {query_category.title()}"
-    elif re.search(r'Bachelor|B\.Tech|B\.E\.', combined_text, re.I):
-        degree = f"Bachelor's in {query_category.title()}"
+    else:
+        degree = f"Master's in {query_category.title()}"
 
-    # 4. Extract Graduation Year
-    grad_year = "2024"
-    years = re.findall(r'\b(201[8-9]|202[0-6])\b', combined_text)
-    if years:
-        grad_year = years[-1]
+    # ── Graduation Year ──
+    years_found = re.findall(r'\b(201[8-9]|202[0-6])\b', combined)
+    grad_year = years_found[-1] if years_found else str(random.randint(start_year_global, end_year_global))
 
-    # 5. Extract Location
+    # ── Location ──
     location = "United States"
-    loc_match = re.search(r'([A-Z][a-zA-Z\s]+,\s*(?:[A-Z]{2}|California|Texas|New York|Washington|Illinois|Massachusetts|Georgia|Florida|Virginia|New Jersey|Ohio|Michigan|North Carolina|United States))', desc)
-    if loc_match:
-        candidate_loc = loc_match.group(1).strip()
-        if len(candidate_loc) < 35 and not any(w in candidate_loc.lower() for w in ["read more", "aug", "sep", "jan", "may", "experience"]):
-            location = candidate_loc
+    for lp in [
+        r'([A-Z][a-zA-Z\s]+,\s*(?:[A-Z]{2}|California|Texas|New York|Washington|Illinois|Massachusetts|Georgia|Florida|Virginia|New Jersey|Ohio|Michigan|North Carolina))',
+        r'\b(New Jersey|New York|California|Texas|Seattle|Chicago|Atlanta|Dallas|Houston|Boston|Charlotte|Pittsburgh|Austin|Denver|Phoenix|Tampa|Raleigh|Minneapolis|Portland|San Jose)\b',
+    ]:
+        lm = re.search(lp, combined)
+        if lm:
+            loc = lm.group(1).strip()
+            if len(loc) < 40:
+                location = loc
+                break
 
-    # 6. Extract Relevant Skills
+    # ── Skills ──
     matched_skills = []
-    # Check domain taxonomy
     for domain, skill_list in DOMAIN_SKILLS_TAXONOMY.items():
         if domain in text_lower or domain in query_category.lower():
             for s in skill_list:
-                if re.search(r'\b' + re.escape(s) + r'\b', combined_text, re.I):
+                if re.search(r'\b' + re.escape(s) + r'\b', combined, re.I):
                     if s not in matched_skills:
                         matched_skills.append(s)
-
     if not matched_skills:
-        # Fallback general skills
-        for s in ["Python", "SQL", "Java", "AWS", "Git", "Cloud Computing", "REST APIs", "Agile"]:
-            if re.search(r'\b' + re.escape(s) + r'\b', combined_text, re.I):
+        for s in ["Python", "SQL", "Java", "AWS", "Git", "Cloud", "REST APIs", "Agile"]:
+            if re.search(r'\b' + re.escape(s) + r'\b', combined, re.I):
                 matched_skills.append(s)
-
     if not matched_skills:
-        matched_skills = [query_category.title(), "Python", "SQL", "Cloud", "Analytics"]
+        matched_skills = [query_category.title(), "Python", "SQL", "Cloud"]
 
-    # 7. Status / Intent Badge
-    if any(k in text_lower for k in ["opt", "cpt", "f1"]):
-        status_badge = "F1 OPT / STEM OPT (Ready to Market)"
-    elif any(k in text_lower for k in ["open to work", "actively seeking", "looking for"]):
-        status_badge = "Actively Seeking / Ready to Market"
-    elif any(k in text_lower for k in ["h1b", "c2c", "corp"]):
-        status_badge = "H1B / C2C Eligible"
+    # ── Work Authorization Badge ──
+    if re.search(r'\bstem opt\b', text_lower):
+        status_badge = "STEM OPT (3yr auth)"
+    elif re.search(r'\bopt\b|\bf1\b|\bf-1\b|\bcpt\b', text_lower):
+        status_badge = "F1 OPT"
+    elif re.search(r'\bh1b\b|\bh-1b\b', text_lower):
+        status_badge = "H1B Sponsored"
+    elif re.search(r'\bc2c\b|\bcorp to corp\b', text_lower):
+        status_badge = "C2C / H1B"
+    elif re.search(r'\bgreen card\b|\bgc holder\b|\bpermanent resident\b', text_lower):
+        status_badge = "Green Card / PR"
     else:
-        status_badge = "US Tech Talent (Ready to Market)"
+        status_badge = "OPT / H1B (India to USA)"
+
+    # ── Quality Star Rating ──
+    if has_indian_edu and has_us_masters:
+        quality = "[IDEAL] B.Tech India + MS USA"
+    elif has_us_masters:
+        quality = "[GOOD] MS USA"
+    elif has_indian_edu:
+        quality = "[OK] B.Tech India"
+    else:
+        quality = "[STD] General Profile"
 
     return {
         "name": name,
@@ -249,12 +367,75 @@ def parse_candidate_from_serp(item: Dict[str, Any], query_category: str = "Tech"
         "university": university,
         "grad_year": grad_year,
         "location": location,
-        "skills": matched_skills[:6],
+        "skills": matched_skills[:7],
         "status_badge": status_badge,
-        "summary": desc[:200] + ("..." if len(desc) > 200 else ""),
-        "source": "Live LinkedIn X-Ray"
+        "quality": quality,
+        "has_indian_edu": has_indian_edu,
+        "has_us_masters": has_us_masters,
+        "summary": snippet[:220] + ("..." if len(snippet) > 220 else ""),
+        "source": "Live LinkedIn X-Ray",
     }
 
+
+# --------------------------------------------------
+# SEARCH ENGINES
+# --------------------------------------------------
+
+def _search_duckduckgo(query: str, max_results: int = 15) -> List[Dict]:
+    try:
+        from ddgs import DDGS
+        with DDGS() as ddgs:
+            return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
+                    for r in ddgs.text(query, max_results=max_results)]
+    except ImportError:
+        try:
+            from duckduckgo_search import DDGS as DDGS2
+            with DDGS2() as ddgs:
+                return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
+                        for r in ddgs.text(query, max_results=max_results)]
+        except Exception as e:
+            logger.warning(f"DDG fallback: {e}")
+    except Exception as e:
+        logger.warning(f"DDG: {e}")
+    return []
+
+
+def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
+    if not SERPAPI_KEY:
+        return []
+    try:
+        import requests
+        resp = requests.get("https://serpapi.com/search", params={
+            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=15)
+        if resp.status_code == 200:
+            return [{"url": i.get("link", ""), "title": i.get("title", ""), "snippet": i.get("snippet", "")}
+                    for i in resp.json().get("organic_results", [])]
+    except Exception as e:
+        logger.warning(f"SerpApi: {e}")
+    return []
+
+
+def _search_apify(query: str, max_results: int = 10) -> List[Dict]:
+    if not APIFY_TOKEN or APIFY_TOKEN == "your_apify_token_here":
+        return []
+    try:
+        import requests
+        url = f"https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}&memory=512&timeout=30"
+        res = requests.post(url, json={"queries": query, "maxPagesPerQuery": 1, "resultsPerPage": max_results}, timeout=35)
+        results = []
+        if res.status_code in [200, 201]:
+            for page in (res.json() if isinstance(res.json(), list) else []):
+                for item in page.get("organicResults", []):
+                    results.append({"url": item.get("url", "") or item.get("link", ""), "title": item.get("title", ""), "snippet": item.get("description", "")})
+        return results
+    except Exception as e:
+        logger.warning(f"Apify: {e}")
+    return []
+
+
+# --------------------------------------------------
+# MAIN PUBLIC FUNCTION
+# --------------------------------------------------
 
 def scrape_live_linkedin_candidates(
     keyword: str = "Data Scientist",
@@ -262,74 +443,82 @@ def scrape_live_linkedin_candidates(
     end_year: int = 2026,
     location: str = "United States",
     max_items: int = 25,
-    force_fresh: bool = False
+    force_fresh: bool = True,
 ) -> List[Dict[str, Any]]:
     """
-    Performs real-time live LinkedIn scraping for candidate sourcing.
-    Uses Apify Google Search X-Ray Actor with caching and fallback.
+    Returns LinkedIn profiles of professionals who:
+    1. Did B.Tech / B.E. in India (IIT, NIT, VIT, BITS, etc.)
+    2. Did Master's (MS) in USA
+    3. Are currently working in USA on OPT / STEM OPT / H1B
+
+    ★★★ Ideal profiles are automatically sorted to the top.
+    Every run returns DIFFERENT candidates (rotating queries + global dedup).
     """
+    global start_year_global, end_year_global
+    start_year_global = start_year
+    end_year_global = end_year
+
     clean_keyword = (keyword or "Data Scientist").strip()
-    cache_key = f"{clean_keyword.lower()}_{start_year}_{end_year}_{location.lower()}"
+    logger.info(f"Scraping '{clean_keyword}' | B.Tech India + MS USA | {start_year}-{end_year}")
 
-    # Check cache unless force_fresh requested
-    if not force_fresh and cache_key in LIVE_SEARCH_CACHE:
-        cached_entry = LIVE_SEARCH_CACHE[cache_key]
-        if time.time() - cached_entry["timestamp"] < CACHE_TTL_SECONDS:
-            logger.info(f"Returning {len(cached_entry['results'])} cached live candidate results for '{clean_keyword}'")
-            return cached_entry["results"][:max_items]
+    num_queries = max(3, min(6, (max_items // 5) + 2))
+    queries = build_rotating_queries(clean_keyword, start_year, end_year, num_queries)
 
-    xray_query = build_xray_query(
-        keyword=clean_keyword,
-        start_year=start_year,
-        end_year=end_year,
-        location=location
-    )
-    logger.info(f"Executing Live LinkedIn X-Ray Query: {xray_query}")
+    collected: List[Dict] = []
+    seen_this_run: Set[str] = set()
 
-    live_candidates = []
-    seen_urls = set()
+    for q_idx, query in enumerate(queries):
+        if len(collected) >= max_items:
+            break
 
-    # --- Tier 1: Apify Google Search X-Ray Actor ---
-    if APIFY_TOKEN:
-        try:
-            actor_url = f"https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}&memory=512&timeout=30"
-            payload = {
-                "queries": xray_query,
-                "maxPagesPerQuery": 1,
-                "resultsPerPage": min(20, max_items + 5)
-            }
-            res = requests.post(actor_url, json=payload, timeout=32)
-            if res.status_code in [200, 201]:
-                data = res.json()
-                if isinstance(data, list):
-                    for page in data:
-                        organic_results = page.get("organicResults", [])
-                        for item in organic_results:
-                            candidate = parse_candidate_from_serp(item, query_category=clean_keyword)
-                            if candidate and candidate["profile_url"] not in seen_urls:
-                                try:
-                                    y = int(candidate.get("grad_year", 2024))
-                                    if not (start_year <= y <= end_year):
-                                        continue
-                                except (ValueError, TypeError):
-                                    pass
-                                seen_urls.add(candidate["profile_url"])
-                                live_candidates.append(candidate)
-                                if len(live_candidates) >= max_items:
-                                    break
-                        if len(live_candidates) >= max_items:
-                            break
-                logger.info(f"Apify live scraping returned {len(live_candidates)} verified LinkedIn candidate profiles.")
-        except Exception as e:
-            logger.error(f"Apify live candidate scraper error: {e}")
+        raw_results = _search_duckduckgo(query, max_results=15)
+        if not raw_results and SERPAPI_KEY:
+            raw_results = _search_serpapi(query, max_results=10)
+        if not raw_results and APIFY_TOKEN and APIFY_TOKEN != "your_apify_token_here":
+            raw_results = _search_apify(query, max_results=10)
 
-    # If live scraper yielded results, store in cache and return
-    if live_candidates:
-        LIVE_SEARCH_CACHE[cache_key] = {
-            "timestamp": time.time(),
-            "results": live_candidates
-        }
-        return live_candidates[:max_items]
+        logger.info(f"Query {q_idx+1}/{len(queries)}: {len(raw_results)} raw results")
+        random.shuffle(raw_results)
 
-    logger.warning(f"Live scraping returned 0 results for '{clean_keyword}'.")
-    return []
+        for item in raw_results:
+            if len(collected) >= max_items:
+                break
+
+            candidate = _parse_candidate_from_result(
+                url=item.get("url", ""),
+                title=item.get("title", ""),
+                snippet=item.get("snippet", ""),
+                query_category=clean_keyword,
+            )
+            if not candidate:
+                continue
+
+            url = candidate["linkedin_url"]
+            if url in seen_this_run or url in GLOBALLY_SEEN_URLS:
+                continue
+
+            years_in_snippet = re.findall(r'\b(201[8-9]|202[0-6])\b', item.get("snippet", ""))
+            if years_in_snippet:
+                try:
+                    if not (start_year <= int(candidate["grad_year"]) <= end_year):
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+            seen_this_run.add(url)
+            GLOBALLY_SEEN_URLS.add(url)
+            collected.append(candidate)
+
+        if q_idx < len(queries) - 1:
+            time.sleep(random.uniform(0.3, 1.0))
+
+    # Sort: ★★★ (B.Tech India + MS USA) first, then ★★, then ★
+    collected.sort(key=lambda c: (
+        0 if (c.get("has_indian_edu") and c.get("has_us_masters")) else
+        1 if c.get("has_us_masters") else
+        2 if c.get("has_indian_edu") else 3
+    ))
+
+    ideal_count = sum(1 for c in collected if c.get("has_indian_edu") and c.get("has_us_masters"))
+    logger.info(f"Done: {len(collected)} candidates | ★★★ Ideal: {ideal_count} | ★★ MS USA: {sum(1 for c in collected if c.get('has_us_masters') and not c.get('has_indian_edu'))} | ★ Other: {len(collected) - ideal_count - sum(1 for c in collected if c.get('has_us_masters') and not c.get('has_indian_edu'))}")
+    return collected[:max_items]

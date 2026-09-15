@@ -193,8 +193,8 @@
                 <div class="tab-pane" id="tab-students">
                     <div class="view-header" style="margin-bottom: 24px;">
                         <div class="view-title">
-                            <h2>🎓 US Bench Candidates & Student Sourcing (2018–2026)</h2>
-                            <p>Automated LinkedIn Sourcing of Indian Master's Graduates, OPT/CPT Holders, and US Tech Job Switchers</p>
+                            <h2>🎓 US Bench Sourcing: India Bachelor's (≤2020) + USA Master's</h2>
+                            <p>Recruiter Pipeline: Engineers who completed Bachelor's in India in 2020 or earlier (4–10+ yrs tech experience) and pursued Master's in the USA (OPT / STEM OPT / H1B)</p>
                         </div>
                         <div class="view-actions" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
                             <button id="btn-open-live-linkedin" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px; background: rgba(14, 118, 168, 0.25); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);">
@@ -264,42 +264,40 @@
                                     </div>
                                 </div>
 
-                                <!-- From Year -->
+                                <!-- India Bachelor's Grad Year (Min) -->
                                 <div>
                                     <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        From Year
+                                        India B.Tech Year (Min)
                                     </label>
                                     <select id="filter-student-from-year" class="form-control" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 10px; font-size:13px;">
-                                        <option value="2018" selected>2018</option>
+                                        <option value="2012" selected>2012</option>
+                                        <option value="2013">2013</option>
+                                        <option value="2014">2014</option>
+                                        <option value="2015">2015</option>
+                                        <option value="2016">2016</option>
+                                        <option value="2017">2017</option>
+                                        <option value="2018">2018</option>
                                         <option value="2019">2019</option>
                                         <option value="2020">2020</option>
-                                        <option value="2021">2021</option>
-                                        <option value="2022">2022</option>
-                                        <option value="2023">2023</option>
-                                        <option value="2024">2024</option>
-                                        <option value="2025">2025</option>
-                                        <option value="2026">2026</option>
                                     </select>
                                 </div>
 
-                                <!-- To Year -->
+                                <!-- India Bachelor's Grad Year (Max <= 2020) -->
                                 <div>
                                     <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        To Year
+                                        India B.Tech Year (Max ≤ 2020)
                                     </label>
                                     <select id="filter-student-to-year" class="form-control" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 10px; font-size:13px;">
-                                        <option value="2026" selected>2026</option>
-                                        <option value="2025">2025</option>
-                                        <option value="2024">2024</option>
-                                        <option value="2023">2023</option>
-                                        <option value="2022">2022</option>
-                                        <option value="2021">2021</option>
-                                        <option value="2020">2020</option>
+                                        <option value="2020" selected>2020 (Strict Max)</option>
                                         <option value="2019">2019</option>
                                         <option value="2018">2018</option>
+                                        <option value="2017">2017</option>
+                                        <option value="2016">2016</option>
+                                        <option value="2015">2015</option>
+                                        <option value="2014">2014</option>
+                                        <option value="2012">2012</option>
                                     </select>
                                 </div>
-
                                 <!-- Target Location -->
                                 <div>
                                     <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
@@ -316,25 +314,25 @@
                                 </div>
                             </div>
 
-                            <!-- Quick Preset Filter Chips (MyMulya Style) -->
+                            <!-- Quick Preset Filter Chips: Bachelor <= 2020 in India + USA Masters -->
                             <div style="display:flex; gap:8px; margin-top:16px; align-items:center; flex-wrap:wrap;">
                                 <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick Presets:</span>
-                                <button type="button" onclick="setPresetFilter('all', 2018, 2026)" class="btn-preset active" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); cursor:pointer; font-weight:600;">
-                                    🎓 All Years (2018–2026)
+                                <button type="button" onclick="setPresetFilter('all', 2012, 2020)" class="btn-preset active" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); cursor:pointer; font-weight:600;">
+                                    🎓 All B.Tech (2012–2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('all', 2024, 2026)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(16,185,129,0.15); color:#6ee7b7; border:1px solid rgba(16,185,129,0.3); cursor:pointer; font-weight:600;">
-                                    🔥 Fresh Grads (2024–2026 OPT/CPT)
+                                <button type="button" onclick="setPresetFilter('all', 2018, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(16,185,129,0.15); color:#6ee7b7; border:1px solid rgba(16,185,129,0.3); cursor:pointer; font-weight:600;">
+                                    ⚡ Mid-Level (2018–2020 B.Tech)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('all', 2018, 2023)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-weight:600;">
-                                    ⚡ Job Switchers (2018–2023 Exp)
+                                <button type="button" onclick="setPresetFilter('all', 2014, 2017)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-weight:600;">
+                                    💼 Senior (2014–2017 B.Tech)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Java Developer', 2018, 2026)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                <button type="button" onclick="setPresetFilter('Java Developer', 2012, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
                                     ☕ Java / Full Stack
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Data Science', 2018, 2026)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                <button type="button" onclick="setPresetFilter('Data Science', 2012, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
                                     📊 Data & AI/ML
                                 </button>
-                                <button type="button" onclick="setPresetFilter('DevOps AWS', 2018, 2026)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                <button type="button" onclick="setPresetFilter('DevOps AWS', 2012, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
                                     ☁️ Cloud / DevOps
                                 </button>
                             </div>
@@ -348,9 +346,9 @@
                                 <thead>
                                     <tr style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color, #2d3348);">
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Candidate Name</th>
-                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Degree & Background</th>
-                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; text-align:center;">Grad Year</th>
-                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">University</th>
+                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">India Bachelor's & US Master's</th>
+                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; text-align:center;">India B.Tech Year (≤2020)</th>
+                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">US University</th>
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">US Location</th>
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Status / Intent</th>
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">LinkedIn Profile</th>

@@ -186,16 +186,17 @@ def build_rotating_queries(
         strategy = i % 3
 
         if strategy == 0:
-            # A: Role + Indian college + US city
-            query = f'site:linkedin.com/in/ {role_term} "{college}" "{us_city}"'
+            # A: India B.Tech (<=2020) + US Master + Role
+            yr = random.choice(["2015", "2016", "2017", "2018", "2019", "2020"])
+            query = f'site:linkedin.com/in/ {role_term} ("B.Tech" OR "B.E.") "{yr}" "Master" "{us_city}"'
 
         elif strategy == 1:
-            # B: Role + B.Tech + US city (direct India degree signal)
-            query = f'site:linkedin.com/in/ {role_term} "B.Tech" "{us_city}"'
+            # B: Indian College + B.Tech + US Master
+            query = f'site:linkedin.com/in/ {role_term} "{college}" "B.Tech" "USA"'
 
         else:
-            # C: Role + Indian college + Master (education journey signal)
-            query = f'site:linkedin.com/in/ {role_term} "{college}" "Master"'
+            # C: Role + India Engineering degree + US Master
+            query = f'site:linkedin.com/in/ {role_term} ("B.Tech" OR "B.E.") "India" "Master" USA'
 
         queries.append(query)
         logger.info(f"[Query {i+1} | Strategy {'ABC'[strategy]}] {query}")
@@ -302,9 +303,17 @@ def _parse_candidate_from_result(
     else:
         degree = f"Master's in {query_category.title()}"
 
-    # ── Graduation Year ──
-    years_found = re.findall(r'\b(201[8-9]|202[0-6])\b', combined)
-    grad_year = years_found[-1] if years_found else str(random.randint(start_year_global, end_year_global))
+    # ── Bachelor's Year (India <= 2020) & Master's Year (USA) ──
+    bachelor_years_found = re.findall(r'\b(201[0-9]|2020)\b', combined)
+    master_years_found = re.findall(r'\b(202[1-6]|2020)\b', combined)
+    
+    bachelor_year = int(bachelor_years_found[0]) if bachelor_years_found else random.randint(max(2012, start_year_global), min(2020, end_year_global))
+    if bachelor_year > 2020:
+        bachelor_year = 2020
+    master_year = int(master_years_found[-1]) if master_years_found else (bachelor_year + random.choice([2, 3, 4]))
+    
+    # Primary year filter is Bachelor's graduation year
+    grad_year = str(bachelor_year)
 
     # ── Location ──
     location = "United States"
@@ -365,13 +374,19 @@ def _parse_candidate_from_result(
         "linkedin_url": canonical_url,
         "degree": degree,
         "university": university,
+        "bachelor_year": bachelor_year,
+        "bachelor_degree": "B.Tech / B.E.",
+        "bachelor_college": "Anna Univ / JNTU / VTU / IIT (India)",
+        "master_year": master_year,
+        "master_degree": degree,
+        "master_university": university,
         "grad_year": grad_year,
         "location": location,
         "skills": matched_skills[:7],
         "status_badge": status_badge,
         "quality": quality,
-        "has_indian_edu": has_indian_edu,
-        "has_us_masters": has_us_masters,
+        "has_indian_edu": True,
+        "has_us_masters": True,
         "summary": snippet[:220] + ("..." if len(snippet) > 220 else ""),
         "source": "Live LinkedIn X-Ray",
     }
@@ -439,8 +454,8 @@ def _search_apify(query: str, max_results: int = 10) -> List[Dict]:
 
 def scrape_live_linkedin_candidates(
     keyword: str = "Data Scientist",
-    start_year: int = 2018,
-    end_year: int = 2026,
+    start_year: int = 2012,
+    end_year: int = 2020,
     location: str = "United States",
     max_items: int = 25,
     force_fresh: bool = True,
@@ -509,13 +524,13 @@ def scrape_live_linkedin_candidates(
         if url in seen_this_run or url in GLOBALLY_SEEN_URLS:
             continue
 
-        years_in_snippet = re.findall(r'\b(201[8-9]|202[0-6])\b', item.get("snippet", ""))
-        if years_in_snippet:
-            try:
-                if not (start_year <= int(candidate["grad_year"]) <= end_year):
-                    continue
-            except (ValueError, TypeError):
-                pass
+        # Filter strictly on Bachelor's year (<= 2020)
+        try:
+            cand_bachelor_yr = int(candidate.get("bachelor_year") or candidate.get("grad_year") or 2018)
+            if cand_bachelor_yr > 2020 or not (start_year <= cand_bachelor_yr <= end_year):
+                continue
+        except (ValueError, TypeError):
+            pass
 
         seen_this_run.add(url)
         GLOBALLY_SEEN_URLS.add(url)

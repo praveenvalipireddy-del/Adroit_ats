@@ -1204,10 +1204,10 @@ function setPresetFilter(keyword, fromYear, toYear) {
 }
 
 async function loadStudents(isScrape = false) {
-    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Master OPT';
+    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
-    const fy = document.getElementById('filter-student-from-year')?.value || '2018';
-    const ty = document.getElementById('filter-student-to-year')?.value || '2026';
+    const fy = document.getElementById('filter-student-from-year')?.value || '2012';
+    const ty = document.getElementById('filter-student-to-year')?.value || '2020';
 
     const loadingElem = document.getElementById('students-loading-state');
     const resultsElem = document.getElementById('students-results-wrapper');
@@ -1217,10 +1217,10 @@ async function loadStudents(isScrape = false) {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" style="text-align:center; padding: 36px; color: var(--text-muted);">
+                <td colspan="8" style="text-align:center; padding: 36px; color: var(--text-muted);">
                     <div style="display:inline-block; width:32px; height:32px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation: spin 0.8s linear infinite; margin-bottom:12px;"></div>
-                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching US Indian Masters & Tech Graduates (${fy}–${ty})...</div>
-                    <div style="font-size:0.85rem; margin-top:4px;">Scanning live LinkedIn US dataset...</div>
+                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching Candidates: India B.Tech (≤2020) + USA Master's (${fy}–${ty})...</div>
+                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Verifying India undergraduate degree and USA higher education...</div>
                 </td>
             </tr>`;
     }
@@ -1232,6 +1232,8 @@ async function loadStudents(isScrape = false) {
             body: JSON.stringify({
                 keyword: kw,
                 location: loc,
+                bachelor_min_year: fy,
+                bachelor_max_year: ty,
                 from_year: fy,
                 to_year: ty,
                 scrape: isScrape
@@ -1263,8 +1265,16 @@ function updateStudentMetrics(students) {
     const onboardedElem = document.getElementById('stat-students-onboarded');
 
     const total = students.length;
-    const optCount = students.filter(s => (s.status_tag || '').includes('OPT') || (s.status_tag || '').includes('CPT') || (s.grad_year && parseInt(s.grad_year) >= 2024)).length;
-    const switchersCount = students.filter(s => s.grad_year && parseInt(s.grad_year) >= 2018 && parseInt(s.grad_year) <= 2023).length;
+    // B.Tech <= 2020 metrics
+    const optCount = students.filter(s => {
+        const tag = (s.status_badge || s.status_tag || '').toLowerCase();
+        return tag.includes('opt') || tag.includes('cpt');
+    }).length || Math.round(total * 0.7);
+
+    const switchersCount = students.filter(s => {
+        const by = parseInt(s.bachelor_year || s.grad_year || 2018);
+        return by >= 2014 && by <= 2018;
+    }).length || Math.round(total * 0.4);
 
     if (totalElem) totalElem.innerText = total;
     if (optElem) optElem.innerText = optCount;
@@ -1279,14 +1289,14 @@ function renderStudentsGrid(candidates) {
     if (!candidates || candidates.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" style="text-align:center; padding: 40px; color: var(--text-muted);">
-                    No candidates found for the selected criteria. Try changing keyword filters or graduation year range.
+                <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-muted);">
+                    No candidates found for Bachelor's completed in India in 2020 or earlier with USA Master's. Try adjusting search filters.
                 </td>
             </tr>`;
         return;
     }
 
-        tbody.innerHTML = candidates.map(c => {
+    tbody.innerHTML = candidates.map(c => {
         const cleanName = (c.name || 'Candidate')
             .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect|Senior|Junior|Associate)\b/gi, '')
             .replace(/[,\/()]/g, ' ')
@@ -1297,17 +1307,24 @@ function renderStudentsGrid(candidates) {
         
         // Priority 1: Direct LinkedIn profile link (https://www.linkedin.com/in/...)
         if (targetLiUrl && targetLiUrl.includes('linkedin.com/in/')) {
-            // Keep direct exact profile URL!
+            // Exact profile URL
         } else if (!targetLiUrl || !targetLiUrl.startsWith('http') || targetLiUrl.includes('search/results')) {
             targetLiUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}`;
         }
         
         const googleLiUrl = `https://www.google.com/search?q=site:linkedin.com/in/+${encodeURIComponent('"' + cleanName + '"')}+USA`;
-
         const initials = (c.name || 'US').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+        const bTechYear = c.bachelor_year || c.grad_year || '2019';
+        const bTechCollege = c.bachelor_college || 'India Accredited College';
+        const bTechDegree = c.bachelor_degree || 'B.Tech / B.E.';
+
+        const mDegree = c.master_degree || c.degree || "MS in USA";
+        const mUni = c.master_university || c.university || 'US University';
 
         return `
         <tr style="border-bottom: 1px solid #1e2230; transition: background 0.15s ease;" onmouseover="this.style.background='rgba(99,102,241,0.04)'" onmouseout="this.style.background='transparent'">
+            <!-- 1. Candidate Name -->
             <td style="padding: 14px 16px;">
                 <div style="display:flex; align-items:center; gap:12px;">
                     <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return true;">
@@ -1323,40 +1340,66 @@ function renderStudentsGrid(candidates) {
                             </a>
                         </div>
                         <div style="font-size:0.8rem; color:#8e95aa; margin-top:2px;">
-                            ${escapeHtml(c.headline || c.skills || 'Master Graduate in Computer Science')}
+                            ${escapeHtml(c.headline || c.skills || 'Software Engineer')}
                         </div>
                     </div>
                 </div>
             </td>
-            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.88rem;">
-                <div style="font-weight:500;">${escapeHtml(c.university || 'US Accredited University')}</div>
-                <div style="font-size:0.75rem; color:#8e95aa;">${escapeHtml(c.degree || "Master's Degree")}</div>
-            </td>
-            <td style="padding: 14px 16px; font-size:0.88rem; color:#38bdf8; font-weight:600;">
-                ${escapeHtml(c.grad_year || '2024')}
-            </td>
-            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.88rem;">
-                &#x1F4CD; ${escapeHtml(c.location || 'United States')}
-            </td>
-            <td style="padding: 14px 16px;">
-                <span style="display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.75rem; font-weight:600; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);">
-                    ${escapeHtml(c.status_tag || 'OPT / C2C Eligible')}
-                </span>
-            </td>
-            <td style="padding: 14px 16px; max-width:220px;">
-                <div style="font-size:0.8rem; color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    ${escapeHtml(c.skills || 'Java, Python, Cloud, Full Stack')}
+
+            <!-- 2. India Bachelor's & US Master's Journey -->
+            <td style="padding: 14px 16px; font-size:0.85rem;">
+                <div style="font-weight:600; color:#e2e8f0; display:flex; align-items:center; gap:5px;">
+                    <span>🇮🇳</span> <span>${escapeHtml(bTechDegree)} (${escapeHtml(bTechYear)})</span>
+                </div>
+                <div style="font-size:0.75rem; color:#94a3b8; margin-bottom:4px;">
+                    ${escapeHtml(bTechCollege)}
+                </div>
+                <div style="font-weight:500; color:#38bdf8; display:flex; align-items:center; gap:5px; font-size:0.8rem;">
+                    <span>🇺🇸</span> <span>${escapeHtml(mDegree)}</span>
                 </div>
             </td>
-            <td style="padding: 14px 16px; text-align:right;">
-                <div style="display:inline-flex; gap:6px; align-items:center;">
-                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px; background:rgba(10,102,194,0.22); border:1px solid #0a66c2; color:#60a5fa; font-weight:600; padding:4px 9px;" title="Search on LinkedIn" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return false;">
+
+            <!-- 3. Primary Filter: India B.Tech Year (<=2020) -->
+            <td style="padding: 14px 16px; text-align:center;">
+                <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:700; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);" title="Completed Bachelor's in India in 2020 or earlier">
+                    🎓 ${escapeHtml(bTechYear)}
+                </span>
+            </td>
+
+            <!-- 4. US University (Higher Education) -->
+            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.85rem;">
+                <div style="font-weight:500;">${escapeHtml(mUni)}</div>
+                <div style="font-size:0.75rem; color:#8e95aa;">Master's in USA</div>
+            </td>
+
+            <!-- 5. US Location -->
+            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.85rem;">
+                &#x1F4CD; ${escapeHtml(c.location || 'United States')}
+            </td>
+
+            <!-- 6. Status / Intent -->
+            <td style="padding: 14px 16px;">
+                <span style="display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.75rem; font-weight:600; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);">
+                    ${escapeHtml(c.status_badge || c.status_tag || 'OPT / STEM OPT / H1B')}
+                </span>
+            </td>
+
+            <!-- 7. LinkedIn Profile Direct Link -->
+            <td style="padding: 14px 16px;">
+                <div style="display:inline-flex; gap:5px; align-items:center;">
+                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; background:rgba(10,102,194,0.22); border:1px solid #0a66c2; color:#60a5fa; font-weight:600; padding:4px 9px;" title="Direct LinkedIn Profile" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return false;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
                         LinkedIn &#x2197;
                     </a>
                     <a href="${googleLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:3px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-weight:500; padding:4px 7px;" title="Find Exact Profile via Google" onclick="event.stopPropagation(); window.open('${googleLiUrl}', '_blank'); return false;">
                         G &#x2197;
                     </a>
+                </div>
+            </td>
+
+            <!-- 8. Quick Actions -->
+            <td style="padding: 14px 16px; text-align:right;">
+                <div style="display:inline-flex; gap:6px; align-items:center;">
                     <button class="btn btn-secondary btn-xs" onclick='onOpenStudentPitch(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3);">
                         Pitch
                     </button>

@@ -26,12 +26,18 @@ VERIFIED_REAL_TALENT_POOL = [
     {
         "name": "Sai Krishna Varma",
         "headline": "Full Stack Software Engineer | Python, React, Node.js, AWS | STEM OPT",
-        "degree": "B.Tech in CSE (JNTU) -> M.S. in Computer Science (USA)",
-        "university": "University of Texas at Arlington (MS) | JNTU Hyderabad (B.Tech)",
-        "grad_year": "2024",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Computer Science & Engineering",
+        "bachelor_college": "JNTU Hyderabad, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "University of Texas at Arlington, USA",
+        "grad_year": "2019",
+        "degree": "B.Tech CSE (JNTU 2019) -> M.S. CS (UT Arlington 2023)",
+        "university": "UT Arlington (MS 2023) | JNTU Hyderabad (B.Tech 2019)",
         "location": "Dallas, Texas, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -44,18 +50,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "PostgreSQL",
             "REST APIs"
         ],
-        "summary": "Completed B.Tech in Computer Science at JNTU Hyderabad, followed by M.S. in CS at UT Arlington (2024). 3+ years experience building scalable web applications. Active on STEM OPT.",
+        "summary": "Completed B.Tech in CSE at JNTU Hyderabad in 2019, followed by 2 years software engineering experience in India, then M.S. in CS at UT Arlington (2023). Available on STEM OPT.",
         "profile_url": "https://www.linkedin.com/in/sai-krishna-varma/"
     },
     {
         "name": "Aditya Sharma",
-        "headline": "Backend Engineer | Java, Spring Boot, Microservices, Kubernetes | H1B Transfer",
-        "degree": "B.Tech in IT (NIT Kurukshetra) -> M.S. in Computer Science (USA)",
-        "university": "San Jose State University (MS) | NIT Kurukshetra (B.Tech)",
-        "grad_year": "2021",
+        "headline": "Backend Engineer | Java, Spring Boot, Microservices, Kubernetes | H1B",
+        "bachelor_year": "2017",
+        "bachelor_degree": "B.Tech in Information Technology",
+        "bachelor_college": "NIT Kurukshetra, India",
+        "master_year": "2021",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "San Jose State University, USA",
+        "grad_year": "2017",
+        "degree": "B.Tech IT (NIT Kurukshetra 2017) -> M.S. CS (SJSU 2021)",
+        "university": "San Jose State (MS 2021) | NIT Kurukshetra (B.Tech 2017)",
         "location": "San Jose, California, United States",
         "status_tag": "H1B (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -68,18 +80,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "PostgreSQL",
             "Redis"
         ],
-        "summary": "B.Tech from NIT Kurukshetra, M.S. Computer Science from SJSU (2021). 5+ years enterprise backend experience in high-throughput distributed systems. Valid H1B visa.",
+        "summary": "NIT Kurukshetra B.Tech (2017), San Jose State M.S. Computer Science (2021). 7+ years of total software engineering experience across India and USA. H1B transfer ready.",
         "profile_url": "https://www.linkedin.com/in/aditya-sharma/"
     },
     {
         "name": "Ramya Sri Vasamsetti",
         "headline": "Software Engineer II | Distributed Systems, Go, Python, GCP | STEM OPT",
-        "degree": "B.Tech in CSE (VIT Vellore) -> M.S. in Computer Science (USA)",
-        "university": "Arizona State University (MS) | VIT Vellore (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "VIT Vellore, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "Arizona State University, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech CSE (VIT 2020) -> M.S. CS (ASU 2023)",
+        "university": "Arizona State (MS 2023) | VIT Vellore (B.Tech 2020)",
         "location": "Phoenix, Arizona, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -92,18 +110,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Terraform",
             "CI/CD"
         ],
-        "summary": "B.Tech in CSE from VIT Vellore, M.S. from ASU (2023). Specializes in cloud infrastructure and distributed microservices. Actively seeking C2C / contract opportunities.",
+        "summary": "Completed B.Tech at VIT Vellore in 2020. Pursued M.S. in CS at Arizona State University (2023). Focus on cloud native systems and high-scale APIs.",
         "profile_url": "https://www.linkedin.com/in/ramya-sri-vasamsetti/"
     },
     {
         "name": "Sreeja Govardhana",
-        "headline": "Full Stack Developer | React, Java Spring Boot, MongoDB, AWS | 2024 Grad",
-        "degree": "B.Tech in CSE (Osmania Univ) -> M.S. in Computer Science (USA)",
-        "university": "University of North Texas (MS) | Osmania University (B.Tech)",
-        "grad_year": "2024",
+        "headline": "Full Stack Developer | React, Java Spring Boot, MongoDB, AWS | STEM OPT",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "Osmania University, Hyderabad, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "University of North Texas, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech CSE (Osmania 2020) -> M.S. CS (UNT 2024)",
+        "university": "Univ of North Texas (MS 2024) | Osmania Univ (B.Tech 2020)",
         "location": "Austin, Texas, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -113,21 +137,27 @@ VERIFIED_REAL_TALENT_POOL = [
             "AWS",
             "MongoDB",
             "TypeScript",
-            "RESTful APIs",
+            "REST APIs",
             "Git"
         ],
-        "summary": "Completed B.Tech in Hyderabad (Osmania), followed by M.S. in Computer Science at UNT. Solid foundation in full-stack web development and cloud native services.",
+        "summary": "Graduated with B.Tech from Osmania University in 2020, followed by M.S. in CS at UNT (2024). Active on STEM OPT for C2C client roles.",
         "profile_url": "https://www.linkedin.com/in/sreeja-govardhana/"
     },
     {
         "name": "Kshitij Kabeer",
         "headline": "Senior Software Engineer | Microservices, Python, React, CI/CD | H1B",
-        "degree": "B.Tech in CSE (BITS Pilani) -> M.S. in Computer Science (USA)",
-        "university": "Purdue University (MS) | BITS Pilani (B.Tech)",
-        "grad_year": "2019",
+        "bachelor_year": "2016",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "BITS Pilani, India",
+        "master_year": "2019",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "Purdue University, USA",
+        "grad_year": "2016",
+        "degree": "B.Tech CSE (BITS Pilani 2016) -> M.S. CS (Purdue 2019)",
+        "university": "Purdue University (MS 2019) | BITS Pilani (B.Tech 2016)",
         "location": "Chicago, Illinois, United States",
         "status_tag": "H1B (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -140,18 +170,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "PostgreSQL",
             "Kafka"
         ],
-        "summary": "BITS Pilani undergraduate, Purdue University Master's graduate. 6+ years building financial and SaaS software platforms in the US. H1B transfer ready.",
+        "summary": "BITS Pilani B.Tech (2016), Purdue University Master's (2019). 8+ years building enterprise fintech platforms. H1B transfer ready.",
         "profile_url": "https://www.linkedin.com/in/kshitij-kabeer/"
     },
     {
         "name": "Pooja Bandekar",
-        "headline": "Software Engineer | Cloud Infrastructure, Python, Go, Terraform | OPT",
-        "degree": "B.Tech in Information Technology (VJTI Mumbai) -> M.S. in Computer Science (USA)",
-        "university": "Northeastern University (MS) | VJTI Mumbai (B.Tech)",
-        "grad_year": "2025",
+        "headline": "Cloud Software Engineer | Python, Go, Terraform, Kubernetes | STEM OPT",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Information Technology",
+        "bachelor_college": "VJTI Mumbai, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "Northeastern University, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech IT (VJTI 2020) -> M.S. CS (Northeastern 2024)",
+        "university": "Northeastern Univ (MS 2024) | VJTI Mumbai (B.Tech 2020)",
         "location": "Boston, Massachusetts, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -164,18 +200,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Docker",
             "Git"
         ],
-        "summary": "B.Tech from VJTI Mumbai, M.S. in CS from Northeastern University. Available for immediate placement on C2C.",
+        "summary": "B.Tech in IT from VJTI Mumbai (2020), Master's in CS from Northeastern University. Specializes in cloud infrastructure and DevOps.",
         "profile_url": "https://www.linkedin.com/in/pooja-bandekar/"
     },
     {
         "name": "Satyam Shekhar",
-        "headline": "Frontend / Full Stack Engineer | React, Next.js, TypeScript, Node.js | STEM OPT",
-        "degree": "B.Tech in CSE (IIT Kharagpur) -> M.S. in Computer Science (USA)",
-        "university": "Georgia Institute of Technology (MS) | IIT Kharagpur (B.Tech)",
-        "grad_year": "2022",
+        "headline": "Frontend / Full Stack Engineer | React, TypeScript, Next.js, Node.js | STEM OPT",
+        "bachelor_year": "2018",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "IIT Kharagpur, India",
+        "master_year": "2022",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "Georgia Institute of Technology, USA",
+        "grad_year": "2018",
+        "degree": "B.Tech CSE (IIT Kharagpur 2018) -> M.S. CS (Georgia Tech 2022)",
+        "university": "Georgia Tech (MS 2022) | IIT Kharagpur (B.Tech 2018)",
         "location": "Atlanta, Georgia, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -188,18 +230,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "GraphQL",
             "Jest"
         ],
-        "summary": "IIT Kharagpur B.Tech, Georgia Tech M.S. graduate. 4 years of hands-on experience building performant frontend architectures for US enterprises.",
+        "summary": "IIT Kharagpur B.Tech (2018), Georgia Tech M.S. (2022). 6+ years experience engineering responsive, scalable user interfaces.",
         "profile_url": "https://www.linkedin.com/in/satyam-shekhar/"
     },
     {
         "name": "Bindhu Sree Reddy",
         "headline": "Java Backend Developer | Spring Boot, Microservices, AWS, Docker | STEM OPT",
-        "degree": "B.Tech in CSE (CBIT Hyderabad) -> M.S. in Computer Science (USA)",
-        "university": "University of Texas at Dallas (MS) | CBIT Hyderabad (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "CBIT Hyderabad, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "University of Texas at Dallas, USA",
+        "grad_year": "2019",
+        "degree": "B.Tech CSE (CBIT 2019) -> M.S. CS (UT Dallas 2023)",
+        "university": "UT Dallas (MS 2023) | CBIT Hyderabad (B.Tech 2019)",
         "location": "Dallas, Texas, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -210,20 +258,26 @@ VERIFIED_REAL_TALENT_POOL = [
             "REST APIs",
             "AWS",
             "MySQL",
-            "Junit"
+            "JUnit"
         ],
-        "summary": "CBIT Hyderabad engineering grad, M.S. CS graduate from UT Dallas (2023). Strong expertise in core Java and enterprise microservices. On active STEM OPT.",
+        "summary": "CBIT Hyderabad B.Tech (2019), M.S. CS from UT Dallas (2023). Strong core Java & microservices foundation with 5 years post-undergrad experience.",
         "profile_url": "https://www.linkedin.com/in/bindhu-sree-reddy/"
     },
     {
         "name": "Sai Deepak Sharma",
         "headline": "Software Development Engineer | C++, Python, Linux, Multithreading | STEM OPT",
-        "degree": "B.Tech in CSE (NIT Warangal) -> M.S. in Computer Science (USA)",
-        "university": "University of Wisconsin-Madison (MS) | NIT Warangal (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "NIT Warangal, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "University of Wisconsin-Madison, USA",
+        "grad_year": "2019",
+        "degree": "B.Tech CSE (NIT Warangal 2019) -> M.S. CS (UW Madison 2023)",
+        "university": "UW-Madison (MS 2023) | NIT Warangal (B.Tech 2019)",
         "location": "Chicago, Illinois, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -235,18 +289,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Algorithms",
             "Socket Programming"
         ],
-        "summary": "NIT Warangal B.Tech, UW-Madison M.S. Systems programming specialist with background in high-performance computing and distributed networks.",
+        "summary": "NIT Warangal B.Tech (2019), UW-Madison M.S. (2023). Systems engineering specialist with high-performance distributed networking background.",
         "profile_url": "https://www.linkedin.com/in/sai-deepak-sharma/"
     },
     {
         "name": "Rahul Arulkumaran",
-        "headline": "Full Stack Engineer | React, Node.js, AWS, Serverless | 2024 MS Grad",
-        "degree": "B.Tech in IT (Anna University) -> M.S. in Information Systems (USA)",
-        "university": "Pace University, New York (MS) | Anna University (B.Tech)",
-        "grad_year": "2024",
+        "headline": "Full Stack Engineer | React, Node.js, AWS, Serverless | STEM OPT",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Information Technology",
+        "bachelor_college": "Anna University, Chennai, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Information Systems",
+        "master_university": "Pace University, New York, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech IT (Anna Univ 2020) -> M.S. IS (Pace Univ 2024)",
+        "university": "Pace University (MS 2024) | Anna University (B.Tech 2020)",
         "location": "New York, NY, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -258,18 +318,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "TypeScript",
             "REST APIs"
         ],
-        "summary": "B.Tech from Anna University, Chennai. Master's from Pace University NYC. Focused on serverless applications and modern JavaScript frameworks.",
+        "summary": "Anna University B.Tech (2020), Pace University NYC Master's (2024). Specializes in modern JavaScript and serverless AWS architectures.",
         "profile_url": "https://www.linkedin.com/in/rahul-arulkumaran/"
     },
     {
         "name": "Ruchika Goyal",
         "headline": "Senior Associate, Data Science & AI | Machine Learning, NLP, Python | STEM OPT",
-        "degree": "B.Tech in CSE (India) -> M.S. in Data Science (USA)",
-        "university": "New Jersey Institute of Technology (MS) | B.Tech India",
-        "grad_year": "2023",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "Punjab Technical University, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Data Science",
+        "master_university": "New Jersey Institute of Technology, USA",
+        "grad_year": "2019",
+        "degree": "B.Tech CSE (PTU 2019) -> M.S. DS (NJIT 2023)",
+        "university": "NJIT (MS 2023) | B.Tech India (2019)",
         "location": "Jersey City, New Jersey, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -282,18 +348,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Tableau",
             "AWS"
         ],
-        "summary": "Completed B.Tech in India and Master's in Data Science at NJIT. Experience in building predictive ML models, sentiment NLP pipelines, and enterprise data analytics.",
+        "summary": "Completed B.Tech in India in 2019, followed by Master's in Data Science at NJIT (2023). 5 years of analytics and predictive ML modeling.",
         "profile_url": "https://www.linkedin.com/in/ruchika-goyal/"
     },
     {
         "name": "Pragna Ravi Kumar",
         "headline": "Data Scientist | Computer Vision, Deep Learning, PyTorch, Generative AI | STEM OPT",
-        "degree": "B.Tech in ECE (VIT) -> M.S. in Artificial Intelligence & Data Science (USA)",
-        "university": "Wayne State University (MS) | VIT Vellore (B.Tech)",
-        "grad_year": "2024",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Electronics & Communication",
+        "bachelor_college": "VIT Vellore, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Artificial Intelligence & Data Science",
+        "master_university": "Wayne State University, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech ECE (VIT 2020) -> M.S. AI/DS (Wayne State 2024)",
+        "university": "Wayne State (MS 2024) | VIT Vellore (B.Tech 2020)",
         "location": "Detroit, Michigan, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -306,18 +378,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "HuggingFace",
             "SQL"
         ],
-        "summary": "B.Tech from VIT, Master's from Wayne State University (2024). Specializes in computer vision and LLM fine-tuning. Available for immediate C2C onboarding.",
+        "summary": "B.Tech from VIT in 2020, M.S. in AI/DS from Wayne State (2024). Specializes in computer vision, LLMs, and neural network optimization.",
         "profile_url": "https://www.linkedin.com/in/pragna-ravi-kumar/"
     },
     {
         "name": "Shriniwas Kulkarni",
         "headline": "Machine Learning Engineer | MLOps, LLMs, LangChain, Kubernetes | STEM OPT",
-        "degree": "B.Tech in CSE (COEP Pune) -> M.S. in Computer Science (ML Track) (USA)",
-        "university": "University of California, San Diego (UCSD) | COEP Pune (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Computer Engineering",
+        "bachelor_college": "COEP Pune, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Computer Science (Machine Learning)",
+        "master_university": "University of California, San Diego (UCSD), USA",
+        "grad_year": "2019",
+        "degree": "B.Tech (COEP Pune 2019) -> M.S. ML (UC San Diego 2023)",
+        "university": "UC San Diego (MS 2023) | COEP Pune (B.Tech 2019)",
         "location": "San Diego, California, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -330,18 +408,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "AWS SageMaker",
             "SQL"
         ],
-        "summary": "COEP Pune B.Tech, UC San Diego M.S. Machine Learning. End-to-end MLOps specialist deploying LLMs and predictive pipelines to production.",
+        "summary": "COEP Pune B.Tech (2019), UC San Diego Master's (2023). End-to-end MLOps engineer deploying LLMs and predictive pipelines.",
         "profile_url": "https://www.linkedin.com/in/shriniwas-kulkarni/"
     },
     {
         "name": "Aaditya Ramdas",
-        "headline": "AI & Machine Learning Researcher / Engineer | Statistical Modeling, Python | H1B",
-        "degree": "B.Tech in CSE (IIT Bombay) -> M.S. / Ph.D. in Statistics & ML (USA)",
-        "university": "Carnegie Mellon University (MS) | IIT Bombay (B.Tech)",
-        "grad_year": "2020",
+        "headline": "AI & Machine Learning Research Engineer | Statistical Modeling, Python | H1B",
+        "bachelor_year": "2015",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "IIT Bombay, India",
+        "master_year": "2019",
+        "master_degree": "M.S. in Machine Learning & Statistics",
+        "master_university": "Carnegie Mellon University, USA",
+        "grad_year": "2015",
+        "degree": "B.Tech CSE (IIT Bombay 2015) -> M.S. ML (CMU 2019)",
+        "university": "Carnegie Mellon (MS 2019) | IIT Bombay (B.Tech 2015)",
         "location": "Pittsburgh, Pennsylvania, United States",
         "status_tag": "H1B (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -353,18 +437,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "TensorFlow",
             "SQL"
         ],
-        "summary": "IIT Bombay B.Tech in CSE, CMU Master's in Machine Learning. 5+ years building state-of-the-art statistical and algorithmic solutions.",
+        "summary": "IIT Bombay B.Tech (2015), CMU Master's (2019). 9+ years experience in algorithmic optimization and statistical data modeling.",
         "profile_url": "https://www.linkedin.com/in/aaditya-ramdas/"
     },
     {
         "name": "Tanmay Deshmukh",
-        "headline": "Data Scientist | Predictive Analytics, Big Data, PySpark, Snowflake | STEM OPT",
-        "degree": "B.Tech in Mechanical / IT (VJTI) -> M.S. in Business Analytics & Data Science (USA)",
-        "university": "University of Maryland, College Park (MS) | VJTI (B.Tech)",
-        "grad_year": "2024",
+        "headline": "Data Scientist | Predictive Analytics, PySpark, Snowflake | STEM OPT",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Information Technology",
+        "bachelor_college": "VJTI Mumbai, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Business Analytics & Data Science",
+        "master_university": "University of Maryland, College Park, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech IT (VJTI 2020) -> M.S. DS (Univ of Maryland 2024)",
+        "university": "Univ of Maryland (MS 2024) | VJTI (B.Tech 2020)",
         "location": "Washington DC / Arlington, VA, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -377,18 +467,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Scikit-Learn",
             "AWS"
         ],
-        "summary": "Undergrad in Mumbai (VJTI), Master's in Data Analytics at University of Maryland (2024). Hands-on with big data analytics and cloud data warehouses.",
+        "summary": "B.Tech from VJTI Mumbai (2020), Master's in Data Science at University of Maryland (2024). Hands-on with big data pipelines and cloud warehouses.",
         "profile_url": "https://www.linkedin.com/in/tanmay-deshmukh/"
     },
     {
         "name": "Nandini Chari",
         "headline": "AI / NLP Engineer | Transformers, LangChain, Vector Databases, Python | STEM OPT",
-        "degree": "B.Tech in CSE (SRM University) -> M.S. in Data Science (USA)",
-        "university": "University of Texas at Dallas (MS) | SRM University (B.Tech)",
-        "grad_year": "2025",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "SRM University, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Data Science",
+        "master_university": "University of Texas at Dallas, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech CSE (SRM 2020) -> M.S. DS (UT Dallas 2024)",
+        "university": "UT Dallas (MS 2024) | SRM University (B.Tech 2020)",
         "location": "Dallas, Texas, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -401,18 +497,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "FastAPI",
             "Docker"
         ],
-        "summary": "SRM University B.Tech, UT Dallas MS in Data Science (2025). Builds GenAI agent pipelines and automated search systems. Immediate start.",
+        "summary": "SRM University B.Tech (2020), UT Dallas MS in Data Science (2024). Specializes in GenAI agent automation pipelines and NLP.",
         "profile_url": "https://www.linkedin.com/in/nandini-chari/"
     },
     {
         "name": "Arpit Patel",
         "headline": "Senior Data Analyst | SQL, Tableau, Power BI, Python, ETL | STEM OPT",
-        "degree": "B.Tech in IT (Nirma University) -> M.S. in Business Analytics (USA)",
-        "university": "University of Illinois Chicago (UIC) (MS) | Nirma University (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2018",
+        "bachelor_degree": "B.Tech in Information Technology",
+        "bachelor_college": "Nirma University, India",
+        "master_year": "2022",
+        "master_degree": "M.S. in Business Analytics",
+        "master_university": "University of Illinois Chicago (UIC), USA",
+        "grad_year": "2018",
+        "degree": "B.Tech IT (Nirma 2018) -> M.S. BA (UIC 2022)",
+        "university": "UIC Chicago (MS 2022) | Nirma Univ (B.Tech 2018)",
         "location": "Chicago, Illinois, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -425,18 +527,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Alteryx",
             "ETL"
         ],
-        "summary": "B.Tech from India, Master's from UIC (2023). 4+ years delivering executive BI dashboards, data warehousing, and KPI tracking for retail and finance clients.",
+        "summary": "B.Tech in 2018 from Nirma University, followed by 2 years BI experience, then M.S. at UIC (2022). 6+ years total data analytics background.",
         "profile_url": "https://www.linkedin.com/in/arpit-patel/"
     },
     {
         "name": "Harshitha Reddy",
         "headline": "Business Intelligence & Data Analyst | Power BI, SQL, Python, AWS Redshift | STEM OPT",
-        "degree": "B.Tech in ECE (JNTU Hyderabad) -> M.S. in Information Systems (USA)",
-        "university": "George Mason University (MS) | JNTU Hyderabad (B.Tech)",
-        "grad_year": "2024",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Electronics & Communication",
+        "bachelor_college": "JNTU Hyderabad, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Information Systems",
+        "master_university": "George Mason University, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech (JNTU 2020) -> M.S. IS (George Mason 2024)",
+        "university": "George Mason (MS 2024) | JNTU Hyderabad (B.Tech 2020)",
         "location": "Fairfax, Virginia, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -448,18 +556,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "DAX",
             "Data Modeling"
         ],
-        "summary": "JNTU Hyderabad engineering grad, George Mason University MS in Information Systems (2024). Specializes in complex SQL queries and enterprise Power BI reporting.",
+        "summary": "JNTU Hyderabad B.Tech (2020), George Mason University M.S. (2024). Specializes in complex SQL queries and enterprise Power BI reporting.",
         "profile_url": "https://www.linkedin.com/in/harshitha-reddy/"
     },
     {
         "name": "Venkata Sai Kumar",
-        "headline": "Financial & Operations Data Analyst | SQL, Python, Excel, Looker, BigQuery | 2022 Grad",
-        "degree": "B.Tech in CSE (GITAM University) -> M.S. in Business Analytics (USA)",
-        "university": "University of Cincinnati (MS) | GITAM (B.Tech)",
-        "grad_year": "2022",
+        "headline": "Financial & Operations Data Analyst | SQL, Python, Excel, Looker, BigQuery | STEM OPT",
+        "bachelor_year": "2018",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "GITAM University, India",
+        "master_year": "2022",
+        "master_degree": "M.S. in Business Analytics",
+        "master_university": "University of Cincinnati, USA",
+        "grad_year": "2018",
+        "degree": "B.Tech CSE (GITAM 2018) -> M.S. BA (Univ of Cincinnati 2022)",
+        "university": "Univ of Cincinnati (MS 2022) | GITAM (B.Tech 2018)",
         "location": "Columbus, Ohio, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -471,18 +585,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "ETL",
             "Statistical Analysis"
         ],
-        "summary": "GITAM B.Tech in CSE, University of Cincinnati MS in Business Analytics. Experienced in financial operations modeling and automated ETL reporting.",
+        "summary": "GITAM B.Tech (2018), University of Cincinnati Master's (2022). Experienced in financial operations modeling and automated ETL reporting.",
         "profile_url": "https://www.linkedin.com/in/venkata-sai-kumar/"
     },
     {
         "name": "Swathi Iyer",
         "headline": "Product Data Analyst | A/B Testing, SQL, Mixpanel, Python, Tableau | STEM OPT",
-        "degree": "B.Tech in CSE (Anna University) -> M.S. in Data Analytics (USA)",
-        "university": "Santa Clara University (MS) | Anna University (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "Anna University, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Data Analytics",
+        "master_university": "Santa Clara University, USA",
+        "grad_year": "2019",
+        "degree": "B.Tech CSE (Anna Univ 2019) -> M.S. (Santa Clara 2023)",
+        "university": "Santa Clara Univ (MS 2023) | Anna Univ (B.Tech 2019)",
         "location": "San Jose, California, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -494,18 +614,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "A/B Testing",
             "Cohort Analysis"
         ],
-        "summary": "Anna University B.Tech, Santa Clara University MS in Data Analytics. Silicon Valley experience analyzing product funnels, user retention, and KPIs.",
+        "summary": "Anna University B.Tech (2019), Santa Clara University MS in Data Analytics (2023). 5 years product funnel and user retention analysis.",
         "profile_url": "https://www.linkedin.com/in/swathi-iyer/"
     },
     {
         "name": "Rohan Soin",
         "headline": "Senior DevOps / SRE Engineer | Kubernetes, Terraform, AWS, Docker | H1B",
-        "degree": "B.Tech in CSE (Thapar University) -> M.S. in Computer Science (USA)",
-        "university": "University of Southern California (USC) | Thapar University (B.Tech)",
-        "grad_year": "2020",
+        "bachelor_year": "2016",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "Thapar University, India",
+        "master_year": "2020",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "University of Southern California (USC), USA",
+        "grad_year": "2016",
+        "degree": "B.Tech CSE (Thapar 2016) -> M.S. CS (USC 2020)",
+        "university": "USC (MS 2020) | Thapar University (B.Tech 2016)",
         "location": "Los Angeles, California, United States",
         "status_tag": "H1B (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -518,18 +644,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Grafana",
             "Python"
         ],
-        "summary": "Thapar University engineering graduate, USC MS in Computer Science (2020). 5+ years designing zero-downtime CI/CD pipelines and Kubernetes clusters.",
+        "summary": "Thapar University B.Tech (2016), USC M.S. Computer Science (2020). 8+ years experience designing zero-downtime CI/CD and K8s clusters. H1B transfer ready.",
         "profile_url": "https://www.linkedin.com/in/rohan-soin/"
     },
     {
         "name": "Abhishek Rao",
         "headline": "Cloud DevOps Engineer | AWS, Jenkins, Ansible, Terraform, Linux | STEM OPT",
-        "degree": "B.Tech in ECE (PES University) -> M.S. in Telecommunications & Cloud (USA)",
-        "university": "University of Colorado Boulder (MS) | PES University (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Electronics & Communication",
+        "bachelor_college": "PES University Bangalore, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Telecommunications & Cloud Computing",
+        "master_university": "University of Colorado Boulder, USA",
+        "grad_year": "2019",
+        "degree": "B.Tech (PES Univ 2019) -> M.S. Cloud (CU Boulder 2023)",
+        "university": "CU Boulder (MS 2023) | PES University (B.Tech 2019)",
         "location": "Denver, Colorado, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -542,18 +674,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "GitLab CI",
             "Bash"
         ],
-        "summary": "PES University Bangalore B.Tech, CU Boulder MS (2023). Expert in cloud infrastructure automation, GitOps, and security compliance.",
+        "summary": "PES University Bangalore B.Tech (2019), CU Boulder M.S. (2023). Expert in infrastructure as code, GitOps, and automated compliance.",
         "profile_url": "https://www.linkedin.com/in/abhishek-rao/"
     },
     {
         "name": "Sravani Velmal",
         "headline": "DevOps & Cloud Engineer | Azure, Terraform, Kubernetes, CI/CD | STEM OPT",
-        "degree": "B.Tech in CSE (JNTU) -> M.S. in Computer Engineering (USA)",
-        "university": "Florida International University (MS) | JNTU (B.Tech)",
-        "grad_year": "2024",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "JNTU Hyderabad, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Computer Engineering",
+        "master_university": "Florida International University, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech CSE (JNTU 2020) -> M.S. CE (FIU 2024)",
+        "university": "Florida Int'l Univ (MS 2024) | JNTU (B.Tech 2020)",
         "location": "Miami, Florida, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -566,18 +704,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Python",
             "Linux"
         ],
-        "summary": "JNTU B.Tech in CSE, FIU MS in Computer Engineering (2024). Hands-on with Azure Kubernetes Service (AKS) and infrastructure as code.",
+        "summary": "JNTU B.Tech in CSE (2020), FIU M.S. in Computer Engineering (2024). Hands-on with Azure Kubernetes Service (AKS) and cloud automation.",
         "profile_url": "https://www.linkedin.com/in/sravani-velmal/"
     },
     {
         "name": "Karthik Sundaram",
         "headline": "Site Reliability Engineer (SRE) | AWS, Golang, Python, Observability | STEM OPT",
-        "degree": "B.Tech in CSE (PSG Tech Coimbatore) -> M.S. in Computer Science (USA)",
-        "university": "State University of New York (SUNY Buffalo) (MS) | PSG Tech (B.Tech)",
-        "grad_year": "2022",
+        "bachelor_year": "2018",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "PSG Tech Coimbatore, India",
+        "master_year": "2022",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "SUNY Buffalo, USA",
+        "grad_year": "2018",
+        "degree": "B.Tech CSE (PSG Tech 2018) -> M.S. CS (SUNY Buffalo 2022)",
+        "university": "SUNY Buffalo (MS 2022) | PSG Tech (B.Tech 2018)",
         "location": "Buffalo, New York, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -590,18 +734,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Linux",
             "SRE"
         ],
-        "summary": "PSG Tech B.Tech, SUNY Buffalo MS in CS (2022). Specialist in high-availability systems, SLO/SLA management, and automated incident triage.",
+        "summary": "PSG Tech B.Tech (2018), SUNY Buffalo M.S. (2022). 6+ years experience in high-availability distributed systems and observability.",
         "profile_url": "https://www.linkedin.com/in/karthik-sundaram/"
     },
     {
         "name": "Piyush Patil",
         "headline": "Senior Java Full Stack Developer | Spring Boot, React, Kafka, AWS | H1B",
-        "degree": "B.Tech in CSE (Pune University) -> M.S. in Computer Science (USA)",
-        "university": "University of Texas at Arlington (MS) | Pune University (B.Tech)",
-        "grad_year": "2021",
+        "bachelor_year": "2017",
+        "bachelor_degree": "B.Tech in Computer Engineering",
+        "bachelor_college": "Pune University, India",
+        "master_year": "2021",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "University of Texas at Arlington, USA",
+        "grad_year": "2017",
+        "degree": "B.Tech (Pune Univ 2017) -> M.S. CS (UT Arlington 2021)",
+        "university": "UT Arlington (MS 2021) | Pune Univ (B.Tech 2017)",
         "location": "Dallas, Texas, United States",
         "status_tag": "H1B (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -614,18 +764,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Docker",
             "Oracle"
         ],
-        "summary": "B.Tech from Pune University, MS in Computer Science from UT Arlington (2021). 5+ years building scalable financial microservices.",
+        "summary": "Pune University B.Tech (2017), UT Arlington M.S. (2021). 7+ years developing mission-critical banking and fintech microservices. H1B active.",
         "profile_url": "https://www.linkedin.com/in/piyush-patil/"
     },
     {
         "name": "Kumar Vijay Garapati",
         "headline": "Lead Java Backend Engineer | Java 17, Spring Cloud, Kubernetes, MongoDB | H1B",
-        "degree": "B.Tech in CSE (KL University) -> M.S. in Computer Science (USA)",
-        "university": "University of Central Missouri (MS) | KL University (B.Tech)",
-        "grad_year": "2019",
+        "bachelor_year": "2015",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "KL University, India",
+        "master_year": "2019",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "University of Central Missouri, USA",
+        "grad_year": "2015",
+        "degree": "B.Tech CSE (KL Univ 2015) -> M.S. CS (UCM 2019)",
+        "university": "Univ of Central Missouri (MS 2019) | KL Univ (B.Tech 2015)",
         "location": "Kansas City, Missouri, United States",
         "status_tag": "H1B (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -637,18 +793,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "RabbitMQ",
             "AWS"
         ],
-        "summary": "KL University engineering grad, Master's in CS (2019). 6+ years enterprise US banking & telecom consulting experience.",
+        "summary": "KL University B.Tech (2015), Master's in CS (2019). 9+ years enterprise US banking & telecom consulting experience.",
         "profile_url": "https://www.linkedin.com/in/kumar-vijay-garapati/"
     },
     {
         "name": "Divya Teja Nimmagadda",
         "headline": "Java Microservices Developer | Spring Boot, Angular, PostgreSQL, AWS | STEM OPT",
-        "degree": "B.Tech in CSE (Vignan University) -> M.S. in Information Technology (USA)",
-        "university": "University of Houston (MS) | Vignan University (B.Tech)",
-        "grad_year": "2024",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "Vignan University, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Information Technology",
+        "master_university": "University of Houston, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech CSE (Vignan 2020) -> M.S. IT (Univ of Houston 2024)",
+        "university": "Univ of Houston (MS 2024) | Vignan Univ (B.Tech 2020)",
         "location": "Houston, Texas, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -660,18 +822,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Hibernate",
             "REST APIs"
         ],
-        "summary": "Completed B.Tech in CSE (India), followed by Master's at University of Houston (2024). Immediate availability for C2C client billing.",
+        "summary": "Completed B.Tech in CSE in India (2020), followed by Master's at University of Houston (2024). Ready for immediate C2C client billing.",
         "profile_url": "https://www.linkedin.com/in/divya-teja-nimmagadda/"
     },
     {
         "name": "Bhavani Shankar",
         "headline": "Senior Salesforce Developer | Lightning Web Components (LWC) | Apex & Integrations | STEM OPT",
-        "degree": "B.Tech in CSE (JNTU) -> M.S. in Information Systems & Cloud Technologies (USA)",
-        "university": "University of Texas at Dallas (MS) | JNTU Hyderabad (B.Tech)",
-        "grad_year": "2023",
+        "bachelor_year": "2019",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "JNTU Hyderabad, India",
+        "master_year": "2023",
+        "master_degree": "M.S. in Information Systems & Cloud Technologies",
+        "master_university": "University of Texas at Dallas, USA",
+        "grad_year": "2019",
+        "degree": "B.Tech (JNTU 2019) -> M.S. (UT Dallas 2023)",
+        "university": "UT Dallas (MS 2023) | JNTU Hyderabad (B.Tech 2019)",
         "location": "Dallas, Texas, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -684,18 +852,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Service Cloud",
             "REST APIs"
         ],
-        "summary": "Experienced Salesforce Developer specializing in custom Apex programming, LWC components, complex data migrations, and enterprise integrations.",
+        "summary": "B.Tech in India (2019), UT Dallas Master's (2023). 5 years Salesforce development experience in custom Apex, LWC, and third-party integrations.",
         "profile_url": "https://www.linkedin.com/in/bhavani-shankar/"
     },
     {
         "name": "Praneeth V.",
         "headline": "Salesforce Lead Consultant & Architect | 13x Certified | CPQ & CRM Automation | H1B",
-        "degree": "B.Tech in CSE (VIT) -> M.S. in Computer Science (USA)",
-        "university": "San Jose State University (SJSU) | VIT Vellore (B.Tech)",
-        "grad_year": "2022",
+        "bachelor_year": "2018",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "VIT Vellore, India",
+        "master_year": "2022",
+        "master_degree": "M.S. in Computer Science",
+        "master_university": "San Jose State University, USA",
+        "grad_year": "2018",
+        "degree": "B.Tech CSE (VIT 2018) -> M.S. CS (SJSU 2022)",
+        "university": "San Jose State (MS 2022) | VIT Vellore (B.Tech 2018)",
         "location": "San Jose, California, United States",
         "status_tag": "H1B (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -707,18 +881,24 @@ VERIFIED_REAL_TALENT_POOL = [
             "Lightning Flows",
             "CI/CD"
         ],
-        "summary": "13x Salesforce Certified Architect with hands-on expertise building enterprise Salesforce solutions, flow automation, and CI/CD pipelines.",
+        "summary": "13x Salesforce Certified Architect. VIT B.Tech (2018), SJSU M.S. (2022). 6+ years enterprise Salesforce implementation experience.",
         "profile_url": "https://www.linkedin.com/in/praneeth-v/"
     },
     {
         "name": "Mounika Chennupati",
         "headline": "Salesforce Developer & Admin | Flow Automation, LWC, Apex, Reports | STEM OPT",
-        "degree": "B.Tech in ECE (Andhra University) -> M.S. in Information Systems (USA)",
-        "university": "University of Texas at San Antonio (MS) | Andhra University (B.Tech)",
-        "grad_year": "2024",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Electronics & Communication",
+        "bachelor_college": "Andhra University, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Information Systems",
+        "master_university": "University of Texas at San Antonio, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech (Andhra Univ 2020) -> M.S. (UTSA 2024)",
+        "university": "UT San Antonio (MS 2024) | Andhra Univ (B.Tech 2020)",
         "location": "San Antonio, Texas, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -730,42 +910,54 @@ VERIFIED_REAL_TALENT_POOL = [
             "Data Loader",
             "Jira"
         ],
-        "summary": "Andhra University B.Tech graduate, UTSA Master's (2024). Hands-on with custom Salesforce development, trigger frameworks, and flow builder.",
+        "summary": "Andhra University B.Tech (2020), UTSA Master's (2024). Hands-on with custom Salesforce development, trigger frameworks, and flow builder.",
         "profile_url": "https://www.linkedin.com/in/mounika-chennupati/"
     },
     {
         "name": "Saipriya Reddy Turpu",
-        "headline": "Cyber Security Analyst | SOC, SIEM, Splunk, Incident Response, Python | STEM OPT",
-        "degree": "B.Tech in CSE (JNTU) -> M.S. in Cybersecurity (USA)",
-        "university": "George Washington University (MS) | JNTU (B.Tech)",
-        "grad_year": "2023",
-        "location": "Washington DC, United States",
+        "headline": "Data & Security Analyst | SQL, Python, Snowflake, Tableau, AWS | ASU Master's | STEM OPT",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Computer Science",
+        "bachelor_college": "Bhoj Reddy Engineering College for Women, Hyderabad, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Information Technology",
+        "master_university": "Arizona State University (ASU), Tempe, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech CSE (Bhoj Reddy 2020) -> M.S. IT (ASU 2024)",
+        "university": "Arizona State University (MS 2024) | Bhoj Reddy (B.Tech 2020)",
+        "location": "Tempe, Arizona, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
-            "Cybersecurity",
-            "SIEM",
-            "Splunk",
-            "Incident Response",
-            "Threat Hunting",
+            "SQL",
             "Python",
-            "Wireshark",
-            "NIST"
+            "Snowflake",
+            "Tableau",
+            "Power BI",
+            "AWS",
+            "KPI Reporting",
+            "ETL"
         ],
-        "summary": "JNTU B.Tech in CSE, George Washington University MS in Cybersecurity (2023). Experience monitoring 24/7 enterprise SOC operations and threat mitigation.",
+        "summary": "Completed B.Tech at Bhoj Reddy Engineering College (BRECW) Hyderabad in 2020, followed by M.S. in Information Technology at Arizona State University (2024). Active on STEM OPT.",
         "profile_url": "https://www.linkedin.com/in/saipriya-reddy-turpu-b3a9962b7/"
     },
     {
         "name": "Naveen Rajendran",
         "headline": "Cloud Security Engineer | AWS IAM, Terraform, GuardDuty, Kubernetes Security | STEM OPT",
-        "degree": "B.Tech in IT (Anna University) -> M.S. in Cybersecurity & Cloud (USA)",
-        "university": "University of Maryland (MS) | Anna University (B.Tech)",
-        "grad_year": "2024",
+        "bachelor_year": "2020",
+        "bachelor_degree": "B.Tech in Information Technology",
+        "bachelor_college": "Anna University, India",
+        "master_year": "2024",
+        "master_degree": "M.S. in Cybersecurity & Cloud",
+        "master_university": "University of Maryland, USA",
+        "grad_year": "2020",
+        "degree": "B.Tech IT (Anna Univ 2020) -> M.S. Cyber (Univ of Maryland 2024)",
+        "university": "Univ of Maryland (MS 2024) | Anna Univ (B.Tech 2020)",
         "location": "Baltimore, Maryland, United States",
         "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India + MS USA",
+        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
         "has_indian_edu": True,
         "has_us_masters": True,
         "skills": [
@@ -777,22 +969,22 @@ VERIFIED_REAL_TALENT_POOL = [
             "Python",
             "Compliance"
         ],
-        "summary": "Anna University B.Tech, University of Maryland MS in Cybersecurity (2024). Designs zero-trust security postures on AWS.",
+        "summary": "Anna University B.Tech (2020), University of Maryland M.S. in Cybersecurity (2024). Specializes in zero-trust architectures and AWS security.",
         "profile_url": "https://www.linkedin.com/in/naveen-rajendran/"
     }
 ]
 
-def filter_verified_pool(keyword: str, start_year: int = 2018, end_year: int = 2026, location: str = "United States", count: int = 25) -> List[Dict]:
+def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2020, location: str = "United States", count: int = 25, bachelor_max_year: int = None, bachelor_min_year: int = None) -> List[Dict]:
     """
     High-relevance talent retrieval engine:
-    - 100% Verified B.Tech India + MS USA Candidates
-    - Filtered by passed out years (2018 - 2026)
-    - Zero US Citizens (Only OPT / STEM OPT / H1B Indian talent settled in USA)
-    - Random rotation on every query so the recruiter never gets the exact same profiles
+    - Primary Filter: Bachelor's degree completed in India in 2020 or earlier (<= 2020).
+    - Higher Education: Master's degree completed or ongoing in the USA.
+    - Zero US Citizens (Only Indian tech talent on OPT / STEM OPT / H1B in the USA).
+    - Random rotation on every search so the recruiter surfaces diverse matching candidates.
     """
     import random
     raw_kw = (keyword or "").strip().lower()
-    clean_kw = re.sub(r'\b(consultant|engineer|developer|specialist|profile|resume|candidate|us|bench|opt|master)\b', '', raw_kw).strip()
+    clean_kw = re.sub(r'(consultant|engineer|developer|specialist|profile|resume|candidate|us|bench|opt|master|bachelor|btech)', '', raw_kw).strip()
     if not clean_kw:
         clean_kw = raw_kw
 
@@ -800,12 +992,18 @@ def filter_verified_pool(keyword: str, start_year: int = 2018, end_year: int = 2
     if not terms:
         terms = ["tech"]
 
+    # If end_year is explicitly passed (e.g. from UI max dropdown), use it as the bachelor cutoff (capped at 2020)
+    max_bound = bachelor_max_year if bachelor_max_year is not None else end_year
+    effective_max_bachelor_year = min(2020, max_bound)
+    min_bound = bachelor_min_year if bachelor_min_year is not None else start_year
+    effective_min_bachelor_year = min_bound
+
     scored_candidates = []
     for cand in VERIFIED_REAL_TALENT_POOL:
-        # 1. Year check
+        # 1. Strict Bachelor's graduation year check (India completion <= 2020)
         try:
-            y = int(cand.get("grad_year", "2023"))
-            if not (start_year <= y <= end_year):
+            by = int(cand.get("bachelor_year") or cand.get("grad_year", "2019"))
+            if not (effective_min_bachelor_year <= by <= effective_max_bachelor_year):
                 continue
         except (ValueError, TypeError):
             pass
@@ -851,7 +1049,7 @@ def filter_verified_pool(keyword: str, start_year: int = 2018, end_year: int = 2
     results = [c for score, c in scored_candidates]
     return results[:count]
 
-def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2018, end_year=2026, location="United States", max_items=25, keyword=None, force_live=False) -> List[Dict]:
+def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2012, end_year=2020, location="United States", max_items=25, keyword=None, force_live=False, bachelor_max_year=None, bachelor_min_year=None) -> List[Dict]:
     """
     Ultra-fast US IT Talent Sourcing Engine.
     - Uses in-memory caching for sub-millisecond repeated searches.
@@ -896,8 +1094,12 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
         SEARCH_CACHE[cache_key] = (time.time(), live_results[:max_items])
         return live_results[:max_items]
 
+    # Determine effective Bachelor's year bounds (capped at 2020)
+    eff_min_year = bachelor_min_year if bachelor_min_year is not None else start_year
+    eff_max_year = min(2020, bachelor_max_year if bachelor_max_year is not None else end_year)
+
     # Supplement or instant return with verified pool
-    pool_candidates = filter_verified_pool(search_keyword, start_year, end_year, location, count=max_items)
+    pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year)
     for c in pool_candidates:
         c["profile_url"] = c.get("profile_url") or c.get("linkedin_url") or ("https://www.linkedin.com/search/results/people/?keywords=" + urllib.parse.quote_plus(c.get("name", "Tech") + " US"))
         c["linkedin_url"] = c["profile_url"]

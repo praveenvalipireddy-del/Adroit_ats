@@ -242,8 +242,61 @@ def _parse_candidate_from_result(
     combined = f"{title} {snippet}"
     text_lower = combined.lower()
 
-    # Hard skip: explicit US Citizen (very rare in LinkedIn snippets but worth checking)
+    # ============================================================
+    # HARD REJECTION: Only accept India B.Tech → USA MS profiles
+    # ============================================================
+
+    # 1. Skip explicit US Citizens
     if re.search(r'\bus citizen\b|\bamerican citizen\b', text_lower):
+        return None
+
+    # 2. Skip if person is still IN INDIA (not settled in USA)
+    india_location_signals = [
+        'chennai', 'tamil nadu', 'hyderabad', 'bangalore', 'bengaluru',
+        'mumbai', 'delhi', 'pune', 'kolkata', 'kerala', 'india \xb7',
+        ', india', 'new delhi', 'noida', 'gurgaon', 'gurugram',
+        'coimbatore', 'ahmedabad', 'jaipur', 'nagpur',
+    ]
+    if any(sig in text_lower for sig in india_location_signals):
+        return None
+
+    # 3. Skip non-tech profiles (retired, teacher, artist, manager, etc.)
+    non_tech_signals = [
+        'retired', 'master teacher', 'music teacher', 'art teacher',
+        'principal', 'pastor', 'chef', 'cook', 'nurse', 'doctor md',
+        'attorney', 'lawyer', 'real estate', 'insurance agent',
+        'financial advisor', 'cfo', 'accountant', 'cpa', 'auditor',
+        'contractor builder', 'construction', 'plumber', 'electrician',
+        'hair stylist', 'beautician', 'truck driver', 'delivery driver',
+    ]
+    if any(sig in text_lower for sig in non_tech_signals):
+        return None
+
+    # 4. Skip if no US location signal at all
+    us_location_signals = [
+        'united states', 'new york', 'new jersey', 'california', 'texas',
+        'illinois', 'georgia', 'massachusetts', 'washington', 'florida',
+        'virginia', 'ohio', 'michigan', 'north carolina', 'seattle',
+        'san jose', 'chicago', 'dallas', 'houston', 'boston', 'atlanta',
+        'austin', 'denver', 'phoenix', 'charlotte', 'raleigh', 'tampa',
+        'pittsburgh', 'detroit', 'minneapolis', 'portland', 'los angeles',
+        'san francisco', 'san diego', 'newark', 'jersey city', ', ny',
+        ', ca', ', tx', ', il', ', ga', ', ma', ', wa', ', fl',
+        'usa', 'u.s.', 'u.s.a',
+    ]
+    has_us_location = any(sig in text_lower for sig in us_location_signals)
+
+    # 5. Must have at least one India education signal OR US edu signal to pass
+    #    (we rely on query targeting to find India+USA people)
+    has_india_signal = any(sig in text_lower for sig in INDIAN_EDU_SIGNALS)
+    has_us_edu_signal = any(bool(re.search(p, text_lower)) for p in US_MASTERS_SIGNALS)
+
+    # If no US location AND no US education signal — skip (could be someone still in India)
+    if not has_us_location and not has_us_edu_signal:
+        return None
+
+    # If explicitly in India (duplicate check via edu signals combined with no US signal)
+    if has_india_signal and not has_us_location and not has_us_edu_signal:
         return None
 
     # ── Name ──
@@ -385,8 +438,8 @@ def _parse_candidate_from_result(
         "skills": matched_skills[:7],
         "status_badge": status_badge,
         "quality": quality,
-        "has_indian_edu": True,
-        "has_us_masters": True,
+        "has_indian_edu": has_indian_edu,
+        "has_us_masters": has_us_masters,
         "summary": snippet[:220] + ("..." if len(snippet) > 220 else ""),
         "source": "Live LinkedIn X-Ray",
     }
@@ -524,7 +577,13 @@ def scrape_live_linkedin_candidates(
         if url in seen_this_run or url in GLOBALLY_SEEN_URLS:
             continue
 
-        # Filter strictly on Bachelor's year (<= 2020)
+        # Strict post-processing filter
+        # 1. Skip "General" quality profiles (not India+USA)
+        quality = candidate.get("quality", "")
+        if quality == "[STD] General Profile":
+            continue
+
+        # 2. Filter strictly on Bachelor's year (<= 2020)
         try:
             cand_bachelor_yr = int(candidate.get("bachelor_year") or candidate.get("grad_year") or 2018)
             if cand_bachelor_yr > 2020 or not (start_year <= cand_bachelor_yr <= end_year):

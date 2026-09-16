@@ -844,15 +844,22 @@ def api_search_students():
     keyword = data.get("keyword") or data.get("query") or data.get("category") or "Computer Science"
     category = data.get("category", "all")
     intent = data.get("intent", "ready_to_market")
-    try:
-        start_year = int(data.get("bachelor_min_year") or data.get("from_year") or data.get("start_year") or data.get("startYear") or 2012)
-        end_year = int(data.get("bachelor_max_year") or data.get("to_year") or data.get("end_year") or data.get("endYear") or 2020)
-        # Recruiter constraint: Bachelor's degree in India must be completed in 2020 or earlier!
-        if end_year > 2020:
-            end_year = 2020
-    except (ValueError, TypeError):
-        start_year, end_year = 2012, 2020
+    
+    # Specific Bachelor's passed-out year in India
+    raw_by = str(data.get("bachelor_year") or data.get("year") or "").strip()
+    bachelor_year = None
+    if raw_by and raw_by.isdigit():
+        bachelor_year = min(2020, int(raw_by))
+        start_year = bachelor_year
+        end_year = bachelor_year
+    else:
+        try:
+            start_year = int(data.get("bachelor_min_year") or data.get("from_year") or 2012)
+            end_year = min(2020, int(data.get("bachelor_max_year") or data.get("to_year") or 2020))
+        except (ValueError, TypeError):
+            start_year, end_year = 2012, 2020
 
+    college = str(data.get("college") or "").strip()
     location = data.get("location", "United States")
     max_items = int(data.get("max_items") or data.get("limit") or 30)
     force_live = bool(data.get("scrape") or data.get("live") or data.get("force_live"))
@@ -865,7 +872,9 @@ def api_search_students():
         end_year=end_year,
         location=location,
         max_items=max_items,
-        force_live=force_live
+        force_live=force_live,
+        bachelor_year=bachelor_year,
+        college=college
     )
 
     return jsonify({

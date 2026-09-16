@@ -252,11 +252,11 @@
                     <!-- MyMulya Style Filter & Search Control Bar -->
                     <div class="filter-panel" style="background: var(--bg-card, #1e2230); border: 1px solid var(--border-color, #2d3348); border-radius: 14px; padding: 22px; margin-bottom: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
                         <form id="form-student-search" onsubmit="return false;">
-                            <div style="display: grid; grid-template-columns: 2.5fr 1fr 1fr 1.5fr 1.2fr; gap: 14px; align-items: flex-end;">
-                                <!-- Technology / Major / Keywords -->
+                            <div style="display: grid; grid-template-columns: 2fr 1.2fr 1.4fr 1.4fr 1.1fr; gap: 12px; align-items: flex-end;">
+                                <!-- 1. Technology / Major / Keywords -->
                                 <div>
-                                    <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        Technology / Major / Keywords
+                                    <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        Technology / Major
                                     </label>
                                     <div style="position:relative;">
                                         <span style="position:absolute; left:12px; top:11px; color:#64748b; font-size:14px;">🔍</span>
@@ -264,49 +264,74 @@
                                     </div>
                                 </div>
 
-                                <!-- India Bachelor's Grad Year (Min) -->
+                                <!-- 2. Single Bachelor's Passed-out Year Filter (India) -->
                                 <div>
-                                    <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        India B.Tech Year (Min)
+                                    <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        🎓 Passout Year (India)
                                     </label>
-                                    <select id="filter-student-from-year" class="form-control" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 10px; font-size:13px;">
-                                        <option value="2012" selected>2012</option>
-                                        <option value="2013">2013</option>
-                                        <option value="2014">2014</option>
-                                        <option value="2015">2015</option>
-                                        <option value="2016">2016</option>
-                                        <option value="2017">2017</option>
-                                        <option value="2018">2018</option>
-                                        <option value="2019">2019</option>
-                                        <option value="2020">2020</option>
-                                    </select>
+                                    <div style="position:relative;">
+                                        <input type="text" id="filter-student-bachelor-year" class="form-control" placeholder="e.g. 2020" value="2020" list="bachelor-year-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px; font-weight:600;" />
+                                        <datalist id="bachelor-year-options">
+                                            <option value="2020">2020 (India B.Tech ➔ USA MS)</option>
+                                            <option value="2019">2019 (India B.Tech ➔ USA MS)</option>
+                                            <option value="2018">2018 (India B.Tech ➔ USA MS)</option>
+                                            <option value="2017">2017 (India B.Tech ➔ USA MS)</option>
+                                            <option value="2016">2016 (India B.Tech ➔ USA MS)</option>
+                                            <option value="2015">2015 (India B.Tech ➔ USA MS)</option>
+                                            <option value="All">All Years (≤ 2020)</option>
+                                        </datalist>
+                                    </div>
                                 </div>
 
-                                <!-- India Bachelor's Grad Year (Max <= 2020) -->
+                                <!-- 3. Specific Indian College / University -->
                                 <div>
-                                    <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        India B.Tech Year (Max ≤ 2020)
+                                    <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        🏛️ Indian College / Univ
                                     </label>
-                                    <select id="filter-student-to-year" class="form-control" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 10px; font-size:13px;">
-                                        <option value="2020" selected>2020 (Strict Max)</option>
-                                        <option value="2019">2019</option>
-                                        <option value="2018">2018</option>
-                                        <option value="2017">2017</option>
-                                        <option value="2016">2016</option>
-                                        <option value="2015">2015</option>
-                                        <option value="2014">2014</option>
-                                        <option value="2012">2012</option>
-                                    </select>
-                                </div>
-                                <!-- Target Location -->
-                                <div>
-                                    <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        Target Location
-                                    </label>
-                                    <input type="text" id="filter-student-location" class="form-control" value="United States" placeholder="e.g. United States, Texas, California" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px;" />
+                                    <div style="position:relative;">
+                                        <input type="text" id="filter-student-college" class="form-control" placeholder="All Colleges (or type name)" value="All" list="indian-colleges-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px;" />
+                                        <datalist id="indian-colleges-options">
+                                            <option value="All">All Indian Colleges / Universities</option>
+                                            <option value="IIT">IIT (Indian Institutes of Technology)</option>
+                                            <option value="NIT">NIT (National Institutes of Technology)</option>
+                                            <option value="BITS">BITS Pilani / Goa / Hyderabad</option>
+                                            <option value="JNTU">JNTU (Hyderabad / Kakinada / Anantapur)</option>
+                                            <option value="Osmania">Osmania University (CBIT / Vasavi / MVSR)</option>
+                                            <option value="Anna University">Anna University (SSN / CEG / MIT)</option>
+                                            <option value="VTU">VTU (RVCE / BMS / PES / MSRIT)</option>
+                                            <option value="Pune University">Pune University / COEP / PICT</option>
+                                            <option value="Mumbai University">Mumbai University / VJTI / SPIT</option>
+                                            <option value="VIT">VIT Vellore / Chennai</option>
+                                            <option value="SRM">SRM Institute of Science and Tech</option>
+                                            <option value="GITAM">GITAM University</option>
+                                            <option value="Thapar">Thapar University</option>
+                                        </datalist>
+                                    </div>
                                 </div>
 
-                                <!-- Search Button -->
+                                <!-- 4. US Region / Location -->
+                                <div>
+                                    <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        📍 US Region / State
+                                    </label>
+                                    <div style="position:relative;">
+                                        <input type="text" id="filter-student-location" class="form-control" value="United States" placeholder="e.g. Texas, California, New York" list="us-region-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px;" />
+                                        <datalist id="us-region-options">
+                                            <option value="United States">United States (All US)</option>
+                                            <option value="Texas">Texas (Dallas, Austin, Houston)</option>
+                                            <option value="California">California (Bay Area, San Jose, LA)</option>
+                                            <option value="New York / New Jersey">New York / New Jersey</option>
+                                            <option value="Illinois">Illinois (Chicago)</option>
+                                            <option value="Georgia">Georgia (Atlanta)</option>
+                                            <option value="Washington">Washington (Seattle)</option>
+                                            <option value="North Carolina">North Carolina (Raleigh / Charlotte)</option>
+                                            <option value="Ohio">Ohio (Columbus / Cincinnati)</option>
+                                            <option value="Virginia">Virginia / Washington DC Metro</option>
+                                        </datalist>
+                                    </div>
+                                </div>
+
+                                <!-- 5. Search Button -->
                                 <div>
                                     <button type="button" id="btn-apply-student-filter" class="btn btn-primary" style="width:100%; height:42px; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px; background:linear-gradient(135deg, #4f46e5 0%, #4338ca 100%); border:none; box-shadow:0 3px 10px rgba(79, 70, 229, 0.3);">
                                         <span>🔍 Search</span>
@@ -317,23 +342,23 @@
                             <!-- Quick Preset Filter Chips: Bachelor <= 2020 in India + USA Masters -->
                             <div style="display:flex; gap:8px; margin-top:16px; align-items:center; flex-wrap:wrap;">
                                 <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick Presets:</span>
-                                <button type="button" onclick="setPresetFilter('all', 2012, 2020)" class="btn-preset active" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); cursor:pointer; font-weight:600;">
-                                    🎓 All B.Tech (2012–2020)
+                                <button type="button" onclick="setPresetFilter('all', '2020')" class="btn-preset active" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); cursor:pointer; font-weight:600;">
+                                    🎓 2020 B.Tech Passout
                                 </button>
-                                <button type="button" onclick="setPresetFilter('all', 2018, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(16,185,129,0.15); color:#6ee7b7; border:1px solid rgba(16,185,129,0.3); cursor:pointer; font-weight:600;">
-                                    ⚡ Mid-Level (2018–2020 B.Tech)
+                                <button type="button" onclick="setPresetFilter('all', '2019')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(16,185,129,0.15); color:#6ee7b7; border:1px solid rgba(16,185,129,0.3); cursor:pointer; font-weight:600;">
+                                    ⚡ 2019 B.Tech Passout
                                 </button>
-                                <button type="button" onclick="setPresetFilter('all', 2014, 2017)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-weight:600;">
-                                    💼 Senior (2014–2017 B.Tech)
+                                <button type="button" onclick="setPresetFilter('all', '2018')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-weight:600;">
+                                    💼 2018 B.Tech Passout
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Java Developer', 2012, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    ☕ Java / Full Stack
+                                <button type="button" onclick="setPresetFilter('Java Developer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    ☕ Java / Full Stack (2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Data Science', 2012, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    📊 Data & AI/ML
+                                <button type="button" onclick="setPresetFilter('Data Science', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    📊 Data & AI/ML (2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('DevOps AWS', 2012, 2020)" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    ☁️ Cloud / DevOps
+                                <button type="button" onclick="setPresetFilter('DevOps AWS', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    ☁️ Cloud / DevOps (2020)
                                 </button>
                             </div>
                         </form>

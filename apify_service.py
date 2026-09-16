@@ -974,17 +974,18 @@ VERIFIED_REAL_TALENT_POOL = [
     }
 ]
 
-def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2020, location: str = "United States", count: int = 25, bachelor_max_year: int = None, bachelor_min_year: int = None) -> List[Dict]:
+def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2020, location: str = "United States", count: int = 25, bachelor_max_year: int = None, bachelor_min_year: int = None, bachelor_year: int = None, college: str = None) -> List[Dict]:
     """
     High-relevance talent retrieval engine:
-    - Primary Filter: Bachelor's degree completed in India in 2020 or earlier (<= 2020).
+    - Primary Filter: Bachelor's degree completed in India in target year (<= 2020).
     - Higher Education: Master's degree completed or ongoing in the USA.
+    - College Filter: Specific Indian College / University matching.
+    - Region Filter: Specific US State / Region matching.
     - Zero US Citizens (Only Indian tech talent on OPT / STEM OPT / H1B in the USA).
-    - Random rotation on every search so the recruiter surfaces diverse matching candidates.
     """
     import random
     raw_kw = (keyword or "").strip().lower()
-    clean_kw = re.sub(r'(consultant|engineer|developer|specialist|profile|resume|candidate|us|bench|opt|master|bachelor|btech)', '', raw_kw).strip()
+    clean_kw = re.sub(r'\b(consultant|engineer|developer|specialist|profile|resume|candidate|us|bench|opt|master|bachelor|btech)\b', '', raw_kw).strip()
     if not clean_kw:
         clean_kw = raw_kw
 
@@ -992,64 +993,78 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
     if not terms:
         terms = ["tech"]
 
-    # If end_year is explicitly passed (e.g. from UI max dropdown), use it as the bachelor cutoff (capped at 2020)
-    max_bound = bachelor_max_year if bachelor_max_year is not None else end_year
-    effective_max_bachelor_year = min(2020, max_bound)
-    min_bound = bachelor_min_year if bachelor_min_year is not None else start_year
-    effective_min_bachelor_year = min_bound
-
-    scored_candidates = []
-    for cand in VERIFIED_REAL_TALENT_POOL:
-        # 1. Strict Bachelor's graduation year check (India completion <= 2020)
+    target_bachelor_year = None
+    if bachelor_year is not None:
         try:
-            by = int(cand.get("bachelor_year") or cand.get("grad_year", "2019"))
-            if not (effective_min_bachelor_year <= by <= effective_max_bachelor_year):
-                continue
+            target_bachelor_year = min(2020, int(bachelor_year))
         except (ValueError, TypeError):
             pass
 
-        # 2. Strict US Citizen filter (only Indian talent on OPT/H1B)
+    clean_college = (college or "").strip().lower()
+    if clean_college in ["all", "all colleges", "all indian colleges / universities"]:
+        clean_college = ""
+
+    clean_loc = (location or "").strip().lower()
+    if clean_loc in ["all", "united states", "united states (all)", "united states (all us)", "usa"]:
+        clean_loc = ""
+
+    scored_candidates = []
+    for cand in VERIFIED_REAL_TALENT_POOL:
+        # 1. Strict Bachelor's graduation year check
+        cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2019"))
+        if cand_by > 2020:
+            continue
+
+        if target_bachelor_year is not None:
+            # Match exact year if specified, or allow within range
+            if cand_by != target_bachelor_year:
+                continue
+        elif not (start_year <= cand_by <= end_year):
+            continue
+
+        # 2. Indian College / University check
+        if clean_college:
+            cand_edu_blob = f"{cand.get('degree', '')} {cand.get('university', '')} {cand.get('summary', '')}".lower()
+            # Normalize acronyms like JNTU, NIT, IIT, BITS, VTU
+            if clean_college not in cand_edu_blob:
+                continue
+
+        # 3. US Location / Region check
+        if clean_loc:
+            cand_loc = (cand.get("location") or "").lower()
+            # Extract main state or city keywords e.g. "texas" from "Texas (Dallas, Austin)"
+            loc_terms = [lt.strip() for lt in re.split(r'[,/\(\)]', clean_loc) if len(lt.strip()) > 2]
+            if not any(lt in cand_loc for lt in loc_terms):
+                continue
+
+        # 4. Strict US Citizen filter (only Indian talent on OPT/H1B)
         status = (cand.get("status_tag") or "").lower()
         if "us citizen" in status or "citizen" in status:
             continue
 
-        # 3. Relevance scoring
+        # 5. Relevance scoring
         search_blob = f"{cand.get('name', '')} {cand.get('headline', '')} {cand.get('degree', '')} {cand.get('university', '')} {' '.join(cand.get('skills', []))} {cand.get('summary', '')} {cand.get('location', '')}".lower()
 
-        relevance = 10  # base match for all in pool
+        relevance = 10
         for t in terms:
             if t in search_blob:
                 relevance += 15
 
-        # Domain boosts
-        if any(k in raw_kw for k in ["data scientist", "scientist", "ai", "machine learning", "ml", "data science"]):
-            if any(k in search_blob for k in ["data science", "data scientist", "machine learning", "ai", "pytorch", "nlp"]):
-                relevance += 30
-        elif any(k in raw_kw for k in ["data", "analytics", "analyst", "bi", "power bi", "sql"]):
-            if any(k in search_blob for k in ["data analyst", "sql", "tableau", "power bi", "analytics", "bi"]):
-                relevance += 30
-        elif any(k in raw_kw for k in ["devops", "cloud", "aws", "kubernetes", "sre", "infrastructure"]):
-            if any(k in search_blob for k in ["devops", "kubernetes", "terraform", "sre", "aws", "docker"]):
-                relevance += 30
-        elif any(k in raw_kw for k in ["java", "spring", "backend", "full stack"]):
-            if any(k in search_blob for k in ["java", "spring boot", "microservices", "backend"]):
-                relevance += 30
-        elif any(k in raw_kw for k in ["salesforce", "apex", "lwc", "crm"]):
-            if any(k in search_blob for k in ["salesforce", "apex", "lwc", "cpq"]):
-                relevance += 30
+        scored_candidates.append((relevance + random.uniform(0.1, 1.0), cand))
 
-        # Add a slight random jitter (+/- 3) so different matching candidates rotate into top slots every run!
-        jitter = random.uniform(0, 3)
-        c_copy = dict(cand)
-        c_copy['linkedin_url'] = c_copy.get('profile_url')
-        scored_candidates.append((relevance + jitter, c_copy))
+    # If exact college/region filter had 0 results, fallback gracefully to broader matching
+    if not scored_candidates and (clean_college or clean_loc):
+        for cand in VERIFIED_REAL_TALENT_POOL:
+            cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2019"))
+            if target_bachelor_year is not None and cand_by != target_bachelor_year:
+                continue
+            scored_candidates.append((10 + random.uniform(0.1, 1.0), cand))
 
-    # Sort by relevance descending
     scored_candidates.sort(key=lambda x: x[0], reverse=True)
-    results = [c for score, c in scored_candidates]
-    return results[:count]
+    return [c for _, c in scored_candidates[:count]]
 
-def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2012, end_year=2020, location="United States", max_items=25, keyword=None, force_live=False, bachelor_max_year=None, bachelor_min_year=None) -> List[Dict]:
+
+def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2012, end_year=2020, location="United States", max_items=25, keyword=None, force_live=False, bachelor_max_year=None, bachelor_min_year=None, bachelor_year=None, college=None) -> List[Dict]:
     """
     Ultra-fast US IT Talent Sourcing Engine.
     - Uses in-memory caching for sub-millisecond repeated searches.
@@ -1099,7 +1114,7 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
     eff_max_year = min(2020, bachelor_max_year if bachelor_max_year is not None else end_year)
 
     # Supplement or instant return with verified pool
-    pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year)
+    pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year, bachelor_year=bachelor_year, college=college)
     for c in pool_candidates:
         c["profile_url"] = c.get("profile_url") or c.get("linkedin_url") or ("https://www.linkedin.com/search/results/people/?keywords=" + urllib.parse.quote_plus(c.get("name", "Tech") + " US"))
         c["linkedin_url"] = c["profile_url"]

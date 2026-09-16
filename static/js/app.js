@@ -1191,23 +1191,25 @@ function initModals() {
 // =========================================================================
 // 7. USA Talent Sourcing & Students (2018 - 2026)
 // =========================================================================
-function setPresetFilter(keyword, fromYear, toYear) {
+function setPresetFilter(keyword, bachelorYear, college = 'All', region = 'United States') {
     const kwInput = document.getElementById('filter-student-keyword');
-    const fyInput = document.getElementById('filter-student-from-year');
-    const tyInput = document.getElementById('filter-student-to-year');
+    const byInput = document.getElementById('filter-student-bachelor-year');
+    const colInput = document.getElementById('filter-student-college');
+    const locInput = document.getElementById('filter-student-location');
 
-    if (kwInput && keyword) kwInput.value = keyword;
-    if (fyInput && fromYear) fyInput.value = fromYear;
-    if (tyInput && toYear) tyInput.value = toYear;
+    if (kwInput && keyword && keyword !== 'all') kwInput.value = keyword;
+    if (byInput && bachelorYear) byInput.value = bachelorYear;
+    if (colInput && college) colInput.value = college;
+    if (locInput && region) locInput.value = region;
 
-    loadStudents(true);
+    loadStudents(false);
 }
 
 async function loadStudents(isScrape = false) {
     const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
+    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
+    const college = document.getElementById('filter-student-college')?.value?.trim() || 'All';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
-    const fy = document.getElementById('filter-student-from-year')?.value || '2012';
-    const ty = document.getElementById('filter-student-to-year')?.value || '2020';
 
     const loadingElem = document.getElementById('students-loading-state');
     const resultsElem = document.getElementById('students-results-wrapper');
@@ -1219,8 +1221,8 @@ async function loadStudents(isScrape = false) {
             <tr>
                 <td colspan="8" style="text-align:center; padding: 36px; color: var(--text-muted);">
                     <div style="display:inline-block; width:32px; height:32px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation: spin 0.8s linear infinite; margin-bottom:12px;"></div>
-                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching Candidates: India B.Tech (≤2020) + USA Master's (${fy}–${ty})...</div>
-                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Verifying India undergraduate degree and USA higher education...</div>
+                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching Candidates: India B.Tech (${by}) + USA Master's...</div>
+                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Verifying undergraduate degree (${college !== 'All' ? college : 'India'}) and USA settlement (${loc})...</div>
                 </td>
             </tr>`;
     }
@@ -1231,11 +1233,9 @@ async function loadStudents(isScrape = false) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 keyword: kw,
+                bachelor_year: by,
+                college: college,
                 location: loc,
-                bachelor_min_year: fy,
-                bachelor_max_year: ty,
-                from_year: fy,
-                to_year: ty,
                 scrape: isScrape
             })
         });

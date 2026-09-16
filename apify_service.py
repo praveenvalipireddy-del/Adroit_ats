@@ -1045,7 +1045,7 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
     - Response time guaranteed <= 2.5 seconds on cloud (Render).
     """
     search_keyword = (keyword or category or "Computer Science").strip()
-    cache_key = f"{search_keyword.lower()}_{start_year}_{end_year}_{location.lower()}"
+    cache_key = f"{search_keyword.lower()}_{start_year}_{end_year}_{bachelor_year}_{college}_{location.lower()}"
 
     # Return cached results if available within TTL
     if cache_key in SEARCH_CACHE:
@@ -1120,6 +1120,15 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
         if "[OK]" in q or "OK" in q:
             return 2
         return 3
+
+    # STRICT EXACT YEAR GUARD: If recruiter specifies a year (e.g. 2020),
+    # return ONLY candidates who graduated in that EXACT year (zero earlier/later years)
+    if bachelor_year is not None:
+        try:
+            target_by = int(bachelor_year)
+            combined = [c for c in combined if int(c.get("bachelor_year") or c.get("grad_year") or 0) == target_by]
+        except (ValueError, TypeError):
+            pass
 
     combined.sort(key=_rank)
     final_results = combined[:max_items]

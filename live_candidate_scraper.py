@@ -253,6 +253,7 @@ def _parse_candidate_from_result(
     title: str,
     snippet: str,
     query_category: str,
+    target_bachelor_year: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
 
     canonical_url = _canonicalize_linkedin_url(url)
@@ -335,14 +336,14 @@ def _parse_candidate_from_result(
     if not has_us_masters and not has_us_location:
         return None
 
-    # 6. MANDATORY: Bachelor's graduation year must be <= 2020 (below 2021)
-    # Check if a bachelor's graduation year >= 2021 is explicitly mentioned
+    # 6. MANDATORY: Strict Exact Bachelor's graduation year check (India <= 2020)
+    # If recruiter specified an exact year (e.g. 2020), candidate MUST match that EXACT year!
+    # Disqualify anyone who graduated in 2021 or later
     future_bachelor_matches = re.findall(
         r'(?:b\.?tech|b\.?e\.?|bachelor|undergraduate)[^\d]{0,40}\b(202[1-9]|203[0-9])\b',
         text_lower
     )
     if future_bachelor_matches:
-        # Candidate graduated Bachelor's in 2021 or later — REJECT
         return None
 
     # Extract detected bachelor's year (<= 2020)
@@ -353,10 +354,23 @@ def _parse_candidate_from_result(
     if not detected_bachelor_years:
         detected_bachelor_years = re.findall(r'\b(201[2-9]|2020)\b', combined)
 
-    if detected_bachelor_years:
-        bachelor_year = int(detected_bachelor_years[0])
+    if target_bachelor_year is not None:
+        target_by = int(target_bachelor_year)
+        # If specific year requested (e.g. 2020), candidate MUST have that exact year mentioned
+        if detected_bachelor_years:
+            if int(detected_bachelor_years[0]) != target_by:
+                return None
+            bachelor_year = target_by
+        elif str(target_by) in combined:
+            bachelor_year = target_by
+        else:
+            # Does not match exact year requested — REJECT
+            return None
     else:
-        bachelor_year = random.randint(max(2014, start_year_global), min(2020, end_year_global))
+        if detected_bachelor_years:
+            bachelor_year = int(detected_bachelor_years[0])
+        else:
+            bachelor_year = random.randint(max(2014, start_year_global), min(2020, end_year_global))
 
     # Strict cap: Bachelor's graduation year CANNOT exceed 2020
     if bachelor_year > 2020:
@@ -587,6 +601,7 @@ def scrape_live_linkedin_candidates(
             title=item.get("title", ""),
             snippet=item.get("snippet", ""),
             query_category=clean_keyword,
+            target_bachelor_year=bachelor_year,
         )
         if not candidate:
             continue
@@ -601,10 +616,14 @@ def scrape_live_linkedin_candidates(
         if quality == "[STD] General Profile":
             continue
 
-        # 2. Filter strictly on Bachelor's year (<= 2020)
+        # 2. Filter strictly on Bachelor's year (<= 2020 and EXACT MATCH if specified)
         try:
             cand_bachelor_yr = int(candidate.get("bachelor_year") or candidate.get("grad_year") or 2018)
-            if cand_bachelor_yr > 2020 or not (start_year <= cand_bachelor_yr <= end_year):
+            if cand_bachelor_yr > 2020:
+                continue
+            if bachelor_year is not None and cand_bachelor_yr != int(bachelor_year):
+                continue
+            if not (start_year <= cand_bachelor_yr <= end_year):
                 continue
         except (ValueError, TypeError):
             pass

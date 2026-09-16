@@ -588,35 +588,7 @@ VERIFIED_REAL_TALENT_POOL = [
         "summary": "GITAM B.Tech (2018), University of Cincinnati Master's (2022). Experienced in financial operations modeling and automated ETL reporting.",
         "profile_url": "https://www.linkedin.com/in/venkata-sai-kumar/"
     },
-    {
-        "name": "Swathi Iyer",
-        "headline": "Product Data Analyst | A/B Testing, SQL, Mixpanel, Python, Tableau | STEM OPT",
-        "bachelor_year": "2019",
-        "bachelor_degree": "B.Tech in Computer Science",
-        "bachelor_college": "Anna University, India",
-        "master_year": "2023",
-        "master_degree": "M.S. in Data Analytics",
-        "master_university": "Santa Clara University, USA",
-        "grad_year": "2019",
-        "degree": "B.Tech CSE (Anna Univ 2019) -> M.S. (Santa Clara 2023)",
-        "university": "Santa Clara Univ (MS 2023) | Anna Univ (B.Tech 2019)",
-        "location": "San Jose, California, United States",
-        "status_tag": "OPT / STEM OPT (India to USA)",
-        "quality": "[IDEAL] B.Tech India (<=2020) + MS USA",
-        "has_indian_edu": True,
-        "has_us_masters": True,
-        "skills": [
-            "SQL",
-            "Python",
-            "Tableau",
-            "Mixpanel",
-            "Google Analytics",
-            "A/B Testing",
-            "Cohort Analysis"
-        ],
-        "summary": "Anna University B.Tech (2019), Santa Clara University MS in Data Analytics (2023). 5 years product funnel and user retention analysis.",
-        "profile_url": "https://www.linkedin.com/in/swathi-iyer/"
-    },
+    
     {
         "name": "Rohan Soin",
         "headline": "Senior DevOps / SRE Engineer | Kubernetes, Terraform, AWS, Docker | H1B",
@@ -1095,7 +1067,9 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
                     end_year=end_year,
                     location=location,
                     max_items=max_items,
-                    force_fresh=True
+                    force_fresh=True,
+                    bachelor_year=bachelor_year,
+                    college=college
                 )
                 live_results = future.result(timeout=25.0)
         except concurrent.futures.TimeoutError:

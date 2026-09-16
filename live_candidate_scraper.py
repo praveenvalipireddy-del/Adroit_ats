@@ -162,6 +162,9 @@ def build_rotating_queries(
     start_year: int,
     end_year: int,
     num_queries: int = 4,
+    bachelor_year: Optional[int] = None,
+    college: Optional[str] = None,
+    target_location: Optional[str] = None,
 ) -> List[str]:
     """
     SIMPLE but targeted queries that actually return results from DuckDuckGo.
@@ -180,27 +183,33 @@ def build_rotating_queries(
     us_cities = random.sample(US_CITY_POOL, min(num_queries * 2, len(US_CITY_POOL)))
     colleges = random.sample(TOP_INDIAN_COLLEGES, min(num_queries * 2, len(TOP_INDIAN_COLLEGES)))
 
+    clean_college = (college or "").strip()
+    if clean_college.lower() in ["all", "all colleges", "all indian colleges / universities", ""]:
+        clean_college = None
+
+    clean_loc = (target_location or "").strip()
+    if clean_loc.lower() in ["all", "united states", "united states (all)", "united states (all us)", "usa", ""]:
+        clean_loc = None
+
     for i in range(num_queries):
         role_term = _get_role_term(keyword)
-        us_city = us_cities[i % len(us_cities)]
-        college = colleges[i % len(colleges)]
+        us_city = clean_loc or us_cities[i % len(us_cities)]
+        chosen_college = clean_college or colleges[i % len(colleges)]
         strategy = i % 3
 
-        if strategy == 0:
-            # A: India B.Tech (<=2020) + US Master + Role
-            yr = random.choice(["2015", "2016", "2017", "2018", "2019", "2020"])
-            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} ("B.Tech" OR "B.E.") "{yr}" "Master" "{us_city}"'
+        target_yr = str(bachelor_year) if bachelor_year else random.choice(["2015", "2016", "2017", "2018", "2019", "2020"])
 
+        if clean_college and bachelor_year:
+            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} "{chosen_college}" ("B.Tech" OR "B.E.") "{target_yr}" ("Master" OR "MS") "{us_city}"'
+        elif strategy == 0:
+            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} ("B.Tech" OR "B.E.") "{target_yr}" ("Master" OR "MS") "{us_city}"'
         elif strategy == 1:
-            # B: Indian College + B.Tech + US Master
-            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} "{college}" "B.Tech" ("Master" OR "MS") "United States"'
-
+            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} "{chosen_college}" "B.Tech" ("Master" OR "MS") "{us_city}"'
         else:
-            # C: Role + India Engineering degree + US Master
-            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} ("B.Tech" OR "B.E.") "India" ("Master" OR "MS") "United States"'
+            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} ("B.Tech" OR "B.E.") "India" "{target_yr}" ("Master" OR "MS") "{us_city}"'
 
         queries.append(query)
-        logger.info(f"[Query {i+1} | Strategy {'ABC'[strategy]}] {query}")
+        logger.info(f"[Query {i+1}] {query}")
 
     return queries
 
@@ -519,6 +528,8 @@ def scrape_live_linkedin_candidates(
     location: str = "United States",
     max_items: int = 25,
     force_fresh: bool = True,
+    bachelor_year: Optional[int] = None,
+    college: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Returns LinkedIn profiles of professionals who:
@@ -537,7 +548,7 @@ def scrape_live_linkedin_candidates(
     logger.info(f"Scraping '{clean_keyword}' | B.Tech India + MS USA | {start_year}-{end_year}")
 
     num_queries = 2
-    queries = build_rotating_queries(clean_keyword, start_year, end_year, num_queries)
+    queries = build_rotating_queries(clean_keyword, start_year, end_year, num_queries, bachelor_year=bachelor_year, college=college, target_location=location)
 
     collected: List[Dict] = []
     seen_this_run: Set[str] = set()

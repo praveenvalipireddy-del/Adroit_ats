@@ -1538,12 +1538,12 @@ function initStudentsTab() {
     if (formSearch) {
         formSearch.addEventListener('submit', (e) => {
             e.preventDefault();
-            loadStudents(true);
+            loadStudents(false);
         });
     }
 
     if (btnFilter) {
-        btnFilter.addEventListener('click', () => loadStudents(true));
+        btnFilter.addEventListener('click', () => loadStudents(false));
     }
     if (btnScrape) {
         btnScrape.addEventListener('click', () => {

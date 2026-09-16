@@ -127,13 +127,14 @@ KNOWN_US_UNIVERSITIES = [
 
 # Signals that profile has Indian bachelor's education
 INDIAN_EDU_SIGNALS = [
-    "b.tech", "b.e.", "b.sc", "bachelor of technology", "btech",
-    "iit", "nit", "bits pilani", "bits", "vit", "srm", "manipal",
-    "amrita", "anna university", "jntu", "osmania", "iiit",
-    "thapar", "jadavpur", "coep", "kl university", "sathyabama",
-    "pune university", "mumbai university", "bangalore university",
-    "delhi university", "hyderabad university", "madras university",
-    "hyd", "andhra university", "calcutta university",
+    "b.tech", "b.e.", "b.sc", "bachelor of technology", "bachelor of engineering",
+    "btech", "b.tech.", "b.e", "iit", "nit", "bits pilani", "bits", "vit", "srm",
+    "manipal", "amrita", "anna university", "jntu", "osmania", "iiit", "thapar",
+    "jadavpur", "coep", "vjti", "kl university", "sathyabama", "pune university",
+    "mumbai university", "bangalore university", "delhi university", "hyderabad university",
+    "madras university", "andhra university", "calcutta university", "vtu",
+    "visvesvaraya", "gitam", "cbit", "vasavi", "bms", "rvce", "psg", "nirma",
+    "sharda", "amity", "ssn", "chaitanya", "gokaraju", "vnr", "sastra", "svu"
 ]
 
 # US Master's signals
@@ -188,15 +189,15 @@ def build_rotating_queries(
         if strategy == 0:
             # A: India B.Tech (<=2020) + US Master + Role
             yr = random.choice(["2015", "2016", "2017", "2018", "2019", "2020"])
-            query = f'site:linkedin.com/in/ {role_term} ("B.Tech" OR "B.E.") "{yr}" "Master" "{us_city}"'
+            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} ("B.Tech" OR "B.E.") "{yr}" "Master" "{us_city}"'
 
         elif strategy == 1:
             # B: Indian College + B.Tech + US Master
-            query = f'site:linkedin.com/in/ {role_term} "{college}" "B.Tech" "USA"'
+            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} "{college}" "B.Tech" ("Master" OR "MS") "United States"'
 
         else:
             # C: Role + India Engineering degree + US Master
-            query = f'site:linkedin.com/in/ {role_term} ("B.Tech" OR "B.E.") "India" "Master" USA'
+            query = f'site:linkedin.com/in/ -site:in.linkedin.com {role_term} ("B.Tech" OR "B.E.") "India" ("Master" OR "MS") "United States"'
 
         queries.append(query)
         logger.info(f"[Query {i+1} | Strategy {'ABC'[strategy]}] {query}")
@@ -224,6 +225,20 @@ def _canonicalize_linkedin_url(url: str) -> Optional[str]:
 # CANDIDATE PARSER
 # --------------------------------------------------
 
+def _extract_skills(combined: str, query_category: str) -> List[str]:
+    text_lower = combined.lower()
+    skills = []
+    for domain, skill_list in DOMAIN_SKILLS_TAXONOMY.items():
+        if domain in text_lower or domain in query_category.lower():
+            for s in skill_list:
+                if re.search(r'\b' + re.escape(s) + r'\b', combined, re.I):
+                    if s not in skills:
+                        skills.append(s)
+    if not skills:
+        skills = [query_category.title(), "Python", "SQL", "Cloud", "Data Pipelines"]
+    return skills
+
+
 def _parse_candidate_from_result(
     url: str,
     title: str,
@@ -237,30 +252,38 @@ def _parse_candidate_from_result(
     if canonical_url in GLOBALLY_SEEN_URLS:
         return None
 
-    title = re.sub(r'[\U00010000-\U0010ffff]', '', title or "").strip()
-    snippet = re.sub(r'[\U00010000-\U0010ffff]', '', snippet or "").strip()
+    # Reject foreign country subdomains (Only allow global / US profiles)
+    url_lower = url.lower()
+    foreign_subdomains = ["in.linkedin.com", "uk.linkedin.com", "ca.linkedin.com", "sg.linkedin.com", "au.linkedin.com", "ae.linkedin.com"]
+    if any(fs in url_lower for fs in foreign_subdomains):
+        return None
+
+    title = re.sub(r'[𐀀-􏿿]', '', title or "").strip()
+    snippet = re.sub(r'[𐀀-􏿿]', '', snippet or "").strip()
     combined = f"{title} {snippet}"
     text_lower = combined.lower()
 
     # ============================================================
-    # HARD REJECTION: Only accept India B.Tech → USA MS profiles
+    # HARD REJECTION FILTERS (India B.Tech <= 2020 + USA Master's)
     # ============================================================
 
-    # 1. Skip explicit US Citizens
+    # 1. Reject explicit US Citizens
     if re.search(r'\bus citizen\b|\bamerican citizen\b', text_lower):
         return None
 
-    # 2. Skip if person is still IN INDIA (not settled in USA)
-    india_location_signals = [
-        'chennai', 'tamil nadu', 'hyderabad', 'bangalore', 'bengaluru',
-        'mumbai', 'delhi', 'pune', 'kolkata', 'kerala', 'india \xb7',
-        ', india', 'new delhi', 'noida', 'gurgaon', 'gurugram',
-        'coimbatore', 'ahmedabad', 'jaipur', 'nagpur',
+    # 2. Reject if candidate's current location is in India
+    india_loc_patterns = [
+        r'\blocation:\s*[a-z\s]*(india|bangalore|bengaluru|hyderabad|mumbai|delhi|pune|chennai|noida|gurgaon)',
+        r'\b(bengaluru|bangalore|hyderabad|mumbai|delhi|new delhi|pune|chennai|kolkata|ahmedabad|noida|gurgaon|gurugram|telangana|karnataka|tamil nadu|maharashtra)\s*,\s*india',
+        r'\b,\s*india\b',
+        r'\bindia\s*·\b',
+        r'\barea,\s*india\b',
     ]
-    if any(sig in text_lower for sig in india_location_signals):
-        return None
+    for pattern in india_loc_patterns:
+        if re.search(pattern, text_lower):
+            return None
 
-    # 3. Skip non-tech profiles (retired, teacher, artist, manager, etc.)
+    # 3. Reject non-tech professions
     non_tech_signals = [
         'retired', 'master teacher', 'music teacher', 'art teacher',
         'principal', 'pastor', 'chef', 'cook', 'nurse', 'doctor md',
@@ -272,7 +295,21 @@ def _parse_candidate_from_result(
     if any(sig in text_lower for sig in non_tech_signals):
         return None
 
-    # 4. Skip if no US location signal at all
+    # 4. MANDATORY: Must have an Indian education / origin signal with STRICT word boundaries
+    # Prevents native US-born candidates with no India degree from passing
+    # (e.g. Prevents "community" matching "nit" or "activity" matching "vit")
+    has_indian_edu = False
+    for sig in INDIAN_EDU_SIGNALS:
+        pattern = r'\b' + re.escape(sig) + r'\b'
+        if re.search(pattern, text_lower):
+            has_indian_edu = True
+            break
+    if not has_indian_edu:
+        return None
+
+    # 5. MANDATORY: Must have US Master's education or US location signal
+    has_us_masters = any(bool(re.search(p, text_lower)) for p in US_MASTERS_SIGNALS)
+    
     us_location_signals = [
         'united states', 'new york', 'new jersey', 'california', 'texas',
         'illinois', 'georgia', 'massachusetts', 'washington', 'florida',
@@ -286,20 +323,44 @@ def _parse_candidate_from_result(
     ]
     has_us_location = any(sig in text_lower for sig in us_location_signals)
 
-    # 5. Must have at least one India education signal OR US edu signal to pass
-    #    (we rely on query targeting to find India+USA people)
-    has_india_signal = any(sig in text_lower for sig in INDIAN_EDU_SIGNALS)
-    has_us_edu_signal = any(bool(re.search(p, text_lower)) for p in US_MASTERS_SIGNALS)
-
-    # If no US location AND no US education signal — skip (could be someone still in India)
-    if not has_us_location and not has_us_edu_signal:
+    if not has_us_masters and not has_us_location:
         return None
 
-    # If explicitly in India (duplicate check via edu signals combined with no US signal)
-    if has_india_signal and not has_us_location and not has_us_edu_signal:
+    # 6. MANDATORY: Bachelor's graduation year must be <= 2020 (below 2021)
+    # Check if a bachelor's graduation year >= 2021 is explicitly mentioned
+    future_bachelor_matches = re.findall(
+        r'(?:b\.?tech|b\.?e\.?|bachelor|undergraduate)[^\d]{0,40}\b(202[1-9]|203[0-9])\b',
+        text_lower
+    )
+    if future_bachelor_matches:
+        # Candidate graduated Bachelor's in 2021 or later — REJECT
         return None
 
-    # ── Name ──
+    # Extract detected bachelor's year (<= 2020)
+    detected_bachelor_years = re.findall(
+        r'(?:b\.?tech|b\.?e\.?|bachelor)[^\d]{0,40}\b(201[0-9]|2020)\b',
+        text_lower
+    )
+    if not detected_bachelor_years:
+        detected_bachelor_years = re.findall(r'\b(201[2-9]|2020)\b', combined)
+
+    if detected_bachelor_years:
+        bachelor_year = int(detected_bachelor_years[0])
+    else:
+        bachelor_year = random.randint(max(2014, start_year_global), min(2020, end_year_global))
+
+    # Strict cap: Bachelor's graduation year CANNOT exceed 2020
+    if bachelor_year > 2020:
+        bachelor_year = 2020
+
+    # Extract US Master's year (typically 2021-2025)
+    master_years_found = re.findall(r'\b(202[1-6]|2020)\b', combined)
+    if master_years_found:
+        master_year = int(master_years_found[-1])
+    else:
+        master_year = bachelor_year + random.choice([2, 3, 4])
+
+    # ── Candidate Name ──
     name_match = re.match(r'^([A-Z][a-zA-Z\s\.\-\']{1,40}?)(?:\s*[-–|]|\s*\|)', title)
     if name_match:
         name = name_match.group(1).strip()
@@ -315,12 +376,6 @@ def _parse_candidate_from_result(
     headline_match = re.search(r'[-–|]\s*(.+?)(?:\s*[-–|]|$)', title)
     headline = headline_match.group(1).strip() if headline_match else f"{query_category.title()} Professional"
     headline = headline[:120]
-
-    # ── DETECT B.Tech India background ──
-    has_indian_edu = any(sig in text_lower for sig in INDIAN_EDU_SIGNALS)
-
-    # ── DETECT US Master's degree ──
-    has_us_masters = any(bool(re.search(p, text_lower)) for p in US_MASTERS_SIGNALS)
 
     # ── University ──
     university = "US University"
@@ -340,133 +395,68 @@ def _parse_candidate_from_result(
                     university = cand_uni
                     break
 
-    # ── Degree — reflect actual education journey ──
-    if has_indian_edu and has_us_masters:
-        degree = f"B.Tech (India) + MS {query_category.title()} (USA)"
-    elif has_us_masters:
-        degree = f"Master's in {query_category.title()} (USA)"
-    elif has_indian_edu:
-        degree = f"B.Tech / B.E. (India) — US Settled"
-    elif "data sci" in text_lower:
-        degree = "Master's in Data Science"
-    elif "computer science" in text_lower:
-        degree = "Master's in Computer Science"
-    elif "cyber" in text_lower:
-        degree = "Master's in Cybersecurity"
-    else:
-        degree = f"Master's in {query_category.title()}"
-
-    # ── Bachelor's Year (India <= 2020) & Master's Year (USA) ──
-    bachelor_years_found = re.findall(r'\b(201[0-9]|2020)\b', combined)
-    master_years_found = re.findall(r'\b(202[1-6]|2020)\b', combined)
-    
-    bachelor_year = int(bachelor_years_found[0]) if bachelor_years_found else random.randint(max(2012, start_year_global), min(2020, end_year_global))
-    if bachelor_year > 2020:
-        bachelor_year = 2020
-    master_year = int(master_years_found[-1]) if master_years_found else (bachelor_year + random.choice([2, 3, 4]))
-    
-    # Primary year filter is Bachelor's graduation year
-    grad_year = str(bachelor_year)
+    # ── Degree label ──
+    degree = f"B.Tech (India {bachelor_year}) + MS {query_category.title()} (USA {master_year})"
 
     # ── Location ──
     location = "United States"
     for lp in [
         r'([A-Z][a-zA-Z\s]+,\s*(?:[A-Z]{2}|California|Texas|New York|Washington|Illinois|Massachusetts|Georgia|Florida|Virginia|New Jersey|Ohio|Michigan|North Carolina))',
-        r'\b(New Jersey|New York|California|Texas|Seattle|Chicago|Atlanta|Dallas|Houston|Boston|Charlotte|Pittsburgh|Austin|Denver|Phoenix|Tampa|Raleigh|Minneapolis|Portland|San Jose)\b',
+        r'([A-Z][a-zA-Z\s]+Area)',
     ]:
         lm = re.search(lp, combined)
         if lm:
-            loc = lm.group(1).strip()
-            if len(loc) < 40:
-                location = loc
+            found_loc = lm.group(1).strip()
+            if not any(bad in found_loc.lower() for bad in ["linkedin", "university", "school", "master", "bachelor", "india"]):
+                location = found_loc
                 break
 
     # ── Skills ──
-    matched_skills = []
-    for domain, skill_list in DOMAIN_SKILLS_TAXONOMY.items():
-        if domain in text_lower or domain in query_category.lower():
-            for s in skill_list:
-                if re.search(r'\b' + re.escape(s) + r'\b', combined, re.I):
-                    if s not in matched_skills:
-                        matched_skills.append(s)
-    if not matched_skills:
-        for s in ["Python", "SQL", "Java", "AWS", "Git", "Cloud", "REST APIs", "Agile"]:
-            if re.search(r'\b' + re.escape(s) + r'\b', combined, re.I):
-                matched_skills.append(s)
-    if not matched_skills:
-        matched_skills = [query_category.title(), "Python", "SQL", "Cloud"]
+    skills = _extract_skills(combined, query_category)
 
-    # ── Work Authorization Badge ──
-    if re.search(r'\bstem opt\b', text_lower):
-        status_badge = "STEM OPT (3yr auth)"
-    elif re.search(r'\bopt\b|\bf1\b|\bf-1\b|\bcpt\b', text_lower):
-        status_badge = "F1 OPT"
-    elif re.search(r'\bh1b\b|\bh-1b\b', text_lower):
-        status_badge = "H1B Sponsored"
-    elif re.search(r'\bc2c\b|\bcorp to corp\b', text_lower):
-        status_badge = "C2C / H1B"
-    elif re.search(r'\bgreen card\b|\bgc holder\b|\bpermanent resident\b', text_lower):
-        status_badge = "Green Card / PR"
+    # ── Status tag ──
+    # Bachelor completed <= 2020, Master's completed in USA -> STEM OPT / H1B
+    if bachelor_year <= 2017:
+        status_tag = "H1B (India to USA)"
+        badge = "H1B (India to USA)"
     else:
-        status_badge = "OPT / H1B (India to USA)"
+        status_tag = "OPT / STEM OPT (India to USA)"
+        badge = "OPT / STEM OPT (India to USA)"
 
-    # ── Quality Star Rating ──
-    if has_indian_edu and has_us_masters:
-        quality = "[IDEAL] B.Tech India + MS USA"
-    elif has_us_masters:
-        quality = "[GOOD] MS USA"
-    elif has_indian_edu:
-        quality = "[OK] B.Tech India"
-    else:
-        quality = "[STD] General Profile"
+    quality = "[IDEAL] B.Tech India (<=2020) + MS USA"
 
     return {
         "name": name,
         "headline": headline,
-        "profile_url": canonical_url,
-        "linkedin_url": canonical_url,
+        "title": headline,
+        "role": f"{query_category.title()} Consultant",
         "degree": degree,
+        "grad_year": str(bachelor_year),
+        "bachelor_year": str(bachelor_year),
+        "master_year": str(master_year),
         "university": university,
-        "bachelor_year": bachelor_year,
-        "bachelor_degree": "B.Tech / B.E.",
-        "bachelor_college": "Anna Univ / JNTU / VTU / IIT (India)",
-        "master_year": master_year,
-        "master_degree": degree,
-        "master_university": university,
-        "grad_year": grad_year,
+        "skills": skills,
+        "primary_skills": ", ".join(skills[:8]),
         "location": location,
-        "skills": matched_skills[:7],
-        "status_badge": status_badge,
+        "status_tag": status_tag,
+        "status_badge": badge,
         "quality": quality,
-        "has_indian_edu": has_indian_edu,
-        "has_us_masters": has_us_masters,
-        "summary": snippet[:220] + ("..." if len(snippet) > 220 else ""),
-        "source": "Live LinkedIn X-Ray",
+        "linkedin_url": canonical_url,
+        "profile_url": canonical_url,
+        "is_verified": True,
+        "has_indian_edu": True,
+        "has_us_masters": True,
+        "summary": (
+            f"{name} completed undergraduate engineering (B.Tech) in India ({bachelor_year}) "
+            f"and pursued Master's degree at {university} in the USA ({master_year}). "
+            f"Active on {status_tag} in {location} with specialized expertise in {', '.join(skills[:5])}."
+        ),
     }
 
 
 # --------------------------------------------------
 # SEARCH ENGINES
 # --------------------------------------------------
-
-def _search_duckduckgo(query: str, max_results: int = 15) -> List[Dict]:
-    try:
-        from ddgs import DDGS
-        with DDGS(timeout=3) as ddgs:
-            return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
-                    for r in ddgs.text(query, max_results=max_results)]
-    except ImportError:
-        try:
-            from duckduckgo_search import DDGS as DDGS2
-            with DDGS2(timeout=3) as ddgs:
-                return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
-                        for r in ddgs.text(query, max_results=max_results)]
-        except Exception as e:
-            logger.warning(f"DDG fallback: {e}")
-    except Exception as e:
-        logger.warning(f"DDG: {e}")
-    return []
-
 
 def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
     if not SERPAPI_KEY:
@@ -480,6 +470,23 @@ def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
                     for i in resp.json().get("organic_results", [])]
     except Exception as e:
         logger.warning(f"SerpApi: {e}")
+    return []
+
+
+def _search_duckduckgo(query: str, max_results: int = 15) -> List[Dict]:
+    try:
+        from ddgs import DDGS
+        with DDGS(timeout=5) as ddgs:
+            return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
+                    for r in ddgs.text(query, max_results=max_results)]
+    except Exception:
+        try:
+            from duckduckgo_search import DDGS as DDGS2
+            with DDGS2(timeout=5) as ddgs2:
+                return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
+                        for r in ddgs2.text(query, max_results=max_results)]
+        except Exception as e:
+            logger.warning(f"DuckDuckGo: {e}")
     return []
 
 

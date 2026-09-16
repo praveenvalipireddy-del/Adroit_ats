@@ -15,3 +15,5 @@ services:
         value: your_apify_token_here
       - key: SERPAPI_KEY
         value: 9d401009a7f2e0ce89b92baaf0b7613bd440e43a198ee34327cc8ef5a8775773
+      - key: DATABASE_URL
+        value: postgresql://adroit_ats_db_user:YJ7x1p7haORj7wHSrjWYPClpqRupUg7P@dpg-dal8u82jnfac73cse810-a/adroit_ats_db

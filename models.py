@@ -9,10 +9,140 @@ import json
 from datetime import datetime
 import config
 
+
+class DbRow(dict):
+    """Row wrapper compatible with both SQLite Row and psycopg2 tuple/dict access."""
+    def __init__(self, col_names, row_tuple):
+        super().__init__(zip(col_names, row_tuple))
+        self._tuple = row_tuple
+        self._col_names = col_names
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._tuple[key]
+        return super().__getitem__(key)
+
+
+class PgCursorWrapper:
+    def __init__(self, cursor, conn):
+        self._cursor = cursor
+        self._conn = conn
+        self.lastrowid = None
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    def _adapt_query(self, sql):
+        s = sql.strip()
+        is_insert = bool(re.match(r'^\s*INSERT\s+INTO\s+', s, re.IGNORECASE))
+        has_returning = bool(re.search(r'\bRETURNING\b', s, re.IGNORECASE))
+
+        # Convert SQLite AUTOINCREMENT to Postgres SERIAL
+        s = re.sub(r'id\s+INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT', 'id SERIAL PRIMARY KEY', s, flags=re.IGNORECASE)
+        # Convert parameter placeholders ? to %s
+        s = s.replace('?', '%s')
+
+        append_returning = is_insert and not has_returning
+        if append_returning:
+            if s.endswith(';'):
+                s = s[:-1].strip()
+            s += ' RETURNING id'
+
+        return s, append_returning
+
+    def execute(self, sql, params=None):
+        adapted_sql, append_returning = self._adapt_query(sql)
+        try:
+            if params is not None:
+                self._cursor.execute(adapted_sql, params)
+            else:
+                self._cursor.execute(adapted_sql)
+        except Exception:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            raise
+
+        if append_returning:
+            try:
+                row = self._cursor.fetchone()
+                if row:
+                    self.lastrowid = row[0]
+            except Exception:
+                self.lastrowid = None
+        else:
+            self.lastrowid = None
+
+        return self
+
+    def executemany(self, sql, seq_of_params):
+        adapted_sql, _ = self._adapt_query(sql)
+        try:
+            self._cursor.executemany(adapted_sql, seq_of_params)
+        except Exception:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
+            raise
+        return self
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        col_names = [desc[0] for desc in self._cursor.description]
+        return DbRow(col_names, row)
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        if not rows:
+            return []
+        col_names = [desc[0] for desc in self._cursor.description]
+        return [DbRow(col_names, r) for r in rows]
+
+    def close(self):
+        self._cursor.close()
+
+
+class PgConnectionWrapper:
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def cursor(self):
+        return PgCursorWrapper(self._conn.cursor(), self._conn)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
+def is_postgres(conn):
+    return isinstance(conn, PgConnectionWrapper)
+
+
 def get_db_connection():
+    # If DATABASE_URL is configured (Render PostgreSQL), connect via psycopg2
+    if getattr(config, "DATABASE_URL", None):
+        try:
+            import psycopg2
+            raw_conn = psycopg2.connect(config.DATABASE_URL)
+            return PgConnectionWrapper(raw_conn)
+        except Exception as e:
+            print(f"[WARN] Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
+
+    # Local development fallback: SQLite
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     conn = get_db_connection()
@@ -126,12 +256,20 @@ def init_db():
     conn.close()
 
 def migrate_db(conn):
-    """Automatically adds missing columns to existing SQLite tables."""
+    """Automatically adds missing columns to existing SQLite or Postgres tables."""
     cursor = conn.cursor()
+    use_pg = is_postgres(conn)
+
+    def get_existing_cols(table_name):
+        if use_pg:
+            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table_name,))
+            return [row[0].lower() for row in cursor.fetchall()]
+        else:
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            return [row[1].lower() for row in cursor.fetchall()]
 
     # Candidate table columns
-    cursor.execute("PRAGMA table_info(candidates)")
-    c_cols = [row[1] for row in cursor.fetchall()]
+    c_cols = get_existing_cols("candidates")
     candidate_new_cols = {
         "visa_status": "TEXT DEFAULT 'C2C Eligible'",
         "resume_filename": "TEXT",
@@ -142,12 +280,14 @@ def migrate_db(conn):
         "gmail_app_password": "TEXT"
     }
     for col, c_type in candidate_new_cols.items():
-        if col not in c_cols:
-            cursor.execute(f"ALTER TABLE candidates ADD COLUMN {col} {c_type}")
+        if col.lower() not in c_cols:
+            try:
+                cursor.execute(f"ALTER TABLE candidates ADD COLUMN {col} {c_type}")
+            except Exception:
+                pass
 
     # Jobs table columns
-    cursor.execute("PRAGMA table_info(jobs)")
-    j_cols = [row[1] for row in cursor.fetchall()]
+    j_cols = get_existing_cols("jobs")
     job_new_cols = {
         "recruiter_email": "TEXT",
         "recruiter_phone": "TEXT",
@@ -157,19 +297,24 @@ def migrate_db(conn):
         "scraped_at": "TEXT"
     }
     for col, c_type in job_new_cols.items():
-        if col not in j_cols:
-            cursor.execute(f"ALTER TABLE jobs ADD COLUMN {col} {c_type}")
+        if col.lower() not in j_cols:
+            try:
+                cursor.execute(f"ALTER TABLE jobs ADD COLUMN {col} {c_type}")
+            except Exception:
+                pass
 
     # Applications table columns
-    cursor.execute("PRAGMA table_info(applications)")
-    a_cols = [row[1] for row in cursor.fetchall()]
+    a_cols = get_existing_cols("applications")
     app_new_cols = {
         "draft_id": "TEXT",
         "drafted_at": "TEXT"
     }
     for col, c_type in app_new_cols.items():
-        if col not in a_cols:
-            cursor.execute(f"ALTER TABLE applications ADD COLUMN {col} {c_type}")
+        if col.lower() not in a_cols:
+            try:
+                cursor.execute(f"ALTER TABLE applications ADD COLUMN {col} {c_type}")
+            except Exception:
+                pass
 
     conn.commit()
 

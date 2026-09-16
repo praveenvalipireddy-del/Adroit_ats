@@ -29,6 +29,9 @@ APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 
 # --- Database ---
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "ats.db"))
 
 # --- SerpAPI (Google SERP scraper for LinkedIn) ---

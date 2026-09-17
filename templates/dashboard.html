@@ -194,7 +194,7 @@
                     <div class="view-header" style="margin-bottom: 24px;">
                         <div class="view-title">
                             <h2>🎓 US Bench Sourcing: India Bachelor's (≤2020) + USA Master's</h2>
-                            <p>Recruiter Pipeline: Engineers who completed Bachelor's in India in 2020 or earlier (4–10+ yrs tech experience) and pursued Master's in the USA (OPT / STEM OPT / H1B)</p>
+                            <p>Recruiter Pipeline: Engineers who completed Bachelor's in India in that EXACT year (e.g. 2020) (4–10+ yrs tech experience) and pursued Master's in the USA (OPT / STEM OPT / H1B)</p>
                         </div>
                         <div class="view-actions" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
                             <button id="btn-open-live-linkedin" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px; background: rgba(14, 118, 168, 0.25); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);">
@@ -339,26 +339,29 @@
                                 </div>
                             </div>
 
-                            <!-- Quick Preset Filter Chips: Bachelor <= 2020 in India + USA Masters -->
+                            <!-- Quick Preset Filter Chips: 100% Strict 2020 B.Tech Passouts -->
                             <div style="display:flex; gap:8px; margin-top:16px; align-items:center; flex-wrap:wrap;">
-                                <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick Presets:</span>
+                                <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick 2020 Roles:</span>
                                 <button type="button" onclick="setPresetFilter('all', '2020')" class="btn-preset active" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); cursor:pointer; font-weight:600;">
-                                    🎓 2020 B.Tech Passout
-                                </button>
-                                <button type="button" onclick="setPresetFilter('all', '2019')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(16,185,129,0.15); color:#6ee7b7; border:1px solid rgba(16,185,129,0.3); cursor:pointer; font-weight:600;">
-                                    ⚡ 2019 B.Tech Passout
-                                </button>
-                                <button type="button" onclick="setPresetFilter('all', '2018')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(59,130,246,0.15); color:#93c5fd; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-weight:600;">
-                                    💼 2018 B.Tech Passout
+                                    🎓 All 2020 Passouts
                                 </button>
                                 <button type="button" onclick="setPresetFilter('Java Developer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
                                     ☕ Java / Full Stack (2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Data Science', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                <button type="button" onclick="setPresetFilter('Python Developer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    🐍 Python & Cloud (2020)
+                                </button>
+                                <button type="button" onclick="setPresetFilter('Data Engineer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
                                     📊 Data & AI/ML (2020)
                                 </button>
                                 <button type="button" onclick="setPresetFilter('DevOps AWS', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
                                     ☁️ Cloud / DevOps (2020)
+                                </button>
+                                <button type="button" onclick="setPresetFilter('React Developer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    ⚡ React / UI (2020)
+                                </button>
+                                <button type="button" onclick="setPresetFilter('Salesforce', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    💼 Salesforce / CRM (2020)
                                 </button>
                             </div>
                         </form>
@@ -372,7 +375,7 @@
                                     <tr style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color, #2d3348);">
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Candidate Name</th>
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">India Bachelor's & US Master's</th>
-                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; text-align:center;">India B.Tech Year (≤2020)</th>
+                                        <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; text-align:center;">India B.Tech Year (Exact Match)</th>
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">US University</th>
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">US Location</th>
                                         <th style="padding: 14px 16px; font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Status / Intent</th>
@@ -762,6 +765,6 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=3.2.0"></script>
+    <script src="/static/js/app.js?v=3.3.0"></script>
 </body>
 </html>

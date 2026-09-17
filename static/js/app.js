@@ -1286,6 +1286,17 @@ function renderStudentsGrid(candidates) {
     const tbody = document.getElementById('students-table-body');
     if (!tbody) return;
 
+    // Strict Double-Lock: ensure only exact target year is rendered
+    const byInput = document.getElementById('filter-student-bachelor-year')?.value?.trim();
+    const yearMatch = byInput ? byInput.match(/\b(19\d\d|20\d\d)\b/) : null;
+    if (yearMatch && candidates && candidates.length > 0) {
+        const targetYear = yearMatch[1];
+        candidates = candidates.filter(c => {
+            const candYear = String(c.bachelor_year || c.grad_year || '');
+            return candYear === targetYear;
+        });
+    }
+
     if (!candidates || candidates.length === 0) {
         tbody.innerHTML = `
             <tr>
@@ -1315,7 +1326,7 @@ function renderStudentsGrid(candidates) {
         const googleLiUrl = `https://www.google.com/search?q=site:linkedin.com/in/+${encodeURIComponent('"' + cleanName + '"')}+USA`;
         const initials = (c.name || 'US').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
-        const bTechYear = c.bachelor_year || c.grad_year || '2019';
+        const bTechYear = c.bachelor_year || c.grad_year || '2020';
         const bTechCollege = c.bachelor_college || 'India Accredited College';
         const bTechDegree = c.bachelor_degree || 'B.Tech / B.E.';
 

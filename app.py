@@ -845,11 +845,12 @@ def api_search_students():
     category = data.get("category", "all")
     intent = data.get("intent", "ready_to_market")
     
-    # Specific Bachelor's passed-out year in India
+    # Specific Bachelor's passed-out year in India (STRICT EXACT MATCH)
     raw_by = str(data.get("bachelor_year") or data.get("year") or "").strip()
     bachelor_year = None
-    if raw_by and raw_by.isdigit():
-        bachelor_year = min(2020, int(raw_by))
+    year_match = re.search(r'\b(19\d\d|20\d\d)\b', raw_by)
+    if year_match:
+        bachelor_year = min(2020, int(year_match.group(1)))
         start_year = bachelor_year
         end_year = bachelor_year
     else:

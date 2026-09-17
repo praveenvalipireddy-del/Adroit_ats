@@ -1665,7 +1665,13 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
     # Supplement or instant return with verified pool
     pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year, bachelor_year=bachelor_year, college=college)
     for c in pool_candidates:
-        c["profile_url"] = c.get("profile_url") or c.get("linkedin_url") or ("https://www.linkedin.com/search/results/people/?keywords=" + urllib.parse.quote_plus(c.get("name", "Tech") + " US"))
+        p_url = (c.get("profile_url") or c.get("linkedin_url") or "").strip()
+        name = c.get("name", "Consultant")
+        by = c.get("bachelor_year", "2020")
+        # If url is a synthetic guessed handle, replace with targeted Google X-Ray search to prevent 404
+        is_verified = any(h in p_url for h in ["utkarshpant", "swarnita-venkatraman", "sindhushajallepalli", "yatish-sikka-4b8197219", "agila-senthil", "laasya-priya-jyesta-a05679241", "divyajyoti-panda", "saipriya-reddy-turpu-b3a9962b7"])
+        if not is_verified:
+            c["profile_url"] = f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(name)}%22+%22{by}%22+USA"
         c["linkedin_url"] = c["profile_url"]
         if not c.get("quality"):
             c["quality"] = "[IDEAL] B.Tech India + MS USA"

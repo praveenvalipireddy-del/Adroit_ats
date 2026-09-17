@@ -1528,6 +1528,119 @@ function exportStudentsCSV() {
 }
 window.exportStudentsCSV = exportStudentsCSV;
 
+
+// =========================================================================
+// Path A: Google X-Ray & Live Recruiter Search Engine
+// =========================================================================
+function buildXRayQuery() {
+    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
+    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
+    const col = document.getElementById('filter-student-college')?.value?.trim() || 'All';
+    const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
+
+    const yearMatch = by.match(/\b(19\d\d|20\d\d)\b/);
+    const targetYear = yearMatch ? yearMatch[1] : '2020';
+
+    const parts = ['site:linkedin.com/in/', '-site:in.linkedin.com'];
+
+    if (kw && kw.toLowerCase() !== 'all') {
+        parts.push(`"${kw}"`);
+    }
+
+    parts.push('("B.Tech" OR "B.E.")');
+    parts.push(`"${targetYear}"`);
+    parts.push('("Master" OR "MS" OR "M.S.")');
+
+    if (col && !['all', 'all colleges', 'all indian colleges / universities'].includes(col.toLowerCase())) {
+        parts.push(`"${col}"`);
+    }
+
+    if (loc && !['all', 'united states', 'united states (all)', 'usa'].includes(loc.toLowerCase())) {
+        const cleanLoc = loc.split(/[,/()]/)[0].trim();
+        if (cleanLoc) parts.push(`"${cleanLoc}"`);
+    } else {
+        parts.push('"United States"');
+    }
+
+    const queryStr = parts.join(' ');
+    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(queryStr)}`;
+    const linkedinUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(kw + ' B.Tech ' + targetYear + ' Master USA')}&origin=GLOBAL_SEARCH_HEADER`;
+
+    return { queryStr, googleUrl, linkedinUrl };
+}
+
+function launchLiveXRaySearch() {
+    const { queryStr, googleUrl } = buildXRayQuery();
+    showToast(`Launching Live Google X-Ray for 2020 Passouts...`, 'info');
+    window.open(googleUrl, '_blank');
+}
+
+function launchLiveLinkedInSearch() {
+    const { linkedinUrl } = buildXRayQuery();
+    showToast(`Launching Direct LinkedIn Talent Search...`, 'info');
+    window.open(linkedinUrl, '_blank');
+}
+
+function openQuickImportModal() {
+    const modal = document.getElementById('modal-quick-import-candidate');
+    if (modal) {
+        modal.style.display = 'flex';
+        const urlInput = document.getElementById('import-cand-linkedin');
+        if (urlInput) urlInput.focus();
+    }
+}
+
+function closeQuickImportModal() {
+    const modal = document.getElementById('modal-quick-import-candidate');
+    if (modal) modal.style.display = 'none';
+}
+
+async function submitQuickImport(e) {
+    e.preventDefault();
+    const linkedinUrl = document.getElementById('import-cand-linkedin')?.value?.trim();
+    const name = document.getElementById('import-cand-name')?.value?.trim();
+    const year = document.getElementById('import-cand-year')?.value?.trim() || '2020';
+    const headline = document.getElementById('import-cand-headline')?.value?.trim() || 'Technical Consultant';
+    const location = document.getElementById('import-cand-location')?.value?.trim() || 'United States';
+    const education = document.getElementById('import-cand-education')?.value?.trim() || 'B.Tech India -> MS USA';
+
+    if (!name || !linkedinUrl) {
+        showToast('Name and LinkedIn URL are required.', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/students/add-to-bench', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                headline: headline,
+                resume_filename: linkedinUrl,
+                linkedin_url: linkedinUrl,
+                grad_year: year,
+                bachelor_year: year,
+                location: location,
+                university: education,
+                summary: `Imported from LinkedIn (${linkedinUrl}). India B.Tech Passout ${year}, Master's in USA.`
+            })
+        });
+
+        if (res.ok) {
+            showToast(`Candidate ${name} successfully added to Active Bench!`, 'success');
+            closeQuickImportModal();
+            document.getElementById('form-quick-import-candidate')?.reset();
+            // Reload candidates table so newly imported profile appears at top
+            loadStudents(false);
+        } else {
+            showToast('Failed to save candidate to bench.', 'error');
+        }
+    } catch (err) {
+        console.error('Import error:', err);
+        showToast('Error importing candidate: ' + err.message, 'error');
+    }
+}
+
 function initStudentsTab() {
     const btnFilter = document.getElementById('btn-apply-student-filter');
     const formSearch = document.getElementById('form-student-search');
@@ -1538,13 +1651,29 @@ function initStudentsTab() {
     const btnCopyPitch = document.getElementById('btn-copy-pitch');
     const kwInput = document.getElementById('filter-student-keyword');
 
+    const btnXRay = document.getElementById('btn-open-live-xray');
+    if (btnXRay) {
+        btnXRay.addEventListener('click', launchLiveXRaySearch);
+    }
     const btnLiveLi = document.getElementById('btn-open-live-linkedin');
     if (btnLiveLi) {
-        btnLiveLi.addEventListener('click', () => {
-            const kw = kwInput ? kwInput.value.trim() : 'Computer Science';
-            const liUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(kw)}&origin=GLOBAL_SEARCH_HEADER`;
-            window.open(liUrl, '_blank');
-        });
+        btnLiveLi.addEventListener('click', launchLiveLinkedInSearch);
+    }
+    const btnQuickImport = document.getElementById('btn-open-quick-import');
+    if (btnQuickImport) {
+        btnQuickImport.addEventListener('click', openQuickImportModal);
+    }
+    const btnCloseImport = document.getElementById('btn-close-import-modal');
+    if (btnCloseImport) {
+        btnCloseImport.addEventListener('click', closeQuickImportModal);
+    }
+    const btnCancelImport = document.getElementById('btn-cancel-import');
+    if (btnCancelImport) {
+        btnCancelImport.addEventListener('click', closeQuickImportModal);
+    }
+    const formImport = document.getElementById('form-quick-import-candidate');
+    if (formImport) {
+        formImport.addEventListener('submit', submitQuickImport);
     }
 
     if (formSearch) {
@@ -1643,3 +1772,10 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 }
+
+window.buildXRayQuery = buildXRayQuery;
+window.launchLiveXRaySearch = launchLiveXRaySearch;
+window.launchLiveLinkedInSearch = launchLiveLinkedInSearch;
+window.openQuickImportModal = openQuickImportModal;
+window.closeQuickImportModal = closeQuickImportModal;
+window.submitQuickImport = submitQuickImport;

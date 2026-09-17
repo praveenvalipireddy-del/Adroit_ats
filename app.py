@@ -878,6 +878,49 @@ def api_search_students():
         college=college
     )
 
+    # Prepend any candidates saved to database by the recruiter
+    try:
+        db_cands = models.get_candidates()
+        bench_imported = []
+        for db_c in db_cands:
+            # Check if matching target year
+            c_summary = str(db_c.get("resume_summary") or "")
+            c_skills = str(db_c.get("primary_skills") or "")
+            c_title = str(db_c.get("title") or "")
+            c_year = "2020"
+            y_match = re.search(r'\b(19\d\d|20\d\d)\b', c_summary + " " + c_skills + " " + c_title)
+            if y_match:
+                c_year = y_match.group(1)
+
+            if bachelor_year is None or int(c_year) == int(bachelor_year):
+                bench_imported.append({
+                    "id": db_c.get("id"),
+                    "name": db_c.get("name"),
+                    "headline": db_c.get("title") or "Technical Consultant",
+                    "bachelor_year": c_year,
+                    "grad_year": c_year,
+                    "bachelor_degree": "B.Tech in Computer Science / IT",
+                    "bachelor_college": "Accredited College, India",
+                    "master_degree": "M.S. in Tech (USA)",
+                    "master_university": "US University",
+                    "location": db_c.get("location") or "United States",
+                    "status_badge": "⭐ Bench - Added by Recruiter",
+                    "status_tag": "⭐ Bench - Added by Recruiter",
+                    "quality": "[BENCH] Imported Candidate",
+                    "degree": f"B.Tech India ({c_year}) -> MS USA",
+                    "profile_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
+                    "linkedin_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
+                    "is_imported": True
+                })
+        # Prepend imported candidates
+        seen_names = set(c.get("name", "").lower() for c in bench_imported)
+        for cand in candidates:
+            if cand.get("name", "").lower() not in seen_names:
+                bench_imported.append(cand)
+        candidates = bench_imported
+    except Exception as ex:
+        logger.warning(f"Error fetching imported candidates: {ex}")
+
     return jsonify({
         "status": "success",
         "count": len(candidates),

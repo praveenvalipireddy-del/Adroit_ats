@@ -196,18 +196,21 @@
                             <h2>🎓 US Bench Sourcing: India Bachelor's (≤2020) + USA Master's</h2>
                             <p>Recruiter Pipeline: Engineers who completed Bachelor's in India in that EXACT year (e.g. 2020) (4–10+ yrs tech experience) and pursued Master's in the USA (OPT / STEM OPT / H1B)</p>
                         </div>
-                        <div class="view-actions" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-                            <button id="btn-open-live-linkedin" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px; background: rgba(14, 118, 168, 0.25); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.2V10.9H6.46M7.83 6.27a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/></svg>
-                                🌐 Open Live LinkedIn Search
+                        <div class="view-actions" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <button type="button" id="btn-open-live-xray" class="btn btn-primary" style="display:flex; align-items:center; gap:8px; background:linear-gradient(135deg, #4f46e5, #06b6d4); border:none; font-weight:700; box-shadow:0 4px 14px rgba(79,70,229,0.4);">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                🔍 Live Google X-Ray (2020)
                             </button>
-                            <button id="btn-export-students-csv" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px;">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                Export to Excel (.CSV)
+                            <button type="button" id="btn-open-live-linkedin" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px; background:rgba(10,102,194,0.2); color:#38bdf8; border:1px solid rgba(10,102,194,0.5);">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.2V10.9H6.46M7.83 6.27a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/></svg>
+                                💼 Live LinkedIn Search
                             </button>
-                            <button id="btn-trigger-students-scrape" class="btn btn-primary" style="display:flex; align-items:center; gap:8px; background:linear-gradient(135deg, #8b5cf6, #6366f1); border:none; box-shadow:0 4px 14px rgba(99,102,241,0.4);">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                                ⚡ Run LinkedIn Scrape
+                            <button type="button" id="btn-open-quick-import" class="btn btn-success" style="display:flex; align-items:center; gap:8px; background:linear-gradient(135deg, #10b981, #059669); border:none; font-weight:700; box-shadow:0 4px 14px rgba(16,185,129,0.35);">
+                                <span>➕</span> Quick Import Candidate
+                            </button>
+                            <button type="button" id="btn-export-students-csv" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px; border:1px solid #2d3348;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                Export CSV
                             </button>
                         </div>
                     </div>
@@ -396,7 +399,65 @@
                     </div>
                 </div>
 
-                <!-- OUTREACH PITCH MODAL -->
+                
+                <!-- QUICK IMPORT CANDIDATE MODAL -->
+                <div id="modal-quick-import-candidate" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); z-index:9999; align-items:center; justify-content:center;">
+                    <div class="modal-box" style="background:#1e2230; border:1px solid #2d3348; border-radius:14px; width:650px; max-width:95vw; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                            <h3 style="margin:0; color:#fff; display:flex; align-items:center; gap:8px;">
+                                <span>➕</span> Quick Import Candidate to Active Bench
+                            </h3>
+                            <button type="button" id="btn-close-import-modal" style="background:none; border:none; color:#94a3b8; font-size:24px; cursor:pointer; line-height:1;">&times;</button>
+                        </div>
+
+                        <p style="font-size:13px; color:#94a3b8; margin-top:0; margin-bottom:18px;">
+                            Found a 2020 B.Tech passout on LinkedIn? Paste their profile URL or snippet here. The ATS will save them directly into your database, generate tailored outreach pitches, and list them on your Bench.
+                        </p>
+
+                        <form id="form-quick-import-candidate">
+                            <div style="margin-bottom:14px;">
+                                <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">🔗 LinkedIn Profile URL *</label>
+                                <input type="url" id="import-cand-linkedin" class="form-control" placeholder="https://www.linkedin.com/in/username" required style="width:100%; height:40px; background:#141722; color:#fff; border:1px solid #2d3348; border-radius:8px; padding:0 12px; font-size:13px;" />
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 1.5fr 1fr; gap:12px; margin-bottom:14px;">
+                                <div>
+                                    <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">👤 Full Name *</label>
+                                    <input type="text" id="import-cand-name" class="form-control" placeholder="e.g. Utkarsh Pant" required style="width:100%; height:40px; background:#141722; color:#fff; border:1px solid #2d3348; border-radius:8px; padding:0 12px; font-size:13px;" />
+                                </div>
+                                <div>
+                                    <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">🎓 B.Tech Passout Year *</label>
+                                    <input type="number" id="import-cand-year" class="form-control" value="2020" required style="width:100%; height:40px; background:#141722; color:#fff; border:1px solid #2d3348; border-radius:8px; padding:0 12px; font-size:13px; font-weight:700; color:#38bdf8;" />
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom:14px;">
+                                <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">💼 Headline / Primary Role</label>
+                                <input type="text" id="import-cand-headline" class="form-control" placeholder="e.g. Full Stack Java Developer | Spring Boot, AWS, Microservices" style="width:100%; height:40px; background:#141722; color:#fff; border:1px solid #2d3348; border-radius:8px; padding:0 12px; font-size:13px;" />
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:18px;">
+                                <div>
+                                    <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">📍 US Location / State</label>
+                                    <input type="text" id="import-cand-location" class="form-control" placeholder="e.g. Dallas, TX or California" style="width:100%; height:40px; background:#141722; color:#fff; border:1px solid #2d3348; border-radius:8px; padding:0 12px; font-size:13px;" />
+                                </div>
+                                <div>
+                                    <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">🏛️ India College / US Univ</label>
+                                    <input type="text" id="import-cand-education" class="form-control" placeholder="e.g. JNTU -> UT Arlington" style="width:100%; height:40px; background:#141722; color:#fff; border:1px solid #2d3348; border-radius:8px; padding:0 12px; font-size:13px;" />
+                                </div>
+                            </div>
+
+                            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                                <button type="button" id="btn-cancel-import" class="btn btn-secondary" style="padding:9px 18px; border:1px solid #2d3348;">Cancel</button>
+                                <button type="submit" id="btn-submit-import" class="btn btn-success" style="padding:9px 24px; font-weight:700; background:linear-gradient(135deg, #10b981, #059669); border:none; box-shadow:0 4px 14px rgba(16,185,129,0.35);">
+                                    + Save to Active Bench
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+<!-- OUTREACH PITCH MODAL -->
                 <div id="modal-student-pitch" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); z-index:9999; display:none; align-items:center; justify-content:center;">
                     <div class="modal-box" style="background:#1e2230; border:1px solid #2d3348; border-radius:14px; width:650px; max-width:95vw; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -765,6 +826,6 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=3.3.0"></script>
+    <script src="/static/js/app.js?v=3.4.0"></script>
 </body>
 </html>

@@ -1486,8 +1486,8 @@ window.closeStudentPitchModal = closeStudentPitchModal;
 function exportStudentsCSV() {
     const kw = document.getElementById('filter-student-keyword')?.value?.trim() || '';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || '';
-    const fy = document.getElementById('filter-student-from-year')?.value || '2018';
-    const ty = document.getElementById('filter-student-to-year')?.value || '2026';
+    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
+    const college = document.getElementById('filter-student-college')?.value?.trim() || '';
 
     fetch('/api/students/export-csv', {
         method: 'POST',
@@ -1495,8 +1495,9 @@ function exportStudentsCSV() {
         body: JSON.stringify({
             keyword: kw,
             location: loc,
-            from_year: fy,
-            to_year: ty
+            bachelor_year: by,
+            college: college,
+            candidates: state.students || []
         })
     })
     .then(res => res.blob())
@@ -1551,14 +1552,20 @@ function initStudentsTab() {
             loadStudents(true);
         });
     }
-    if (kwInput) {
-        kwInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                loadStudents(true);
-            }
-        });
-    }
+    const byInput = document.getElementById('filter-student-bachelor-year');
+    const colInput = document.getElementById('filter-student-college');
+    const locInput = document.getElementById('filter-student-location');
+
+    [kwInput, byInput, colInput, locInput].forEach(inp => {
+        if (inp) {
+            inp.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    loadStudents(false);
+                }
+            });
+        }
+    });
     if (btnExport) {
         btnExport.addEventListener('click', () => exportStudentsCSV());
     }

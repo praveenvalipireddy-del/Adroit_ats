@@ -980,6 +980,12 @@ def api_export_students_csv():
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         candidates = data.get("candidates", [])
+        if not candidates:
+            kw = data.get("keyword", "Computer Science")
+            by = data.get("bachelor_year")
+            col = data.get("college")
+            loc = data.get("location", "United States")
+            candidates = apify_service.scrape_bench_candidates(keyword=kw, bachelor_year=by, college=col, location=loc)
     else:
         candidates = apify_service.scrape_bench_candidates()
 

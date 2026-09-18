@@ -1790,3 +1790,212 @@ window.launchLiveLinkedInSearch = launchLiveLinkedInSearch;
 window.openQuickImportModal = openQuickImportModal;
 window.closeQuickImportModal = closeQuickImportModal;
 window.submitQuickImport = submitQuickImport;
+
+
+// =========================================================================
+// 9. Recruiter Team & Data Isolation Management (Admin Only)
+// =========================================================================
+
+async function loadRecruiters() {
+    try {
+        const res = await fetch('/api/admin/recruiters');
+        if (!res.ok) return;
+        const recruiters = await res.json();
+        
+        const countEl = document.getElementById('stat-team-recruiter-count');
+        if (countEl) countEl.innerText = recruiters.length;
+
+        const tbody = document.getElementById('recruiters-table-body');
+        if (tbody) {
+            tbody.innerHTML = recruiters.map(r => `
+                <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);" id="recruiter-row-${r.id}">
+                    <td style="padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
+                        <img src="${r.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,255,255,0.2);">
+                        <span style="font-weight: 600; color: #fff;">${escapeHtml(r.name)}</span>
+                    </td>
+                    <td style="padding: 14px 18px; color: #cbd5e1;">${escapeHtml(r.email)}</td>
+                    <td style="padding: 14px 18px;">
+                        <span style="padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; ${r.role && r.role.includes('Admin') ? 'background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);' : 'background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);'}">
+                            ${escapeHtml(r.role || 'Recruiter')}
+                        </span>
+                    </td>
+                    <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">${r.consultant_count || 0} consultants</td>
+                    <td style="padding: 14px 18px;">
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-sm" onclick="window.onResetRecruiterPassword(${r.id}, '${escapeHtml(r.name)}')">Reset Password</button>
+                            <button class="btn btn-danger btn-sm" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="window.onDeleteRecruiter(${r.id}, '${escapeHtml(r.name)}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        const filterSelect = document.getElementById('select-consultant-recruiter-filter');
+        const reassignSelect = document.getElementById('reassign-target-user-id');
+        if (filterSelect) {
+            const currentVal = filterSelect.value;
+            filterSelect.innerHTML = `<option value="">All Recruiters (Agency Wide)</option>` + 
+                recruiters.map(r => `<option value="${r.id}" ${currentVal == r.id ? 'selected' : ''}>${escapeHtml(r.name)} (${r.consultant_count} consultants)</option>`).join('');
+        }
+        if (reassignSelect) {
+            reassignSelect.innerHTML = recruiters.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.email)})</option>`).join('');
+        }
+    } catch (err) {
+        console.error('Error loading recruiters:', err);
+    }
+}
+window.loadRecruiters = loadRecruiters;
+
+function openAddRecruiterModal() {
+    const modal = document.getElementById('modal-add-recruiter');
+    if (modal) {
+        modal.style.display = 'flex';
+        const nameInp = document.getElementById('rec-name');
+        if (nameInp) nameInp.focus();
+    }
+}
+window.openAddRecruiterModal = openAddRecruiterModal;
+
+function closeAddRecruiterModal() {
+    const modal = document.getElementById('modal-add-recruiter');
+    if (modal) modal.style.display = 'none';
+}
+window.closeAddRecruiterModal = closeAddRecruiterModal;
+
+async function submitAddRecruiter(e) {
+    e.preventDefault();
+    const name = document.getElementById('rec-name')?.value?.trim();
+    const email = document.getElementById('rec-email')?.value?.trim();
+    const password = document.getElementById('rec-password')?.value?.trim();
+    const role = document.getElementById('rec-role')?.value || 'Recruiter';
+
+    if (!name || !email || !password) {
+        showToast('Name, email, and password are required.', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin/recruiters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password, role })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(`Recruiter ${name} created successfully!`, 'success');
+            closeAddRecruiterModal();
+            document.getElementById('form-add-recruiter')?.reset();
+            await loadRecruiters();
+        } else {
+            showToast(data.error || 'Failed to create recruiter.', 'error');
+        }
+    } catch (err) {
+        showToast('Error creating recruiter: ' + err.message, 'error');
+    }
+}
+window.submitAddRecruiter = submitAddRecruiter;
+
+async function onResetRecruiterPassword(recId, recName) {
+    const newPass = prompt(`Enter new password for recruiter ${recName}:`);
+    if (!newPass) return;
+
+    try {
+        const res = await fetch(`/api/admin/recruiters/${recId}/reset-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_password: newPass })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(`Password updated successfully for ${recName}!`, 'success');
+        } else {
+            showToast(data.error || 'Failed to update password.', 'error');
+        }
+    } catch (err) {
+        showToast('Error updating password: ' + err.message, 'error');
+    }
+}
+window.onResetRecruiterPassword = onResetRecruiterPassword;
+
+async function onDeleteRecruiter(recId, recName) {
+    if (!confirm(`Are you sure you want to delete recruiter "${recName}"?\n\nAll of their candidates will be safely reassigned to Admin.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/admin/recruiters/${recId}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(`Recruiter ${recName} deleted. Candidates transferred to Admin.`, 'success');
+            await loadRecruiters();
+            await fetchConsultants();
+        } else {
+            showToast(data.error || 'Failed to delete recruiter.', 'error');
+        }
+    } catch (err) {
+        showToast('Error deleting recruiter: ' + err.message, 'error');
+    }
+}
+window.onDeleteRecruiter = onDeleteRecruiter;
+
+function openReassignModal(candId, candName) {
+    const modal = document.getElementById('modal-reassign-consultant');
+    const idInput = document.getElementById('reassign-cand-id');
+    const nameEl = document.getElementById('reassign-cand-name');
+    if (modal && idInput && nameEl) {
+        idInput.value = candId;
+        nameEl.innerText = candName;
+        modal.style.display = 'flex';
+    }
+}
+window.openReassignModal = openReassignModal;
+
+function closeReassignModal() {
+    const modal = document.getElementById('modal-reassign-consultant');
+    if (modal) modal.style.display = 'none';
+}
+window.closeReassignModal = closeReassignModal;
+
+async function submitReassign(e) {
+    e.preventDefault();
+    const candId = document.getElementById('reassign-cand-id')?.value;
+    const targetUserId = document.getElementById('reassign-target-user-id')?.value;
+
+    if (!candId || !targetUserId) {
+        showToast('Candidate and target recruiter are required.', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/admin/candidates/${candId}/reassign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assigned_user_id: targetUserId })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast('Consultant transferred successfully!', 'success');
+            closeReassignModal();
+            await fetchConsultants();
+            await loadRecruiters();
+        } else {
+            showToast(data.error || 'Failed to reassign candidate.', 'error');
+        }
+    } catch (err) {
+        showToast('Error reassigning candidate: ' + err.message, 'error');
+    }
+}
+window.submitReassign = submitReassign;
+
+// Delegate click on transfer buttons
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-trigger-reassign');
+    if (btn) {
+        const candId = btn.getAttribute('data-id');
+        const candName = btn.getAttribute('data-name');
+        openReassignModal(candId, candName);
+    }
+});

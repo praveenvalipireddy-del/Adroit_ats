@@ -654,7 +654,7 @@
                             <h2>Recruiter Team & Access Management</h2>
                             <p>Manage recruiter accounts and ensure isolated workflows for your sourcing staff.</p>
                         </div>
-                        <button class="btn btn-primary" id="btn-open-add-recruiter-modal">
+                        <button class="btn btn-primary" id="btn-open-add-recruiter-modal" onclick="window.openAddRecruiterModal()">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                             + Add New Recruiter
                         </button>
@@ -930,9 +930,9 @@
         <div class="modal-dialog modal-sm">
             <div class="modal-header">
                 <h3>+ Add New Recruiter Account</h3>
-                <button class="modal-close" id="btn-close-add-recruiter-modal">&times;</button>
+                <button class="modal-close" id="btn-close-add-recruiter-modal" onclick="window.closeAddRecruiterModal()">&times;</button>
             </div>
-            <form id="form-add-recruiter">
+            <form id="form-add-recruiter" onsubmit="window.submitAddRecruiter(event)">
                 <div class="modal-body">
                     <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 14px;">
                         The new recruiter will have their own login and isolated consultant bench.
@@ -958,7 +958,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="btn-cancel-add-recruiter">Cancel</button>
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-add-recruiter" onclick="window.closeAddRecruiterModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="btn-submit-add-recruiter">Create Recruiter</button>
                 </div>
             </form>
@@ -970,9 +970,9 @@
         <div class="modal-dialog modal-sm">
             <div class="modal-header">
                 <h3>Transfer Consultant Ownership</h3>
-                <button class="modal-close" id="btn-close-reassign-modal">&times;</button>
+                <button class="modal-close" id="btn-close-reassign-modal" onclick="window.closeReassignModal()">&times;</button>
             </div>
-            <form id="form-reassign-consultant">
+            <form id="form-reassign-consultant" onsubmit="window.submitReassign(event)">
                 <input type="hidden" id="reassign-cand-id" value="">
                 <div class="modal-body">
                     <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px;">
@@ -988,7 +988,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="btn-cancel-reassign">Cancel</button>
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-reassign" onclick="window.closeReassignModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="btn-submit-reassign">Confirm Transfer</button>
                 </div>
             </form>
@@ -998,6 +998,128 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=3.5.0"></script>
+    <script src="/static/js/app.js?v=3.6.0"></script>
+
+    <!-- Recruiter Management Inline Fallback -->
+    <script>
+    window.openAddRecruiterModal = function() {
+        var modal = document.getElementById('modal-add-recruiter');
+        if (modal) {
+            modal.style.display = 'flex';
+            var nameInp = document.getElementById('rec-name');
+            if (nameInp) nameInp.focus();
+        }
+    };
+    window.closeAddRecruiterModal = function() {
+        var modal = document.getElementById('modal-add-recruiter');
+        if (modal) modal.style.display = 'none';
+    };
+    window.submitAddRecruiter = async function(e) {
+        e.preventDefault();
+        var name = (document.getElementById('rec-name') || {}).value || '';
+        var email = (document.getElementById('rec-email') || {}).value || '';
+        var password = (document.getElementById('rec-password') || {}).value || '';
+        var role = (document.getElementById('rec-role') || {}).value || 'Recruiter';
+
+        if (!name || !email || !password) {
+            alert('Please provide Name, Email, and Password.');
+            return;
+        }
+
+        try {
+            var res = await fetch('/api/admin/recruiters', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, email: email, password: password, role: role })
+            });
+            var data = await res.json();
+            if (res.ok && data.success) {
+                alert('Recruiter ' + name + ' created successfully!');
+                window.closeAddRecruiterModal();
+                var form = document.getElementById('form-add-recruiter');
+                if (form) form.reset();
+                window.location.reload();
+            } else {
+                alert(data.error || 'Failed to create recruiter.');
+            }
+        } catch (err) {
+            alert('Error creating recruiter: ' + err.message);
+        }
+    };
+    window.onResetRecruiterPassword = async function(recId, recName) {
+        var newPass = prompt('Enter new password for ' + recName + ':');
+        if (!newPass) return;
+        try {
+            var res = await fetch('/api/admin/recruiters/' + recId + '/reset-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_password: newPass })
+            });
+            var data = await res.json();
+            if (res.ok && data.success) {
+                alert('Password reset successfully for ' + recName + '!');
+            } else {
+                alert(data.error || 'Failed to reset password.');
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    };
+    window.onDeleteRecruiter = async function(recId, recName) {
+        if (!confirm('Are you sure you want to delete ' + recName + '? All their consultants will be reassigned to Admin.')) return;
+        try {
+            var res = await fetch('/api/admin/recruiters/' + recId, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            var data = await res.json();
+            if (res.ok && data.success) {
+                alert('Recruiter deleted.');
+                window.location.reload();
+            } else {
+                alert(data.error || 'Failed to delete.');
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    };
+    window.openReassignModal = function(candId, candName) {
+        var modal = document.getElementById('modal-reassign-consultant');
+        var idInp = document.getElementById('reassign-cand-id');
+        var nameEl = document.getElementById('reassign-cand-name');
+        if (modal && idInp && nameEl) {
+            idInp.value = candId;
+            nameEl.innerText = candName;
+            modal.style.display = 'flex';
+        }
+    };
+    window.closeReassignModal = function() {
+        var modal = document.getElementById('modal-reassign-consultant');
+        if (modal) modal.style.display = 'none';
+    };
+    window.submitReassign = async function(e) {
+        e.preventDefault();
+        var candId = (document.getElementById('reassign-cand-id') || {}).value;
+        var targetId = (document.getElementById('reassign-target-user-id') || {}).value;
+        if (!candId || !targetId) return;
+        try {
+            var res = await fetch('/api/admin/candidates/' + candId + '/reassign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assigned_user_id: targetId })
+            });
+            var data = await res.json();
+            if (res.ok && data.success) {
+                alert('Consultant reassigned successfully!');
+                window.closeReassignModal();
+                window.location.reload();
+            } else {
+                alert(data.error || 'Failed to reassign.');
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    };
+    </script>
 </body>
 </html>

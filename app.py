@@ -36,17 +36,7 @@ os.makedirs(TOKENS_DIR, exist_ok=True)
 models.init_db()
 
 def current_user():
-    user = session.get("user")
-    if not user:
-        # In local dev environment, automatically ensure active logged-in session
-        user = models.get_or_create_user(
-            name="Praveen Valipireddy",
-            email="praveen@adroit-ai.com",
-            role="Lead Technical Recruiter & Admin",
-            avatar_url="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
-        )
-        session["user"] = user
-    return user
+    return session.get("user")
 
 @app.after_request
 def add_cors_headers(response):
@@ -84,23 +74,45 @@ def serve_custom_js():
 def home():
     return redirect(url_for("dashboard"))
 
-@app.route("/login")
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user():
         return redirect(url_for("dashboard"))
+
+    error_msg = None
+    if request.method == "POST":
+        email = request.form.get("email") or (request.json or {}).get("email", "")
+        password = request.form.get("password") or (request.json or {}).get("password", "")
+        email = email.strip()
+
+        user = models.authenticate_user(email, password)
+        if user:
+            session["user"] = user
+            models.log_activity(user["id"], user["name"], "User Logged In", "Auth", user["id"], f"User {user['name']} signed in")
+            if request.is_json:
+                return jsonify({"success": True, "redirect": url_for("dashboard")})
+            return redirect(url_for("dashboard"))
+        else:
+            error_msg = "Invalid email or password. Please verify credentials."
+            if request.is_json:
+                return jsonify({"error": error_msg}), 401
+
     try:
-        return render_template("login.html", has_azure=config.HAS_AZURE_AUTH, env=config.ENV)
+        return render_template("login.html", error=error_msg, has_azure=config.HAS_AZURE_AUTH, env=config.ENV)
     except Exception:
-        return render_template_string(EMBEDDED_LOGIN_HTML, has_azure=config.HAS_AZURE_AUTH, env=config.ENV)
+        return render_template_string(EMBEDDED_LOGIN_HTML, error=error_msg, has_azure=config.HAS_AZURE_AUTH, env=config.ENV)
 
 @app.route("/dev-login", methods=["GET", "POST"])
 def dev_login():
-    user = models.get_or_create_user(
-        name="Praveen Valipireddy",
-        email="praveen@adroit-ai.com",
-        role="Lead Technical Recruiter & Admin",
-        avatar_url="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
-    )
+    user = models.authenticate_user("praveen@adroit-ai.com", "Admin@2026")
+    if not user:
+        user = models.get_or_create_user(
+            name="Praveen Valipireddy",
+            email="praveen@adroit-ai.com",
+            role="Admin",
+            avatar_url="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+            password="Admin@2026"
+        )
     session["user"] = user
     models.log_activity(
         user["id"], 
@@ -127,12 +139,16 @@ def dashboard():
     user = current_user()
     if not user:
         return redirect(url_for("login"))
-    
-    stats = models.get_dashboard_stats()
-    candidates = models.get_candidates()
+
+    is_admin = ("Admin" in user.get("role", ""))
+    selected_recruiter_id = request.args.get("recruiter_id", type=int) if is_admin else user["id"]
+    stats = models.get_dashboard_stats(user_id=selected_recruiter_id, is_admin=(is_admin and not request.args.get("recruiter_id")))
+    candidates = models.get_candidates(user_id=selected_recruiter_id, is_admin=(is_admin and not request.args.get("recruiter_id")))
     for c in candidates:
         c_status = gmail_multi_manager.is_candidate_connected(c["id"])
         c["gmail_connected"] = c_status.get("connected", False)
+
+    recruiters = models.get_users() if is_admin else []
 
     try:
         return render_template(
@@ -140,6 +156,8 @@ def dashboard():
             user=user,
             stats=stats,
             candidates=candidates,
+            recruiters=recruiters,
+            selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN)
         )
@@ -150,6 +168,8 @@ def dashboard():
             user=user,
             stats=stats,
             candidates=candidates,
+            recruiters=recruiters,
+            selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN)
         )
@@ -158,9 +178,12 @@ def dashboard():
 
 @app.route("/api/stats")
 def api_stats():
-    if not current_user():
+    user = current_user()
+    if not user:
         return jsonify({"error": "Unauthorized"}), 401
-    return jsonify(models.get_dashboard_stats())
+    is_admin = ("Admin" in user.get("role", ""))
+    recruiter_id = request.args.get("recruiter_id", type=int)
+    return jsonify(models.get_dashboard_stats(user_id=recruiter_id if is_admin else user["id"], is_admin=(is_admin and not recruiter_id)))
 
 @app.route("/api/activity")
 def api_activity():
@@ -232,6 +255,14 @@ def api_consultants():
         if not name or not email:
             return jsonify({"error": "Consultant name and email are required"}), 400
 
+        is_admin = ("Admin" in user.get("role", ""))
+        assigned_user_id = user["id"]
+        if is_admin:
+            req_assigned = (request.form.get("assigned_user_id") if request.form else None) or (request.json or {}).get("assigned_user_id")
+            if req_assigned:
+                try: assigned_user_id = int(req_assigned)
+                except: pass
+
         cand_id = models.create_candidate(
             name=name,
             email=email,
@@ -247,7 +278,8 @@ def api_consultants():
             resume_path=resume_path,
             resume_text=resume_text,
             resume_summary=summary,
-            gmail_account=email
+            gmail_account=email,
+            assigned_user_id=assigned_user_id
         )
 
         models.log_activity(
@@ -261,8 +293,10 @@ def api_consultants():
 
         return jsonify({"success": True, "candidate_id": cand_id, "name": name})
 
-    # GET request - return candidates with Gmail connection info
-    candidates = models.get_candidates()
+    # GET request - return candidates scoped to current recruiter
+    is_admin = ("Admin" in user.get("role", ""))
+    recruiter_id = request.args.get("recruiter_id", type=int)
+    candidates = models.get_candidates(user_id=recruiter_id if is_admin else user["id"], is_admin=(is_admin and not recruiter_id))
     for c in candidates:
         c_status = gmail_multi_manager.is_candidate_connected(c["id"])
         c["gmail_connected"] = c_status.get("connected", False)
@@ -278,9 +312,10 @@ def api_consultant_detail(candidate_id):
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
-    cand = models.get_candidate_by_id(candidate_id)
+    is_admin = ("Admin" in user.get("role", ""))
+    cand = models.get_candidate_by_id(candidate_id, user_id=user["id"], is_admin=is_admin)
     if not cand:
-        return jsonify({"error": "Consultant not found"}), 404
+        return jsonify({"error": "Consultant not found or unauthorized"}), 404
 
     if request.method == "GET":
         cand_status = gmail_multi_manager.is_candidate_connected(candidate_id)
@@ -288,7 +323,7 @@ def api_consultant_detail(candidate_id):
         return jsonify(cand)
 
     if request.method == "DELETE":
-        models.delete_candidate(candidate_id)
+        models.delete_candidate(candidate_id, user_id=user["id"], is_admin=is_admin)
         models.log_activity(
             user["id"],
             user["name"],
@@ -756,9 +791,12 @@ def api_create_outreach_draft():
 
 @app.route("/api/pipeline")
 def api_pipeline():
-    if not current_user():
+    user = current_user()
+    if not user:
         return jsonify({"error": "Unauthorized"}), 401
-    return jsonify(models.get_pipeline_by_stages())
+    is_admin = ("Admin" in user.get("role", ""))
+    recruiter_id = request.args.get("recruiter_id", type=int)
+    return jsonify(models.get_pipeline_by_stages(user_id=recruiter_id if is_admin else user["id"], is_admin=(is_admin and not recruiter_id)))
 
 @app.route("/api/pipeline/update-stage", methods=["POST"])
 def api_update_pipeline_stage():
@@ -998,13 +1036,14 @@ def api_add_student_to_bench():
         )
 
     user = current_user() or {"id": 1, "name": "Valipireddy Praveen"}
+    models.assign_candidate_to_recruiter(cid, user["id"])
     models.log_activity(
         user["id"],
         user["name"],
         "Added to Bench",
         "Candidate",
         cid,
-        f"Added {name} ({data.get('degree', 'MS')} - {university}, {grad_year}) to active Bench Consultants."
+        f"Added {name} ({data.get('degree', 'MS')} - {university}, {grad_year}) to {user['name']}'s Bench Consultants."
     )
 
     return jsonify({
@@ -1108,3 +1147,110 @@ if __name__ == "__main__":
     print(f">> 1-Click Recruiter Login: http://localhost:{port}/dev-login")
     print(f"=======================================================\n")
     app.run(host="0.0.0.0", port=port, debug=True, threaded=True)
+
+
+# --- Recruiter & Team Management APIs (Admin Only) ---
+
+@app.route("/api/admin/recruiters", methods=["GET", "POST", "OPTIONS"])
+def api_admin_recruiters():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    if "Admin" not in user.get("role", ""):
+        return jsonify({"error": "Admin permission required."}), 403
+
+    if request.method == "POST":
+        data = request.json or {}
+        name = data.get("name", "").strip()
+        email = data.get("email", "").strip()
+        password = data.get("password", "").strip()
+        role = data.get("role", "Recruiter").strip()
+
+        if not name or not email or not password:
+            return jsonify({"error": "Name, email, and password are required."}), 400
+
+        try:
+            new_user = models.create_user(name, email, password, role=role)
+            models.log_activity(
+                user["id"], user["name"], "Created Recruiter", "User", new_user["id"],
+                f"Admin created recruiter account for {name} ({email}) with role '{role}'"
+            )
+            return jsonify({"success": True, "user": new_user})
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": f"Failed to create recruiter: {str(e)}"}), 500
+
+    return jsonify(models.get_users())
+
+@app.route("/api/admin/recruiters/<int:recruiter_id>", methods=["DELETE", "OPTIONS"])
+def api_admin_delete_recruiter(recruiter_id):
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    user = current_user()
+    if not user or "Admin" not in user.get("role", ""):
+        return jsonify({"error": "Forbidden"}), 403
+
+    if recruiter_id == user["id"]:
+        return jsonify({"error": "Cannot delete your own admin account."}), 400
+
+    target = models.get_user_by_id(recruiter_id)
+    if not target:
+        return jsonify({"error": "Recruiter not found."}), 404
+
+    models.delete_user(recruiter_id)
+    models.log_activity(
+        user["id"], user["name"], "Deleted Recruiter", "User", recruiter_id,
+        f"Admin deleted recruiter account {target['name']} ({target['email']}). Candidates reassigned to Admin."
+    )
+    return jsonify({"success": True, "message": f"Recruiter {target['name']} deleted."})
+
+@app.route("/api/admin/recruiters/<int:recruiter_id>/reset-password", methods=["POST", "OPTIONS"])
+def api_admin_reset_password(recruiter_id):
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    user = current_user()
+    if not user or "Admin" not in user.get("role", ""):
+        return jsonify({"error": "Forbidden"}), 403
+
+    data = request.json or {}
+    new_password = data.get("new_password", "").strip()
+    if not new_password or len(new_password) < 4:
+        return jsonify({"error": "New password must be at least 4 characters."}), 400
+
+    models.update_user_password(recruiter_id, new_password)
+    return jsonify({"success": True, "message": "Password updated successfully."})
+
+@app.route("/api/admin/candidates/<int:candidate_id>/reassign", methods=["POST", "OPTIONS"])
+def api_admin_reassign_candidate(candidate_id):
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    user = current_user()
+    if not user or "Admin" not in user.get("role", ""):
+        return jsonify({"error": "Forbidden"}), 403
+
+    data = request.json or {}
+    new_user_id = data.get("assigned_user_id")
+    if not new_user_id:
+        return jsonify({"error": "assigned_user_id is required"}), 400
+
+    target_user = models.get_user_by_id(new_user_id)
+    if not target_user:
+        return jsonify({"error": "Target recruiter not found"}), 404
+
+    cand = models.get_candidate_by_id(candidate_id, is_admin=True)
+    if not cand:
+        return jsonify({"error": "Candidate not found"}), 404
+
+    models.assign_candidate_to_recruiter(candidate_id, new_user_id)
+    models.log_activity(
+        user["id"], user["name"], "Reassigned Candidate", "Candidate", candidate_id,
+        f"Reassigned candidate '{cand['name']}' to recruiter '{target_user['name']}'"
+    )
+    return jsonify({"success": True, "message": f"Candidate reassigned to {target_user['name']}."})

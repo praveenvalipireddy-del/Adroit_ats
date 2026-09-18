@@ -2,11 +2,9 @@ import os
 import re
 import sqlite3
 import urllib.parse
-import urllib.parse
-import sqlite3
-import os
 import json
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 import config
 
 
@@ -154,6 +152,7 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
+        password_hash TEXT,
         role TEXT DEFAULT 'Recruiter',
         avatar_url TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -180,6 +179,7 @@ def init_db():
         resume_summary TEXT,
         gmail_account TEXT,
         gmail_token_path TEXT,
+        assigned_user_id INTEGER DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
@@ -268,6 +268,14 @@ def migrate_db(conn):
             cursor.execute(f"PRAGMA table_info({table_name})")
             return [row[1].lower() for row in cursor.fetchall()]
 
+    # Users table columns
+    u_cols = get_existing_cols("users")
+    if "password_hash" not in u_cols:
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        except Exception:
+            pass
+
     # Candidate table columns
     c_cols = get_existing_cols("candidates")
     candidate_new_cols = {
@@ -277,7 +285,8 @@ def migrate_db(conn):
         "resume_text": "TEXT",
         "gmail_account": "TEXT",
         "gmail_token_path": "TEXT",
-        "gmail_app_password": "TEXT"
+        "gmail_app_password": "TEXT",
+        "assigned_user_id": "INTEGER DEFAULT 1"
     }
     for col, c_type in candidate_new_cols.items():
         if col.lower() not in c_cols:
@@ -315,6 +324,42 @@ def migrate_db(conn):
                 cursor.execute(f"ALTER TABLE applications ADD COLUMN {col} {c_type}")
             except Exception:
                 pass
+
+    # Ensure default Admin account has password_hash and 'Admin' role
+    try:
+        default_admin_hash = generate_password_hash("Admin@2026")
+        cursor.execute("SELECT id, password_hash, role FROM users WHERE email = ?", ("praveen@adroit-ai.com",))
+        admin_user = cursor.fetchone()
+        if admin_user:
+            admin_id = admin_user["id"]
+            has_pw = bool(admin_user["password_hash"]) if "password_hash" in [col[0] for col in cursor.description] and admin_user["password_hash"] else False
+            if not has_pw:
+                cursor.execute("UPDATE users SET password_hash = ?, role = 'Admin' WHERE id = ?", (default_admin_hash, admin_id))
+            else:
+                cursor.execute("UPDATE users SET role = 'Admin' WHERE id = ?", (admin_id,))
+        else:
+            cursor.execute("""
+            INSERT INTO users (name, email, password_hash, role, avatar_url)
+            VALUES (?, ?, ?, ?, ?)
+            """, (
+                "Praveen Valipireddy",
+                "praveen@adroit-ai.com",
+                default_admin_hash,
+                "Admin",
+                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
+            ))
+
+        cursor.execute("SELECT id, password_hash FROM users WHERE email = ?", ("praveen@aventra-ai.com",))
+        aventra_user = cursor.fetchone()
+        if aventra_user:
+            av_has_pw = bool(aventra_user["password_hash"]) if "password_hash" in [col[0] for col in cursor.description] and aventra_user["password_hash"] else False
+            if not av_has_pw:
+                cursor.execute("UPDATE users SET password_hash = ?, role = 'Admin' WHERE id = ?", (default_admin_hash, aventra_user["id"]))
+
+        # Migrate any orphaned candidates without assigned_user_id to Admin (id=1)
+        cursor.execute("UPDATE candidates SET assigned_user_id = 1 WHERE assigned_user_id IS NULL OR assigned_user_id = 0")
+    except Exception as ex:
+        print("[WARN] migrate admin/candidates error:", ex)
 
     conn.commit()
 
@@ -564,55 +609,201 @@ def seed_initial_data(conn):
 
 # --- Database Helpers ---
 
-def get_or_create_user(name, email, role="Recruiter", avatar_url=None):
+def get_or_create_user(name, email, role="Recruiter", avatar_url=None, password="Password@123"):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
     user = cursor.fetchone()
     if not user:
+        p_hash = generate_password_hash(password)
         cursor.execute("""
-        INSERT INTO users (name, email, role, avatar_url)
-        VALUES (?, ?, ?, ?)
-        """, (name, email, role, avatar_url or "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"))
+        INSERT INTO users (name, email, password_hash, role, avatar_url)
+        VALUES (?, ?, ?, ?, ?)
+        """, (name, email, p_hash, role, avatar_url or "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"))
         conn.commit()
         cursor.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,))
         user = cursor.fetchone()
     conn.close()
     return dict(user)
 
-def get_dashboard_stats():
+def create_user(name, email, password, role="Recruiter", avatar_url=None):
+    """Creates a new recruiter account with hashed password."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+    if cursor.fetchone():
+        conn.close()
+        raise ValueError(f"User with email '{email}' already exists.")
+
+    p_hash = generate_password_hash(password)
+    cursor.execute("""
+    INSERT INTO users (name, email, password_hash, role, avatar_url)
+    VALUES (?, ?, ?, ?, ?)
+    """, (
+        name,
+        email,
+        p_hash,
+        role,
+        avatar_url or "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80"
+    ))
+    conn.commit()
+    user_id = cursor.lastrowid
+    cursor.execute("SELECT id, name, email, role, avatar_url, created_at FROM users WHERE id = ?", (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+    return dict(user)
+
+def authenticate_user(email, password):
+    """Verifies user credentials and returns safe user dict if authenticated."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, email, password_hash, role, avatar_url, created_at FROM users WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    user = dict(row)
+    p_hash = user.get("password_hash")
+    if not p_hash:
+        if password in ["Admin@2026", "Password@123", "password"]:
+            update_user_password(user["id"], password)
+            del user["password_hash"]
+            return user
+        return None
+    if check_password_hash(p_hash, password):
+        del user["password_hash"]
+        return user
+    return None
+
+def get_users():
+    """Returns list of recruiters with active candidate count."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT 
+        u.id, 
+        u.name, 
+        u.email, 
+        u.role, 
+        u.avatar_url, 
+        u.created_at,
+        COUNT(c.id) as consultant_count
+    FROM users u
+    LEFT JOIN candidates c ON c.assigned_user_id = u.id
+    GROUP BY u.id, u.name, u.email, u.role, u.avatar_url, u.created_at
+    ORDER BY u.id ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_user_by_id(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, email, role, avatar_url, created_at FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_user_password(user_id, new_password):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    p_hash = generate_password_hash(new_password)
+    cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (p_hash, user_id))
+    conn.commit()
+    conn.close()
+
+def delete_user(user_id):
+    """Deletes a recruiter account and reassigns their candidates to admin (id=1)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE candidates SET assigned_user_id = 1 WHERE assigned_user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def assign_candidate_to_recruiter(candidate_id, new_user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE candidates SET assigned_user_id = ? WHERE id = ?", (new_user_id, candidate_id))
+    conn.commit()
+    conn.close()
+
+def get_dashboard_stats(user_id=None, is_admin=False):
     conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT COUNT(*) FROM jobs")
     total_jobs = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM candidates")
-    total_candidates = cursor.fetchone()[0]
+    if not is_admin and user_id:
+        cursor.execute("SELECT COUNT(*) FROM candidates WHERE assigned_user_id = ?", (user_id,))
+        total_candidates = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM applications WHERE stage IN ('Drafted', 'Applied', 'Screening', 'Interviewing')")
-    active_pipeline = cursor.fetchone()[0]
+        cursor.execute("""
+        SELECT COUNT(*) FROM applications a
+        JOIN candidates c ON a.candidate_id = c.id
+        WHERE (a.user_id = ? OR c.assigned_user_id = ?)
+          AND a.stage IN ('Drafted', 'Applied', 'Screening', 'Interviewing')
+        """, (user_id, user_id))
+        active_pipeline = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM applications WHERE stage = 'Drafted'")
-    drafted_count = cursor.fetchone()[0]
+        cursor.execute("""
+        SELECT COUNT(*) FROM applications a
+        JOIN candidates c ON a.candidate_id = c.id
+        WHERE (a.user_id = ? OR c.assigned_user_id = ?) AND a.stage = 'Drafted'
+        """, (user_id, user_id))
+        drafted_count = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM applications WHERE stage = 'Interviewing'")
-    interviews = cursor.fetchone()[0]
+        cursor.execute("""
+        SELECT COUNT(*) FROM applications a
+        JOIN candidates c ON a.candidate_id = c.id
+        WHERE (a.user_id = ? OR c.assigned_user_id = ?) AND a.stage = 'Interviewing'
+        """, (user_id, user_id))
+        interviews = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM applications WHERE stage IN ('Offer', 'Hired')")
-    offers = cursor.fetchone()[0]
+        cursor.execute("""
+        SELECT COUNT(*) FROM applications a
+        JOIN candidates c ON a.candidate_id = c.id
+        WHERE (a.user_id = ? OR c.assigned_user_id = ?) AND a.stage IN ('Offer', 'Hired')
+        """, (user_id, user_id))
+        offers = cursor.fetchone()[0]
+
+        cursor.execute("""
+        SELECT a.stage, COUNT(*) as count 
+        FROM applications a
+        JOIN candidates c ON a.candidate_id = c.id
+        WHERE (a.user_id = ? OR c.assigned_user_id = ?)
+        GROUP BY a.stage
+        """, (user_id, user_id))
+        stage_rows = cursor.fetchall()
+        stage_breakdown = {row["stage"]: row["count"] for row in stage_rows}
+    else:
+        cursor.execute("SELECT COUNT(*) FROM candidates")
+        total_candidates = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM applications WHERE stage IN ('Drafted', 'Applied', 'Screening', 'Interviewing')")
+        active_pipeline = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM applications WHERE stage = 'Drafted'")
+        drafted_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM applications WHERE stage = 'Interviewing'")
+        interviews = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM applications WHERE stage IN ('Offer', 'Hired')")
+        offers = cursor.fetchone()[0]
+
+        cursor.execute("""
+        SELECT stage, COUNT(*) as count 
+        FROM applications 
+        GROUP BY stage
+        """)
+        stage_rows = cursor.fetchall()
+        stage_breakdown = {row["stage"]: row["count"] for row in stage_rows}
 
     cursor.execute("SELECT COUNT(*) FROM jobs WHERE recruiter_email IS NOT NULL AND recruiter_email != ''")
     jobs_with_email = cursor.fetchone()[0]
-
-    # Pipeline stage breakdown
-    cursor.execute("""
-    SELECT stage, COUNT(*) as count 
-    FROM applications 
-    GROUP BY stage
-    """)
-    stage_rows = cursor.fetchall()
-    stage_breakdown = {row["stage"]: row["count"] for row in stage_rows}
 
     # Job sources breakdown
     cursor.execute("""
@@ -637,10 +828,29 @@ def get_dashboard_stats():
         "source_breakdown": source_breakdown,
     }
 
-def get_candidates():
+def get_candidates(user_id=None, is_admin=False):
+    """
+    Returns candidate list. 
+    If not is_admin and user_id provided: returns only candidates assigned to that user.
+    If is_admin and user_id provided: returns candidates filtered by that specific user.
+    If is_admin and user_id is None: returns all candidates across the agency.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM candidates ORDER BY id ASC")
+    query = """
+    SELECT c.*, u.name as recruiter_name, u.email as recruiter_email
+    FROM candidates c
+    LEFT JOIN users u ON c.assigned_user_id = u.id
+    """
+    if not is_admin and user_id:
+        query += " WHERE c.assigned_user_id = ?"
+        cursor.execute(query + " ORDER BY c.id ASC", (user_id,))
+    elif is_admin and user_id:
+        query += " WHERE c.assigned_user_id = ?"
+        cursor.execute(query + " ORDER BY c.id ASC", (user_id,))
+    else:
+        cursor.execute(query + " ORDER BY c.id ASC")
+
     rows = cursor.fetchall()
     conn.close()
     results = []
@@ -659,15 +869,26 @@ def get_candidates():
         results.append(d)
     return results
 
-def get_candidate_by_id(candidate_id):
+def get_candidate_by_id(candidate_id, user_id=None, is_admin=False):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM candidates WHERE id = ?", (candidate_id,))
+    query = """
+    SELECT c.*, u.name as recruiter_name, u.email as recruiter_email
+    FROM candidates c
+    LEFT JOIN users u ON c.assigned_user_id = u.id
+    WHERE c.id = ?
+    """
+    if not is_admin and user_id:
+        query += " AND c.assigned_user_id = ?"
+        cursor.execute(query, (candidate_id, user_id))
+    else:
+        cursor.execute(query, (candidate_id,))
+
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
 
-def create_candidate(name, email, phone="", title="Technical Consultant", primary_skills="", experience_years=5, target_rate="$90/hr (C2C)", visa_status="C2C Eligible", status="Available", location="United States (Remote)", resume_filename=None, resume_path=None, resume_text=None, resume_summary="", gmail_account=None, gmail_token_path=None):
+def create_candidate(name, email, phone="", title="Technical Consultant", primary_skills="", experience_years=5, target_rate="$90/hr (C2C)", visa_status="C2C Eligible", status="Available", location="United States (Remote)", resume_filename=None, resume_path=None, resume_text=None, resume_summary="", gmail_account=None, gmail_token_path=None, assigned_user_id=1):
     if isinstance(primary_skills, (list, tuple, set)):
         primary_skills = ", ".join(str(s) for s in primary_skills)
     else:
@@ -679,14 +900,14 @@ def create_candidate(name, email, phone="", title="Technical Consultant", primar
         name, email, phone, title, primary_skills, experience_years, 
         target_rate, visa_status, status, location, 
         resume_filename, resume_path, resume_text, resume_summary, 
-        gmail_account, gmail_token_path
+        gmail_account, gmail_token_path, assigned_user_id
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         name, email, phone, title, primary_skills, experience_years, 
         target_rate, visa_status, status, location, 
         resume_filename, resume_path, resume_text, resume_summary, 
-        gmail_account or email, gmail_token_path
+        gmail_account or email, gmail_token_path, assigned_user_id or 1
     ))
     conn.commit()
     cand_id = cursor.lastrowid
@@ -709,10 +930,13 @@ def update_candidate(candidate_id, **fields):
     conn.commit()
     conn.close()
 
-def delete_candidate(candidate_id):
+def delete_candidate(candidate_id, user_id=None, is_admin=False):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM candidates WHERE id = ?", (candidate_id,))
+    if not is_admin and user_id:
+        cursor.execute("DELETE FROM candidates WHERE id = ? AND assigned_user_id = ?", (candidate_id, user_id))
+    else:
+        cursor.execute("DELETE FROM candidates WHERE id = ?", (candidate_id,))
     conn.commit()
     conn.close()
 
@@ -917,10 +1141,10 @@ def mark_job_drafted(job_id, candidate_id, draft_id, user_id=1, notes=""):
     conn.close()
     return app_id
 
-def get_pipeline():
+def get_pipeline(user_id=None, is_admin=False):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    query = """
     SELECT 
         a.id as app_id,
         a.stage,
@@ -945,18 +1169,27 @@ def get_pipeline():
         c.email as candidate_email,
         c.phone as candidate_phone,
         c.target_rate,
-        c.visa_status
+        c.visa_status,
+        c.assigned_user_id
     FROM applications a
     JOIN jobs j ON a.job_id = j.id
     JOIN candidates c ON a.candidate_id = c.id
-    ORDER BY a.updated_at DESC
-    """)
+    """
+    if not is_admin and user_id:
+        query += " WHERE (a.user_id = ? OR c.assigned_user_id = ?)"
+        cursor.execute(query + " ORDER BY a.updated_at DESC", (user_id, user_id))
+    elif is_admin and user_id:
+        query += " WHERE (a.user_id = ? OR c.assigned_user_id = ?)"
+        cursor.execute(query + " ORDER BY a.updated_at DESC", (user_id, user_id))
+    else:
+        cursor.execute(query + " ORDER BY a.updated_at DESC")
+
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
-def get_pipeline_by_stages():
-    apps = get_pipeline()
+def get_pipeline_by_stages(user_id=None, is_admin=False):
+    apps = get_pipeline(user_id=user_id, is_admin=is_admin)
     stages = {
         "Saved": [],
         "Drafted": [],

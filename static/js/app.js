@@ -69,6 +69,8 @@ function switchTab(tabId) {
 
     if (tabId === 'drafts') {
         loadPipeline();
+    } else if (tabId === 'team') {
+        loadRecruiters();
     } else if (tabId === 'consultants') {
         renderConsultantsGrid();
     } else if (tabId === 'students') {
@@ -118,11 +120,14 @@ async function initConsultants() {
     }
 }
 
-async function fetchConsultants() {
+async function fetchConsultants(recruiterId = null) {
     try {
-        const res = await fetch('/api/consultants');
+        const filterEl = document.getElementById('select-consultant-recruiter-filter');
+        const rId = recruiterId !== null ? recruiterId : (filterEl ? filterEl.value : '');
+        const url = rId ? `/api/consultants?recruiter_id=${encodeURIComponent(rId)}` : '/api/consultants';
+        const res = await fetch(url);
         const data = await res.json();
-        state.consultants = data;
+        state.consultants = Array.isArray(data) ? data : [];
         populateConsultantDropdowns();
         updateActiveConsultantUI();
         renderConsultantsGrid();
@@ -238,6 +243,12 @@ function renderConsultantsGrid() {
                 <span class="meta-chip">${c.experience_years || 5}+ Yrs Exp</span>
                 <span class="meta-chip">${escapeHtml(c.location || 'United States')}</span>
             </div>
+
+            ${c.recruiter_name ? `
+            <div style="font-size: 0.75rem; color: #94a3b8; margin: 6px 0 10px; display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.6); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                <span>👤 Recruiter: <strong style="color: #38bdf8;">${escapeHtml(c.recruiter_name)}</strong></span>
+                <button class="btn-trigger-reassign" data-id="${c.id}" data-name="${escapeHtml(c.name)}" style="background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.3); color: #c084fc; border-radius: 4px; padding: 2px 7px; cursor: pointer; font-size: 0.72rem; font-weight: 600;">Transfer</button>
+            </div>` : ''}
 
             <div class="cand-skills-box">
                 <strong>Primary Skills:</strong> ${escapeHtml(c.primary_skills || 'Full Stack Engineering, Cloud Services')}

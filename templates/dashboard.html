@@ -65,6 +65,14 @@
                     <span>Master Resume Bot</span>
                     <span class="nav-badge docx-badge">.DOCX</span>
                 </a>
+                {% if 'Admin' in user.role %}
+                <div class="nav-section-title">ADMINISTRATION</div>
+                <a href="#team" class="nav-item" data-tab="team" id="nav-item-team">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    <span>Team & Recruiters</span>
+                    <span class="nav-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">TEAM</span>
+                </a>
+                {% endif %}
             </nav>
 
             <div class="sidebar-footer">
@@ -486,6 +494,17 @@
                         <div>
                             <h2>US IT Bench Consultants Hub</h2>
                             <p>Manage your active consultant profiles, upload .docx Master Resumes, and connect individual consultant Gmail accounts for 1-click automated outreach drafting.</p>
+                            {% if 'Admin' in user.role %}
+                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                                <span style="font-size: 0.85rem; color: #94a3b8; font-weight: 500;">Recruiter Filter:</span>
+                                <select id="select-consultant-recruiter-filter" class="form-control" style="width: auto; padding: 6px 14px; font-size: 0.85rem; background: #1e293b; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; cursor: pointer;">
+                                    <option value="">All Recruiters (Agency Wide)</option>
+                                    {% for r in recruiters %}
+                                    <option value="{{ r.id }}" {% if selected_recruiter_id == r.id %}selected{% endif %}>{{ r.name }} ({{ r.consultant_count }} consultants)</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            {% endif %}
                         </div>
                         <button class="btn btn-primary" id="btn-add-consultant-tab">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -626,6 +645,89 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- TAB 5: TEAM & RECRUITER MANAGEMENT (ADMIN ONLY) -->
+                {% if 'Admin' in user.role %}
+                <div class="tab-pane" id="tab-team" style="display: none;">
+                    <div class="section-header">
+                        <div>
+                            <h2>Recruiter Team & Access Management</h2>
+                            <p>Manage recruiter accounts and ensure isolated workflows for your sourcing staff.</p>
+                        </div>
+                        <button class="btn btn-primary" id="btn-open-add-recruiter-modal">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            + Add New Recruiter
+                        </button>
+                    </div>
+
+                    <!-- KPI Cards for Team -->
+                    <div class="stats-row" style="margin-bottom: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+                        <div class="stat-card" style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px;">
+                            <div style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase;">Active Recruiters</div>
+                            <div style="font-size: 1.8rem; font-weight: 700; color: #38bdf8; margin-top: 6px;" id="stat-team-recruiter-count">{{ recruiters|length }}</div>
+                            <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Independent workspaces</div>
+                        </div>
+                        <div class="stat-card" style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px;">
+                            <div style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase;">Total Agency Bench</div>
+                            <div style="font-size: 1.8rem; font-weight: 700; color: #a855f7; margin-top: 6px;">{{ candidates|length }}</div>
+                            <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Across all recruiters</div>
+                        </div>
+                        <div class="stat-card" style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px;">
+                            <div style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase;">Data Isolation Engine</div>
+                            <div style="font-size: 1.15rem; font-weight: 700; color: #10b981; margin-top: 10px; display: flex; align-items: center; gap: 6px;">
+                                <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span> Active & Scoped
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Recruiter B cannot see Recruiter A's bench</div>
+                        </div>
+                    </div>
+
+                    <!-- Recruiters Table -->
+                    <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; overflow: hidden;">
+                        <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="font-size: 1.05rem; font-weight: 600; margin: 0; color: #fff;">Agency Recruiter Roster</h3>
+                            <span style="font-size: 0.8rem; color: #94a3b8;">Email & Password sign in active</span>
+                        </div>
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
+                                <thead>
+                                    <tr style="background: rgba(30, 41, 59, 0.5); color: #94a3b8; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                                        <th style="padding: 12px 18px;">Recruiter</th>
+                                        <th style="padding: 12px 18px;">Login Email</th>
+                                        <th style="padding: 12px 18px;">Role</th>
+                                        <th style="padding: 12px 18px;">Assigned Bench</th>
+                                        <th style="padding: 12px 18px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recruiters-table-body">
+                                    {% for r in recruiters %}
+                                    <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);" id="recruiter-row-{{ r.id }}">
+                                        <td style="padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
+                                            <img src="{{ r.avatar_url or 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' }}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,255,255,0.2);">
+                                            <span style="font-weight: 600; color: #fff;">{{ r.name }}</span>
+                                        </td>
+                                        <td style="padding: 14px 18px; color: #cbd5e1;">{{ r.email }}</td>
+                                        <td style="padding: 14px 18px;">
+                                            <span style="padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; {% if 'Admin' in r.role %}background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);{% else %}background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);{% endif %}">
+                                                {{ r.role }}
+                                            </span>
+                                        </td>
+                                        <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">{{ r.consultant_count }} consultants</td>
+                                        <td style="padding: 14px 18px;">
+                                            <div style="display: flex; gap: 8px;">
+                                                <button class="btn btn-secondary btn-sm" onclick="window.onResetRecruiterPassword({{ r.id }}, '{{ r.name }}')">Reset Password</button>
+                                                {% if r.id != user.id %}
+                                                <button class="btn btn-danger btn-sm" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="window.onDeleteRecruiter({{ r.id }}, '{{ r.name }}')">Delete</button>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
 
             </main>
         </div>
@@ -818,6 +920,76 @@
                     <button type="submit" class="btn btn-success" id="btn-submit-paste-draft" style="box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);">
                         ⚡ Create Gmail Draft (Attached .docx)
                     </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: ADD NEW RECRUITER (ADMIN ONLY) -->
+    <div class="modal-backdrop" id="modal-add-recruiter" style="display: none;">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-header">
+                <h3>+ Add New Recruiter Account</h3>
+                <button class="modal-close" id="btn-close-add-recruiter-modal">&times;</button>
+            </div>
+            <form id="form-add-recruiter">
+                <div class="modal-body">
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 14px;">
+                        The new recruiter will have their own login and isolated consultant bench.
+                    </p>
+                    <div class="form-group">
+                        <label>Recruiter Full Name *</label>
+                        <input type="text" id="rec-name" class="form-control" placeholder="e.g. Sarah Connor" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Login Email Address *</label>
+                        <input type="email" id="rec-email" class="form-control" placeholder="e.g. sarah@adroit-ai.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Initial Password *</label>
+                        <input type="password" id="rec-password" class="form-control" placeholder="Minimum 4 characters" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Role</label>
+                        <select id="rec-role" class="form-control">
+                            <option value="Recruiter" selected>Recruiter (Isolated Bench)</option>
+                            <option value="Admin">Admin (Full Agency Visibility)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-add-recruiter">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-add-recruiter">Create Recruiter</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: REASSIGN CONSULTANT TO ANOTHER RECRUITER -->
+    <div class="modal-backdrop" id="modal-reassign-consultant" style="display: none;">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-header">
+                <h3>Transfer Consultant Ownership</h3>
+                <button class="modal-close" id="btn-close-reassign-modal">&times;</button>
+            </div>
+            <form id="form-reassign-consultant">
+                <input type="hidden" id="reassign-cand-id" value="">
+                <div class="modal-body">
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px;">
+                        Transfer <strong id="reassign-cand-name" style="color: #38bdf8;"></strong> to another recruiter's bench:
+                    </p>
+                    <div class="form-group">
+                        <label>Assign to Recruiter *</label>
+                        <select id="reassign-target-user-id" class="form-control" required>
+                            {% for r in recruiters %}
+                            <option value="{{ r.id }}">{{ r.name }} ({{ r.email }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-reassign">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-reassign">Confirm Transfer</button>
                 </div>
             </form>
         </div>

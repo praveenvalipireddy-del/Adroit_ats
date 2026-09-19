@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Adroit AI - Multi-Consultant US IT Staffing & ATS Platform</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=4.0.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -497,7 +497,7 @@
                             {% if 'Admin' in user.role %}
                             <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
                                 <span style="font-size: 0.85rem; color: #94a3b8; font-weight: 500;">Recruiter Filter:</span>
-                                <select id="select-consultant-recruiter-filter" class="form-control" style="width: auto; padding: 6px 14px; font-size: 0.85rem; background: #1e293b; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; cursor: pointer;">
+                                <select id="select-consultant-recruiter-filter" class="form-control" style="width: auto; padding: 6px 14px; font-size: 0.85rem; background: #ffffff; color: #0284c7; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer;">
                                     <option value="">All Recruiters (Agency Wide)</option>
                                     {% for r in recruiters %}
                                     <option value="{{ r.id }}" {% if selected_recruiter_id == r.id %}selected{% endif %}>{{ r.name }} ({{ r.consultant_count }} consultants)</option>
@@ -662,56 +662,56 @@
 
                     <!-- KPI Cards for Team -->
                     <div class="stats-row" style="margin-bottom: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
-                        <div class="stat-card" style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px;">
-                            <div style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase;">Active Recruiters</div>
-                            <div style="font-size: 1.8rem; font-weight: 700; color: #38bdf8; margin-top: 6px;" id="stat-team-recruiter-count">{{ recruiters|length }}</div>
-                            <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Independent workspaces</div>
+                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: var(--shadow-card);">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Active Recruiters</div>
+                            <div style="font-size: 1.8rem; font-weight: 700; color: #0284c7; margin-top: 6px;" id="stat-team-recruiter-count">{{ recruiters|length }}</div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Independent workspaces</div>
                         </div>
-                        <div class="stat-card" style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px;">
-                            <div style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase;">Total Agency Bench</div>
-                            <div style="font-size: 1.8rem; font-weight: 700; color: #a855f7; margin-top: 6px;">{{ candidates|length }}</div>
-                            <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Across all recruiters</div>
+                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: var(--shadow-card);">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Total Agency Bench</div>
+                            <div style="font-size: 1.8rem; font-weight: 700; color: #7c3aed; margin-top: 6px;">{{ candidates|length }}</div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Across all recruiters</div>
                         </div>
-                        <div class="stat-card" style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px;">
-                            <div style="font-size: 0.8rem; color: #94a3b8; text-transform: uppercase;">Data Isolation Engine</div>
-                            <div style="font-size: 1.15rem; font-weight: 700; color: #10b981; margin-top: 10px; display: flex; align-items: center; gap: 6px;">
-                                <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span> Active & Scoped
+                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: var(--shadow-card);">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Data Isolation Engine</div>
+                            <div style="font-size: 1.15rem; font-weight: 700; color: #059669; margin-top: 10px; display: flex; align-items: center; gap: 6px;">
+                                <span style="width: 8px; height: 8px; border-radius: 50%; background: #059669; display: inline-block;"></span> Active & Scoped
                             </div>
-                            <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Recruiter B cannot see Recruiter A's bench</div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Recruiter B cannot see Recruiter A's bench</div>
                         </div>
                     </div>
 
                     <!-- Recruiters Table -->
-                    <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; overflow: hidden;">
-                        <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; justify-content: space-between; align-items: center;">
-                            <h3 style="font-size: 1.05rem; font-weight: 600; margin: 0; color: #fff;">Agency Recruiter Roster</h3>
-                            <span style="font-size: 0.8rem; color: #94a3b8;">Email & Password sign in active</span>
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card);">
+                        <div style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+                            <h3 style="font-size: 1.05rem; font-weight: 600; margin: 0; color: #0f172a;">Agency Recruiter Roster</h3>
+                            <span style="font-size: 0.8rem; color: #64748b;">Email & Password sign in active</span>
                         </div>
                         <div style="overflow-x: auto;">
                             <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
                                 <thead>
-                                    <tr style="background: rgba(30, 41, 59, 0.5); color: #94a3b8; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
-                                        <th style="padding: 12px 18px;">Recruiter</th>
-                                        <th style="padding: 12px 18px;">Login Email</th>
-                                        <th style="padding: 12px 18px;">Role</th>
-                                        <th style="padding: 12px 18px;">Assigned Bench</th>
-                                        <th style="padding: 12px 18px;">Actions</th>
+                                    <tr style="background: #f8fafc; color: #475569; border-bottom: 1px solid #e2e8f0;">
+                                        <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Recruiter</th>
+                                        <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Login Email</th>
+                                        <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Role</th>
+                                        <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Assigned Bench</th>
+                                        <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="recruiters-table-body">
                                     {% for r in recruiters %}
-                                    <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);" id="recruiter-row-{{ r.id }}">
+                                    <tr style="border-bottom: 1px solid #f1f5f9;" id="recruiter-row-{{ r.id }}">
                                         <td style="padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
-                                            <img src="{{ r.avatar_url or 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' }}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,255,255,0.2);">
-                                            <span style="font-weight: 600; color: #fff;">{{ r.name }}</span>
+                                            <img src="{{ r.avatar_url or 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' }}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid #cbd5e1;">
+                                            <span style="font-weight: 600; color: #0f172a;">{{ r.name }}</span>
                                         </td>
-                                        <td style="padding: 14px 18px; color: #cbd5e1;">{{ r.email }}</td>
+                                        <td style="padding: 14px 18px; color: #475569;">{{ r.email }}</td>
                                         <td style="padding: 14px 18px;">
-                                            <span style="padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; {% if 'Admin' in r.role %}background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);{% else %}background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);{% endif %}">
+                                            <span style="padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; {% if 'Admin' in r.role %}background: #fffbeb; color: #b45309; border: 1px solid #fde68a;{% else %}background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;{% endif %}">
                                                 {{ r.role }}
                                             </span>
                                         </td>
-                                        <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">{{ r.consultant_count }} consultants</td>
+                                        <td style="padding: 14px 18px; font-weight: 600; color: #0284c7;">{{ r.consultant_count }} consultants</td>
                                         <td style="padding: 14px 18px;">
                                             <div style="display: flex; gap: 8px;">
                                                 <button class="btn btn-secondary btn-sm" onclick="window.onResetRecruiterPassword({{ r.id }}, '{{ r.name }}')">Reset Password</button>

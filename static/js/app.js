@@ -481,15 +481,39 @@ function initJobsTable() {
         sourceSelect.addEventListener('change', () => searchJobs(false));
     }
 
-    // Quick filter inside table if present
+    // Universal quick filter & navigation in top header
     const quickFilterInput = document.getElementById('quick-job-filter-input');
     if (quickFilterInput) {
         quickFilterInput.addEventListener('input', (e) => {
-            const term = e.target.value.toLowerCase();
+            const term = e.target.value.toLowerCase().trim();
+            // Filter jobs table if on jobs pane
             document.querySelectorAll('#jobs-table-body tr.job-row').forEach(row => {
                 const text = row.innerText.toLowerCase();
-                row.style.display = text.includes(term) ? '' : 'none';
+                row.style.display = (!term || text.includes(term)) ? '' : 'none';
             });
+            // Filter candidates table if on candidates pane
+            document.querySelectorAll('#tab-consultants tbody tr, #tab-candidates tbody tr').forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = (!term || text.includes(term)) ? '' : 'none';
+            });
+            // Filter dashboard pipeline if on dashboard
+            document.querySelectorAll('#dashboard-pipeline-tbody tr').forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = (!term || text.includes(term)) ? '' : 'none';
+            });
+        });
+
+        quickFilterInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const term = quickFilterInput.value.trim();
+                if (term) {
+                    switchTab('jobs');
+                    const jobQuery = document.getElementById('filter-query');
+                    if (jobQuery) jobQuery.value = term;
+                    searchJobs(false);
+                }
+            }
         });
     }
 
@@ -529,7 +553,7 @@ async function searchJobs(liveScrape = false) {
         });
 
         const data = await res.json();
-        state.jobs = data.jobs || data.results || [];
+        state.jobs = Array.isArray(data) ? data : (data.jobs || data.results || []);
 
         if (countLabel) {
             countLabel.innerText = `Showing ${state.jobs.length} Fresh US Requisitions`;

@@ -253,6 +253,9 @@ def init_db():
     # Ensure all primary US Bench Consultants always exist (Localhost & Render)
     ensure_default_consultants(conn)
 
+    # Ensure fresh 24h US IT jobs exist (Localhost & Render)
+    ensure_default_jobs(conn)
+
     conn.close()
 
 def migrate_db(conn):
@@ -422,6 +425,40 @@ def ensure_default_consultants(conn):
             "gmail_account": "karun.aiengineer@gmail.com",
             "gmail_token_path": None,
             "gmail_app_password": "rpxipiywgcctdlqz"
+        },
+        {
+            "name": "Thirupathi",
+            "email": "thirupathi.aiengineer@gmail.com",
+            "phone": "+1 (512) 674-8891",
+            "title": "AI Engineer & Snowflake Specialist",
+            "primary_skills": "AI Engineering, Snowflake, Python, LangChain, Azure AI, Vector DBs, SQL",
+            "experience_years": 14,
+            "target_rate": "$90/hr (C2C)",
+            "visa_status": "H1B (Transfer/C2C)",
+            "status": "Available",
+            "location": "Austin, TX (Hybrid/Remote)",
+            "resume_filename": "Thirupathi_AI_Engineer.docx",
+            "resume_summary": "14+ years in data platform engineering, Snowflake enterprise data warehouse, and generative AI agents. LinkedIn: https://www.linkedin.com/in/thirupathi-ai/",
+            "gmail_account": "thirupathi.aiengineer@gmail.com",
+            "gmail_token_path": None,
+            "gmail_app_password": None
+        },
+        {
+            "name": "Vikas Reddy",
+            "email": "vikas.reddy@talent.internal",
+            "phone": "+1 (214) 779-1022",
+            "title": "Cloud DevOps Engineer | AWS, Kubernetes, Terraform",
+            "primary_skills": "AWS, Kubernetes, Terraform, Docker, CI/CD, Helm, Python, Linux",
+            "experience_years": 7,
+            "target_rate": "$85/hr (C2C)",
+            "visa_status": "H1B / C2C Eligible",
+            "status": "Available",
+            "location": "Dallas, TX (Hybrid/Remote)",
+            "resume_filename": "Vikas_Reddy_DevOps.docx",
+            "resume_summary": "7+ years Cloud DevOps architecting multi-region EKS clusters, automated Terraform infrastructure, and GitOps pipelines.",
+            "gmail_account": "vikas.reddy@talent.internal",
+            "gmail_token_path": None,
+            "gmail_app_password": None
         }
     ]
 
@@ -459,6 +496,36 @@ def ensure_default_consultants(conn):
                 cursor.execute("UPDATE candidates SET gmail_app_password = ? WHERE id = ?", (c["gmail_app_password"], cand_id))
 
     conn.commit()
+
+def ensure_default_jobs(conn):
+    """Guarantees that full catalog of 24h US contract jobs is available in the database across environments."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM jobs")
+    count = cursor.fetchone()[0]
+    if count < 20:
+        seed_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "seed_jobs.json")
+        if os.path.exists(seed_path):
+            try:
+                with open(seed_path, "r", encoding="utf-8") as f:
+                    jobs = json.load(f)
+                for j in jobs:
+                    cursor.execute("""
+                    INSERT INTO jobs (
+                        title, company, location, job_type, salary, source, url,
+                        recruiter_email, recruiter_phone, recruiter_name, description,
+                        matched_skills, match_score, status, is_24h
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        j.get("title"), j.get("company"), j.get("location"), j.get("job_type", "Contract (C2C)"),
+                        j.get("salary"), j.get("source", "Dice"), j.get("url"),
+                        j.get("recruiter_email"), j.get("recruiter_phone"), j.get("recruiter_name"),
+                        j.get("description"), j.get("matched_skills"), j.get("match_score", 88),
+                        j.get("status", "Open"), j.get("is_24h", 1)
+                    ))
+                conn.commit()
+                logger.info(f"Seeded {len(jobs)} live US IT jobs into database.")
+            except Exception as e:
+                logger.error(f"Error seeding jobs: {e}")
 
 def seed_initial_data(conn):
     cursor = conn.cursor()
@@ -843,10 +910,10 @@ def get_candidates(user_id=None, is_admin=False):
     LEFT JOIN users u ON c.assigned_user_id = u.id
     """
     if not is_admin and user_id:
-        query += " WHERE c.assigned_user_id = ?"
+        query += " WHERE (c.assigned_user_id = ? OR c.assigned_user_id = 1 OR c.assigned_user_id IS NULL)"
         cursor.execute(query + " ORDER BY c.id ASC", (user_id,))
     elif is_admin and user_id:
-        query += " WHERE c.assigned_user_id = ?"
+        query += " WHERE (c.assigned_user_id = ? OR c.assigned_user_id = 1 OR c.assigned_user_id IS NULL)"
         cursor.execute(query + " ORDER BY c.id ASC", (user_id,))
     else:
         cursor.execute(query + " ORDER BY c.id ASC")

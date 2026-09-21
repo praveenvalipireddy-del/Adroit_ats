@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hiring Flow - Enterprise ATS & Outreach Platform</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=5.0.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=5.1.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -88,9 +88,9 @@
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
                         📋 Paste Requirement & Draft
                     </button>
-                    <button class="btn btn-secondary btn-sm" id="btn-open-add-consultant">
+                    <button class="btn btn-secondary btn-sm" id="btn-open-add-consultant" title="Add New Candidate Profile">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                        Add Consultant
+                        + Add Candidate
                     </button>
                     {% if 'Admin' in user.role %}
                     <button class="btn btn-secondary btn-sm" onclick="switchTab('settings'); setTimeout(window.openAddRecruiterModal, 150);" style="display: inline-flex; align-items: center; gap: 6px; background: #ffffff; color: #0284c7; border: 1px solid #cbd5e1; font-weight: 600;" title="Add Recruiter User">
@@ -122,21 +122,21 @@
                     <div style="margin-bottom: 30px;">
                         <h3 style="font-size: 1.05rem; font-weight: 600; color: #0f172a; margin-bottom: 14px;">Recruiter Metrics KPI</h3>
                         <div class="stats-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
-                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
+                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card); cursor: pointer; transition: transform 0.15s ease;" onclick="switchTab('candidates')" title="Click to view all Candidates">
                                 <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Active Candidates</div>
                                 <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
                                     <span style="font-size: 2rem; font-weight: 800; color: #0f172a;" id="stat-kpi-candidates">{{ candidates|length }}</span>
-                                    <span style="font-size: 0.78rem; font-weight: 600; color: #059669; background: #ecfdf5; padding: 2px 8px; border-radius: 9999px;">+5.2%</span>
+                                    <span style="font-size: 0.78rem; font-weight: 600; color: #059669; background: #ecfdf5; padding: 2px 8px; border-radius: 9999px;">Active Bench</span>
                                 </div>
-                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;">Verified ATS Bench Profiles</div>
+                                <div style="font-size: 0.78rem; color: #2563eb; font-weight: 600; margin-top: 8px;">View all Candidates &rarr;</div>
                             </div>
-                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
-                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">New Applications</div>
+                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card); cursor: pointer; transition: transform 0.15s ease;" onclick="switchTab('jobs')" title="Click to browse Live 24h Jobs">
+                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Live 24h US Jobs</div>
                                 <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
                                     <span style="font-size: 2rem; font-weight: 800; color: #0f172a;" id="stat-kpi-jobs">{{ stats.total_jobs }}</span>
-                                    <span style="font-size: 0.78rem; font-weight: 600; color: #2563eb; background: #eff6ff; padding: 2px 8px; border-radius: 9999px;">This Week</span>
+                                    <span style="font-size: 0.78rem; font-weight: 600; color: #2563eb; background: #eff6ff; padding: 2px 8px; border-radius: 9999px;">Live 24h</span>
                                 </div>
-                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;">Fresh 24h C2C Requisitions</div>
+                                <div style="font-size: 0.78rem; color: #2563eb; font-weight: 600; margin-top: 8px;">Browse 24h Jobs &rarr;</div>
                             </div>
                             <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
                                 <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Time-to-Hire</div>
@@ -183,7 +183,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="dashboard-pipeline-tbody">
-                                    <!-- Rendered dynamically by app.js?v=4.2.0 -->
+                                    <!-- Rendered dynamically by app.js?v=5.1.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -215,7 +215,7 @@
                         <div class="filter-row">
                             <div class="filter-group">
                                 <label>Search Role / Skills</label>
-                                <input type="text" id="filter-query" placeholder="e.g. AI Automation, Java Spring Boot, DevOps..." value="AI Automation">
+                                <input type="text" id="filter-query" placeholder="Search 24h jobs (e.g. AI, Java, DevOps, Data, Cloud...)" value="">
                             </div>
                             <div class="filter-group">
                                 <label>US Location</label>
@@ -259,7 +259,7 @@
                                     <th style="width: 12%;">Portal</th>
                                     <th style="width: 14%;">Rate / Type</th>
                                     <th style="width: 22%;">Recruiter Email (In-Table Edit)</th>
-                                    <th style="width: 12%;">Target Consultant</th>
+                                    <th style="width: 12%;">Target Candidate</th>
                                     <th style="width: 12%; text-align: right;">1-Click Actions</th>
                                 </tr>
                             </thead>
@@ -457,7 +457,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="students-table-body">
-                                    <!-- Candidate rows loaded dynamically via app.js?v=4.2.0 -->
+                                    <!-- Candidate rows loaded dynamically via app.js?v=5.1.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -554,8 +554,8 @@
 <div class="tab-pane" id="tab-consultants">
                     <div class="section-header">
                         <div>
-                            <h2>US IT Bench Consultants Hub</h2>
-                            <p>Manage your active consultant profiles, upload .docx Master Resumes, and connect individual consultant Gmail accounts for 1-click automated outreach drafting.</p>
+                            <h2>Candidates & Talent Bench Hub</h2>
+                            <p>Manage active candidate profiles, upload .docx Master Resumes, and execute 1-click automated outreach drafting.</p>
                             {% if 'Admin' in user.role %}
                             <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
                                 <span style="font-size: 0.85rem; color: #94a3b8; font-weight: 500;">Recruiter Filter:</span>
@@ -570,7 +570,7 @@
                         </div>
                         <button class="btn btn-primary" id="btn-add-consultant-tab">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            Add New Consultant Profile
+                            + Add Candidate Profile
                         </button>
                     </div>
 
@@ -591,7 +591,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="consultants-table-body">
-                                    <!-- Rendered dynamically by app.js?v=4.2.0 in structured rows -->
+                                    <!-- Rendered dynamically by app.js?v=5.1.0 in structured rows -->
                                 </tbody>
                             </table>
                         </div>
@@ -1079,7 +1079,7 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=5.0.0"></script>
+    <script src="/static/js/app.js?v=5.1.0"></script>
 
     <!-- Recruiter Management Inline Fallback -->
     <script>

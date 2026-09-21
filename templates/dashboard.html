@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hiring Flow - Enterprise ATS & Outreach Platform</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=4.1.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=4.2.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -53,7 +53,7 @@
                 </a>
                 <a href="#settings" class="nav-item" data-tab="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                    <span>Settings</span>
+                    <span>Admin & Settings</span>
                     {% if 'Admin' in user.role %}
                     <span class="nav-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">TEAM</span>
                     {% endif %}
@@ -61,7 +61,7 @@
             </nav>
 
             <div class="sidebar-footer">
-                <div class="user-profile-card">
+                <div class="user-profile-card" onclick="switchTab('settings')" style="cursor: pointer;" title="Click to open Admin & Recruiter Management">
                     <img src="{{ user.avatar_url or 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' }}" alt="{{ user.name }}" class="avatar">
                     <div class="user-info">
                         <div class="name">{{ user.name }}</div>
@@ -92,6 +92,12 @@
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         Add Consultant
                     </button>
+                    {% if 'Admin' in user.role %}
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('settings'); setTimeout(window.openAddRecruiterModal, 150);" style="display: inline-flex; align-items: center; gap: 6px; background: #ffffff; color: #0284c7; border: 1px solid #cbd5e1; font-weight: 600;" title="Add Recruiter User">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                        + Add Recruiter
+                    </button>
+                    {% endif %}
                     <button class="btn btn-primary btn-sm" id="btn-header-scrape-us">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                         Scrape 24h US Jobs
@@ -177,7 +183,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="dashboard-pipeline-tbody">
-                                    <!-- Rendered dynamically by app.js?v=4.1.0 -->
+                                    <!-- Rendered dynamically by app.js?v=4.2.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -451,7 +457,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="students-table-body">
-                                    <!-- Candidate rows loaded dynamically via app.js?v=4.1.0 -->
+                                    <!-- Candidate rows loaded dynamically via app.js?v=4.2.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -585,7 +591,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="consultants-table-body">
-                                    <!-- Rendered dynamically by app.js?v=4.1.0 in structured rows -->
+                                    <!-- Rendered dynamically by app.js?v=4.2.0 in structured rows -->
                                 </tbody>
                             </table>
                         </div>
@@ -1073,7 +1079,7 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=4.1.0?v=3.6.0"></script>
+    <script src="/static/js/app.js?v=4.2.0?v=3.6.0"></script>
 
     <!-- Recruiter Management Inline Fallback -->
     <script>

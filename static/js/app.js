@@ -88,9 +88,9 @@ function switchTab(rawTabId) {
     if (activePane) activePane.classList.add('active');
 
     if (paneKey === 'dashboard') {
-        renderDashboardPipeline();
+        if (typeof renderDashboardPipeline === 'function') renderDashboardPipeline();
     } else if (paneKey === 'consultants') {
-        renderConsultantsTable();
+        if (typeof renderConsultantsTable === 'function') renderConsultantsTable();
     } else if (paneKey === 'drafts') {
         loadPipeline();
     } else if (paneKey === 'team') {
@@ -99,8 +99,7 @@ function switchTab(rawTabId) {
         if (!state.students || state.students.length === 0) {
             loadStudentBench();
         }
-    }
-} else if (tabId === 'jobs') {
+    } else if (paneKey === 'jobs') {
         if (!state.jobs || state.jobs.length === 0) {
             searchJobs(false);
         }

@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Adroit AI - Multi-Consultant US IT Staffing & ATS Platform</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=4.0.0">
+    <title>Hiring Flow - Enterprise ATS & Outreach Platform</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=4.1.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,66 +13,51 @@
     <div class="app-container">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
-            <div class="brand-wrapper">
-                <div class="brand-icon">A</div>
+            <div class="brand-wrapper" style="display: flex; align-items: center; gap: 12px; padding: 20px 18px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                <div class="brand-logo" style="width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #38bdf8); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4); flex-shrink: 0;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                </div>
                 <div class="brand-text">
-                    <h2>Adroit ATS</h2>
-                    <span>US IT Staffing & Bench Hub</span>
+                    <h2 style="font-size: 1.15rem; font-weight: 800; letter-spacing: 0.06em; color: #ffffff; margin: 0; line-height: 1.2;">HIRING FLOW</h2>
+                    <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 500; letter-spacing: 0.04em;">Enterprise ATS & Outreach</span>
                 </div>
             </div>
 
-            <!-- Active Consultant Selector Card -->
-            <div class="active-consultant-card">
-                <div class="active-label">ACTIVE CONSULTANT</div>
-                <select id="global-active-consultant" class="consultant-dropdown">
-                    {% for c in candidates %}
-                    <option value="{{ c.id }}" {% if loop.first %}selected{% endif %}>
-                        {{ c.name }} ({{ c.title }})
-                    </option>
-                    {% endfor %}
-                </select>
-                <div id="active-consultant-badges" class="consultant-sub-badges">
-                    <span id="active-gmail-badge" class="mini-badge">Checking Gmail...</span>
-                    <span id="active-rate-badge" class="mini-badge rate-tag">$90/hr C2C</span>
-                </div>
-            </div>
-
-            <nav class="nav-menu">
-                <div class="nav-section-title">BENCH MARKETING & JOBS</div>
-                <a href="#jobs" class="nav-item active" data-tab="jobs">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <span>24h USA IT Jobs Feed</span>
-                    <span class="nav-badge live-badge">LIVE 24h</span>
+            <nav class="nav-menu" style="margin-top: 16px;">
+                <a href="#dashboard" class="nav-item active" data-tab="dashboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    <span>Dashboard</span>
                 </a>
-                <a href="#students" class="nav-item" data-tab="students">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
-                    <span>US Bench Sourcing (2018–2026)</span>
-                    <span class="badge-hot" style="background:linear-gradient(135deg, #8b5cf6, #d946ef); color:white; font-size:10px; padding:2px 6px; border-radius:10px; margin-left:auto; font-weight:700; box-shadow:0 2px 5px rgba(139,92,246,0.3);">HOTLIST</span>
-                </a>
-                <a href="#consultants" class="nav-item" data-tab="consultants">
+                <a href="#candidates" class="nav-item" data-tab="candidates">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                    <span>US Bench Consultants</span>
+                    <span>Candidates</span>
                     <span class="nav-badge count-badge">{{ candidates|length }}</span>
                 </a>
-                <a href="#drafts" class="nav-item" data-tab="drafts">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                    <span>Gmail Drafts & Pipeline</span>
+                <a href="#jobs" class="nav-item" data-tab="jobs">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                    <span>Jobs</span>
+                    <span class="nav-badge live-badge">LIVE 24h</span>
+                </a>
+                <a href="#sourcing" class="nav-item" data-tab="sourcing">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <span>Sourcing</span>
+                </a>
+                <a href="#reporting" class="nav-item" data-tab="reporting">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                    <span>Reporting</span>
                     <span class="nav-badge draft-badge" id="sidebar-draft-count">DRAFTS</span>
                 </a>
-                <div class="nav-section-title">AI SUPERPOWERS</div>
-                <a href="#resumebot" class="nav-item" data-tab="resumebot">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                    <span>Master Resume Bot</span>
-                    <span class="nav-badge docx-badge">.DOCX</span>
-                </a>
-                {% if 'Admin' in user.role %}
-                <div class="nav-section-title">ADMINISTRATION</div>
-                <a href="#team" class="nav-item" data-tab="team" id="nav-item-team">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                    <span>Team & Recruiters</span>
+                <a href="#settings" class="nav-item" data-tab="settings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    <span>Settings</span>
+                    {% if 'Admin' in user.role %}
                     <span class="nav-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">TEAM</span>
+                    {% endif %}
                 </a>
-                {% endif %}
             </nav>
 
             <div class="sidebar-footer">
@@ -95,7 +80,7 @@
             <header class="top-header">
                 <div class="header-search">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <input type="text" id="quick-job-filter-input" placeholder="Quick filter live jobs by skill (Python, Java, AWS, DevOps, React)...">
+                    <input type="text" id="quick-job-filter-input" placeholder="Search Candidates, Jobs, Skills...">
                 </div>
 
                 <div class="header-actions">
@@ -118,7 +103,95 @@
             <main class="content-area">
 
                 <!-- TAB 1: 24-HOUR USA IT JOBS TABLE & OUTREACH -->
-                <div class="tab-pane active" id="tab-jobs">
+                                <!-- TAB: DASHBOARD (EXECUTIVE OVERVIEW & RECRUITER METRICS) -->
+                <div class="tab-pane active" id="tab-dashboard">
+                    <div class="section-header" style="margin-bottom: 24px;">
+                        <div>
+                            <h2 style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0 0 6px;">Dashboard</h2>
+                            <p style="color: #64748b; margin: 0;">Recruiter performance metrics, active talent bench, and real-time candidate outreach pipeline.</p>
+                        </div>
+                    </div>
+
+                    <!-- Recruiter Metrics KPI Row -->
+                    <div style="margin-bottom: 30px;">
+                        <h3 style="font-size: 1.05rem; font-weight: 600; color: #0f172a; margin-bottom: 14px;">Recruiter Metrics KPI</h3>
+                        <div class="stats-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
+                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Active Candidates</div>
+                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
+                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;" id="stat-kpi-candidates">{{ candidates|length }}</span>
+                                    <span style="font-size: 0.78rem; font-weight: 600; color: #059669; background: #ecfdf5; padding: 2px 8px; border-radius: 9999px;">+5.2%</span>
+                                </div>
+                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;">Verified ATS Bench Profiles</div>
+                            </div>
+                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
+                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">New Applications</div>
+                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
+                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;" id="stat-kpi-jobs">{{ stats.total_jobs }}</span>
+                                    <span style="font-size: 0.78rem; font-weight: 600; color: #2563eb; background: #eff6ff; padding: 2px 8px; border-radius: 9999px;">This Week</span>
+                                </div>
+                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;">Fresh 24h C2C Requisitions</div>
+                            </div>
+                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
+                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Time-to-Hire</div>
+                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
+                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;">24 Days</span>
+                                    <span style="font-size: 0.78rem; font-weight: 600; color: #7c3aed; background: #f5f3ff; padding: 2px 8px; border-radius: 9999px;">Avg.</span>
+                                </div>
+                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;"><strong id="stat-kpi-drafts" style="color: #475569;">{{ stats.drafted_count }}</strong> Outreach Drafts Created</div>
+                            </div>
+                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
+                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Offer Acceptance</div>
+                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
+                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;">88%</span>
+                                    <span style="font-size: 0.78rem; font-weight: 600; color: #059669; background: #ecfdf5; padding: 2px 8px; border-radius: 9999px;">+3%</span>
+                                </div>
+                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;"><strong id="stat-kpi-emails" style="color: #475569;">{{ stats.jobs_with_email }}</strong> Direct Hiring Contacts</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Candidate Pipeline Table Section -->
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card);">
+                        <div style="padding: 18px 24px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #ffffff;">
+                            <div>
+                                <h3 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: #0f172a;">Candidate Pipeline</h3>
+                                <span style="font-size: 0.8rem; color: #64748b;">Live submissions, interviews, and active outreach stages</span>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-secondary btn-sm" onclick="switchTab('candidates')">View All Candidates</button>
+                                <button class="btn btn-primary btn-sm" onclick="switchTab('jobs')">Browse 24h Jobs</button>
+                            </div>
+                        </div>
+
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
+                                <thead>
+                                    <tr style="background: #f8fafc; color: #475569; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;">
+                                        <th style="padding: 14px 20px;">Candidate</th>
+                                        <th style="padding: 14px 20px;">Applied Role</th>
+                                        <th style="padding: 14px 20px;">Current Stage</th>
+                                        <th style="padding: 14px 20px;">Application Date</th>
+                                        <th style="padding: 14px 20px;">Recruiter</th>
+                                        <th style="padding: 14px 20px;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dashboard-pipeline-tbody">
+                                    <!-- Rendered dynamically by app.js?v=4.1.0 -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div style="padding: 14px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: center; align-items: center; gap: 8px; background: #ffffff;">
+                            <button class="btn btn-secondary btn-sm" style="padding: 4px 10px; min-width: 32px;" disabled>&lt;</button>
+                            <button class="btn btn-primary btn-sm" style="padding: 4px 12px; min-width: 32px; font-weight: 700;">1</button>
+                            <button class="btn btn-secondary btn-sm" style="padding: 4px 10px; min-width: 32px;" disabled>&gt;</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane" id="tab-jobs">
                     <div class="section-header">
                         <div>
                             <h2>Live 24-Hour USA IT Jobs & 1-Click Outreach</h2>
@@ -223,15 +296,24 @@
                         </div>
                     </div>
 
-                    <!-- Metrics Ribbon -->
-                    <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 24px;">
-                        <div class="stat-card" style="border-left: 4px solid #8b5cf6;">
-                            <div class="stat-icon" style="background: rgba(139, 92, 246, 0.15); color: #8b5cf6;">🎓</div>
-                            <div class="stat-info">
-                                <div class="stat-label">CANDIDATES FOUND</div>
-                                <div class="stat-value" id="stat-students-count">0</div>
-                                <div class="stat-desc">Targeted 2018–2026 Cohort</div>
-                            </div>
+                    <!-- Sourcing Talent Pool Quick Metrics -->
+                    <div class="stats-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow-card);">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Talent Sourcing Pool</div>
+                            <div style="font-size: 1.6rem; font-weight: 800; color: #2563eb; margin-top: 6px;">2018–2026 Cohorts</div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">India Bachelor's + USA Master's</div>
+                        </div>
+                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow-card);">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Experienced Tech Candidates</div>
+                            <div style="font-size: 1.6rem; font-weight: 800; color: #059669; margin-top: 6px;">4–10+ Yrs Exp</div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Immediate C2C & Full-Time Bench</div>
+                        </div>
+                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow-card);">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Bench Onboarded</div>
+                            <div style="font-size: 1.6rem; font-weight: 800; color: #7c3aed; margin-top: 6px;" id="stat-students-onboarded">{{ candidates|length }}</div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Active in ATS Bench Roster</div>
+                        </div>
+                    </div>
                         </div>
                         <div class="stat-card" style="border-left: 4px solid #10b981;">
                             <div class="stat-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">🔥</div>
@@ -395,7 +477,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="students-table-body">
-                                    <!-- Candidate rows loaded dynamically via app.js -->
+                                    <!-- Candidate rows loaded dynamically via app.js?v=4.1.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -512,8 +594,27 @@
                         </button>
                     </div>
 
-                    <div class="consultants-grid" id="consultants-cards-container">
-                        <!-- Rendered dynamically by JavaScript -->
+                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card);">
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
+                                <thead>
+                                    <tr style="background: #f8fafc; color: #475569; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;">
+                                        <th style="padding: 14px 18px;">Candidate</th>
+                                        <th style="padding: 14px 18px;">Target Rate</th>
+                                        <th style="padding: 14px 18px;">Work Auth / Visa</th>
+                                        <th style="padding: 14px 18px;">Experience</th>
+                                        <th style="padding: 14px 18px;">Location</th>
+                                        <th style="padding: 14px 18px;">Assigned Recruiter</th>
+                                        <th style="padding: 14px 18px;">Resume (.docx)</th>
+                                        <th style="padding: 14px 18px;">Gmail Outreach</th>
+                                        <th style="padding: 14px 18px; text-align: right;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="consultants-table-body">
+                                    <!-- Rendered dynamically by app.js?v=4.1.0 in structured rows -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -998,7 +1099,7 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=3.6.0"></script>
+    <script src="/static/js/app.js?v=4.1.0?v=3.6.0"></script>
 
     <!-- Recruiter Management Inline Fallback -->
     <script>
@@ -1121,5 +1222,94 @@
         }
     };
     </script>
+
+    <!-- AI OUTREACH PERSONALIZATION CHATBOT MODAL -->
+    <div class="modal-backdrop" id="modal-ai-copilot" style="display: none; z-index: 10000; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px);">
+        <div class="modal-content" style="max-width: 960px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25); background: #ffffff;">
+            <!-- Modal Header -->
+            <div style="padding: 18px 24px; background: #0f172a; color: #ffffff; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #38bdf8); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">🤖</div>
+                    <div>
+                        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #ffffff;">Recruiter AI Outreach Copilot</h3>
+                        <div style="font-size: 0.8rem; color: #94a3b8;" id="copilot-context-subtitle">Personalize your candidate pitch for hiring recruiters</div>
+                    </div>
+                </div>
+                <button type="button" onclick="closeAiCopilotModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.6rem; cursor: pointer; padding: 4px; line-height: 1;" title="Close">&times;</button>
+            </div>
+
+            <!-- Two-Column Workspace -->
+            <div style="display: grid; grid-template-columns: 1fr 1.1fr; flex: 1; min-height: 480px; overflow: hidden; background: #f8fafc;">
+                <!-- Left: Chat Assistant -->
+                <div style="display: flex; flex-direction: column; border-right: 1px solid #e2e8f0; background: #ffffff;">
+                    <div style="padding: 14px 18px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #475569; letter-spacing: 0.05em;">AI Chat Assistant</span>
+                            <div style="font-size: 0.75rem; color: #94a3b8;">Chat to adjust tone, rate, or highlighted skills</div>
+                        </div>
+                        <span style="font-size: 0.7rem; background: #eff6ff; color: #2563eb; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">Adroit AI</span>
+                    </div>
+
+                    <!-- Chat Message Stream -->
+                    <div id="copilot-chat-messages" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                        <!-- Messages dynamically added -->
+                    </div>
+
+                    <!-- Quick Prompt Chips -->
+                    <div style="padding: 10px 14px; border-top: 1px solid #f1f5f9; display: flex; gap: 6px; flex-wrap: wrap; background: #f8fafc;">
+                        <button type="button" class="btn-prompt-chip" onclick="applyCopilotQuickPrompt('Highlight AWS, Kafka & Microservices')">⚡ AWS & Microservices</button>
+                        <button type="button" class="btn-prompt-chip" onclick="applyCopilotQuickPrompt('Set C2C rate to $95/hr negotiable')">💼 $95/hr C2C</button>
+                        <button type="button" class="btn-prompt-chip" onclick="applyCopilotQuickPrompt('Make it concise, 3 sentences max, warm tone')">🎯 Short & Sweet</button>
+                        <button type="button" class="btn-prompt-chip" onclick="applyCopilotQuickPrompt('Mention candidate is immediately available for interviews')">🚀 Immediate Available</button>
+                    </div>
+
+                    <!-- Chat Input Box -->
+                    <div style="padding: 14px; border-top: 1px solid #e2e8f0; display: flex; gap: 8px; background: #ffffff;">
+                        <input type="text" id="copilot-user-input" placeholder="Type instructions (e.g. 'Make it short, highlight Python')..." style="flex: 1; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.85rem;" onkeydown="if(event.key==='Enter') sendCopilotInstruction()">
+                        <button type="button" class="btn btn-primary" id="btn-copilot-send" onclick="sendCopilotInstruction()" style="padding: 10px 16px; font-weight: 600;">
+                            Send
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: Live Editable Draft Preview -->
+                <div style="display: flex; flex-direction: column; background: #ffffff; padding: 18px 20px; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #475569; letter-spacing: 0.05em;">Live Email Draft Preview</span>
+                        <span class="badge" style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px;">Directly Editable</span>
+                    </div>
+
+                    <div style="margin-bottom: 10px;">
+                        <label style="font-size: 0.75rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Recipient (Recruiter Email):</label>
+                        <input type="email" id="copilot-to-email" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem;" placeholder="recruiter@company.com">
+                    </div>
+
+                    <div style="margin-bottom: 10px;">
+                        <label style="font-size: 0.75rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Subject Line:</label>
+                        <input type="text" id="copilot-subject" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-weight: 600; color: #0f172a;" placeholder="Job Application...">
+                    </div>
+
+                    <div style="flex: 1; display: flex; flex-direction: column; margin-bottom: 12px;">
+                        <label style="font-size: 0.75rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Email Body:</label>
+                        <textarea id="copilot-body" style="flex: 1; min-height: 220px; width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.875rem; line-height: 1.6; font-family: inherit; color: #334155; resize: vertical;"></textarea>
+                    </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px solid #f1f5f9;">
+                        <div style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #64748b;" id="copilot-resume-badge">
+                            <span>📎 Attached Resume:</span>
+                            <span id="copilot-resume-name" style="font-weight: 600; color: #0284c7;">Candidate_Resume.docx</span>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="closeAiCopilotModal()">Cancel</button>
+                            <button type="button" class="btn btn-primary btn-sm" id="btn-copilot-save-draft" onclick="submitCopilotDraftToGmail()" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); font-weight: 700; padding: 8px 18px;">
+                                🚀 Save to Gmail Draft
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

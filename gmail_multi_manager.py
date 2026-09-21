@@ -212,7 +212,7 @@ LinkedIn: {cand_linkedin}
 """
     return body
 
-def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "") -> Dict[str, Any]:
+def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None) -> Dict[str, Any]:
     cand = models.get_candidate_by_id(candidate_id)
     if not cand:
         return {"success": False, "error": f"Candidate #{candidate_id} not found."}
@@ -240,8 +240,8 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
     company = job.get("company", "Company")
     sender_email = cand.get("gmail_account") or cand.get("email")
 
-    subject = f"Job Application: {job_title} - {cand_name} ({cand_exp} Yrs Exp | {cand_visa})"
-    body_text = generate_consultant_pitch(cand, job, custom_notes)
+    subject = (custom_subject.strip() if custom_subject and custom_subject.strip() else f"Job Application: {job_title} - {cand_name} ({cand_exp} Yrs Exp | {cand_visa})")
+    body_text = (custom_body.strip() if custom_body and custom_body.strip() else generate_consultant_pitch(cand, job, custom_notes))
 
     msg = EmailMessage()
     msg["To"] = to_email

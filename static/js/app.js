@@ -50,34 +50,57 @@ function initNavigation() {
     // Hash support
     if (window.location.hash) {
         const hashTab = window.location.hash.replace('#', '');
-        if (document.getElementById(`tab-${hashTab}`)) {
-            switchTab(hashTab);
-        }
+        switchTab(hashTab);
+    } else {
+        switchTab('dashboard');
     }
 }
 
-function switchTab(tabId) {
-    state.activeTab = tabId;
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+const tabAliasMap = {
+    'dashboard': 'dashboard',
+    'candidates': 'consultants',
+    'consultants': 'consultants',
+    'jobs': 'jobs',
+    'sourcing': 'students',
+    'students': 'students',
+    'reporting': 'drafts',
+    'drafts': 'drafts',
+    'settings': 'team',
+    'team': 'team',
+    'resumebot': 'resumebot'
+};
+
+function switchTab(rawTabId) {
+    const paneKey = tabAliasMap[rawTabId] || rawTabId;
+    state.activeTab = rawTabId;
+
+    document.querySelectorAll('.nav-item').forEach(el => {
+        const dt = el.getAttribute('data-tab');
+        if (dt === rawTabId || tabAliasMap[dt] === paneKey) {
+            el.classList.add('active');
+        } else {
+            el.classList.remove('active');
+        }
+    });
+
     document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
-
-    const activeNav = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
-    const activePane = document.getElementById(`tab-${tabId}`);
-
-    if (activeNav) activeNav.classList.add('active');
+    const activePane = document.getElementById(`tab-${paneKey}`) || document.getElementById(`tab-${rawTabId}`);
     if (activePane) activePane.classList.add('active');
 
-    if (tabId === 'drafts') {
+    if (paneKey === 'dashboard') {
+        renderDashboardPipeline();
+    } else if (paneKey === 'consultants') {
+        renderConsultantsTable();
+    } else if (paneKey === 'drafts') {
         loadPipeline();
-    } else if (tabId === 'team') {
+    } else if (paneKey === 'team') {
         loadRecruiters();
-    } else if (tabId === 'consultants') {
-        renderConsultantsGrid();
-    } else if (tabId === 'students') {
-        if (!state.studentsLoaded) {
-            loadStudents();
+    } else if (paneKey === 'students') {
+        if (!state.students || state.students.length === 0) {
+            loadStudentBench();
         }
-    } else if (tabId === 'jobs') {
+    }
+} else if (tabId === 'jobs') {
         if (!state.jobs || state.jobs.length === 0) {
             searchJobs(false);
         }
@@ -130,7 +153,9 @@ async function fetchConsultants(recruiterId = null) {
         state.consultants = Array.isArray(data) ? data : [];
         populateConsultantDropdowns();
         updateActiveConsultantUI();
+        if (typeof renderConsultantsTable === 'function') renderConsultantsTable();
         renderConsultantsGrid();
+        if (typeof renderDashboardPipeline === 'function') renderDashboardPipeline();
     } catch (err) {
         console.error('Error fetching consultants:', err);
     }
@@ -603,9 +628,12 @@ function renderJobsTable(jobs) {
                     ${consultantOptions}
                 </select>
             </td>
-            <td style="text-align: right;">
-                <button class="btn btn-primary btn-sm btn-draft-job" data-job-id="${j.id}" style="display:inline-flex; align-items:center; gap:4px; box-shadow: 0 0 10px rgba(99,102,241,0.3);">
+            <td style="text-align: right; white-space: nowrap;">
+                <button class="btn btn-primary btn-sm btn-draft-job" data-job-id="${j.id}" style="display:inline-flex; align-items:center; gap:4px;">
                     ✉️ 1-Click Draft
+                </button>
+                <button class="btn btn-sm btn-copilot-job" data-job-id="${j.id}" style="background: linear-gradient(135deg, #2563eb, #38bdf8); color: #ffffff; border: none; font-weight: 600; font-size: 0.75rem; padding: 6px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;" title="Personalize email with AI Outreach Copilot">
+                    🤖 AI
                 </button>
             </td>
         </tr>
@@ -1999,3 +2027,412 @@ document.addEventListener('click', (e) => {
         openReassignModal(candId, candName);
     }
 });
+
+
+// =========================================================================
+// Executive Candidates Table View (Row layout with Head Titles)
+// =========================================================================
+function renderConsultantsTable() {
+    const tbody = document.getElementById('consultants-table-body');
+    if (!tbody) {
+        renderConsultantsGrid();
+        return;
+    }
+
+    if (!state.consultants || state.consultants.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" style="text-align: center; padding: 40px; color: #64748b;">
+                    No candidates found. Click <strong>"Add New Candidate Profile"</strong> to add your first bench candidate.
+                </td>
+            </tr>`;
+        return;
+    }
+
+    tbody.innerHTML = state.consultants.map(c => {
+        const initials = (c.name || "C").split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        const hasResume = Boolean(c.resume_filename || c.resume_path);
+        const gmailConnected = Boolean(c.gmail_connected);
+        const cleanName = (c.name || "Consultant").replace(/[,\/]/g, '').trim();
+        const liUrl = (c.linkedin_url && c.linkedin_url.startsWith('http') && !c.linkedin_url.endsWith('-devops/') && !c.linkedin_url.endsWith('-data-analyst/'))
+            ? c.linkedin_url
+            : `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}&origin=GLOBAL_SEARCH_HEADER`;
+
+        return `
+        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+            <td style="padding: 14px 18px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 36px; height: 36px; border-radius: 50%; background: #eff6ff; color: #2563eb; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; border: 1px solid #bfdbfe; flex-shrink: 0;">
+                        ${initials}
+                    </div>
+                    <div>
+                        <div style="font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                            <a href="${liUrl}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='inherit'">
+                                ${escapeHtml(c.name)}
+                            </a>
+                            <a href="${liUrl}" target="_blank" rel="noopener noreferrer" style="color: #0284c7; font-size: 0.75rem; text-decoration: none;" title="LinkedIn Profile">↗</a>
+                        </div>
+                        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">${escapeHtml(c.title || 'Technical Consultant')}</div>
+                    </div>
+                </div>
+            </td>
+            <td style="padding: 14px 18px;">
+                <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.78rem; font-weight: 700; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">
+                    ${escapeHtml(c.target_rate || '$90/hr C2C')}
+                </span>
+            </td>
+            <td style="padding: 14px 18px;">
+                <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.78rem; font-weight: 600; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;">
+                    ${escapeHtml(c.visa_status || 'C2C Eligible')}
+                </span>
+            </td>
+            <td style="padding: 14px 18px; font-weight: 600; color: #334155;">
+                ${c.experience_years || 5}+ Yrs
+            </td>
+            <td style="padding: 14px 18px; color: #64748b; font-size: 0.85rem;">
+                ${escapeHtml(c.location || 'United States')}
+            </td>
+            <td style="padding: 14px 18px;">
+                <span style="font-weight: 600; color: #0284c7; font-size: 0.85rem;">
+                    👤 ${escapeHtml(c.recruiter_name || 'Assigned')}
+                </span>
+            </td>
+            <td style="padding: 14px 18px;">
+                ${hasResume ? `
+                    <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;">
+                        📄 .DOCX Ready
+                    </span>
+                ` : `
+                    <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #fffbeb; color: #b45309; border: 1px solid #fde68a;">
+                        ⚠️ No Resume
+                    </span>
+                `}
+            </td>
+            <td style="padding: 14px 18px;">
+                ${gmailConnected ? `
+                    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; color: #059669;">
+                        <span style="width: 7px; height: 7px; border-radius: 50%; background: #059669;"></span> Connected
+                    </span>
+                ` : `
+                    <a href="/auth/gmail/login?candidate_id=${c.id}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; text-decoration: none;">
+                        Connect Gmail
+                    </a>
+                `}
+            </td>
+            <td style="padding: 14px 18px; text-align: right;">
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                    <button class="btn btn-sm" onclick="openAiCopilotModal(${c.id})" style="background: linear-gradient(135deg, #2563eb, #38bdf8); color: #ffffff; border: none; font-weight: 600; font-size: 0.75rem; padding: 5px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;" title="Open AI Personalization Chatbot">
+                        <span>🤖 AI Outreach</span>
+                    </button>
+                    <button class="btn btn-secondary btn-sm btn-edit-consultant" data-id="${c.id}" style="padding: 5px 10px; font-size: 0.75rem;" title="Edit Profile">
+                        ✏️
+                    </button>
+                    <button class="btn btn-secondary btn-sm btn-delete-consultant" data-id="${c.id}" data-name="${escapeHtml(c.name)}" style="padding: 5px 10px; font-size: 0.75rem; color: #ef4444;" title="Delete Candidate">
+                        🗑️
+                    </button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+
+    // Attach row events
+    tbody.querySelectorAll('.btn-edit-consultant').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const c = state.consultants.find(item => item.id === candId);
+            if (c) openEditConsultantModal(c);
+        });
+    });
+
+    tbody.querySelectorAll('.btn-delete-consultant').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const candName = btn.getAttribute('data-name');
+            deleteConsultant(candId, candName);
+        });
+    });
+}
+
+// =========================================================================
+// Dashboard Candidate Pipeline Table View
+// =========================================================================
+function renderDashboardPipeline() {
+    const tbody = document.getElementById('dashboard-pipeline-tbody');
+    if (!tbody) return;
+
+    const cands = state.consultants || [];
+    if (cands.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 30px; color: #64748b;">No candidate applications found yet.</td></tr>`;
+        return;
+    }
+
+    const stages = [
+        { stage: "Tech Interview", color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe", status: "Active" },
+        { stage: "Offer Sent", color: "#d97706", bg: "#fffbeb", border: "#fde68a", status: "Offer" },
+        { stage: "Sourcing", color: "#059669", bg: "#ecfdf5", border: "#a7f3d0", status: "Sourcing" },
+        { stage: "Client Review", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe", status: "Active" },
+        { stage: "Tech Interview", color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe", status: "Active" }
+    ];
+
+    const targetRoles = [
+        "Applied for Senior Cloud / AWS Developer",
+        "Lead Full-Stack Java Engineer (Remote)",
+        "Principal AI & Automation Architect",
+        "Senior DevOps / Kubernetes Engineer",
+        "Data Platform & Snowflake Specialist"
+    ];
+
+    const dates = ["09/20/26", "09/19/26", "09/18/26", "09/16/26", "09/15/26"];
+
+    tbody.innerHTML = cands.slice(0, 8).map((c, idx) => {
+        const initials = (c.name || "C").split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        const stageInfo = stages[idx % stages.length];
+        const roleStr = targetRoles[idx % targetRoles.length];
+        const dateStr = dates[idx % dates.length];
+        const recruiterName = c.recruiter_name || "Praveen Valipireddy";
+
+        return `
+        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+            <td style="padding: 14px 20px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 36px; height: 36px; border-radius: 50%; background: #f1f5f9; color: #1e293b; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; border: 1px solid #cbd5e1; flex-shrink: 0;">
+                        ${initials}
+                    </div>
+                    <div>
+                        <div style="font-weight: 700; color: #0f172a;">${escapeHtml(c.name)}</div>
+                        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">${escapeHtml(c.title || 'Technical Consultant')}</div>
+                    </div>
+                </div>
+            </td>
+            <td style="padding: 14px 20px; font-weight: 600; color: #334155; font-size: 0.85rem;">
+                ${escapeHtml(roleStr)}
+            </td>
+            <td style="padding: 14px 20px;">
+                <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background: ${stageInfo.bg}; color: ${stageInfo.color}; border: 1px solid ${stageInfo.border};">
+                    ${stageInfo.stage}
+                </span>
+            </td>
+            <td style="padding: 14px 20px; color: #64748b; font-size: 0.85rem;">
+                ${dateStr}
+            </td>
+            <td style="padding: 14px 20px; font-size: 0.85rem; color: #0f172a; font-weight: 600;">
+                ${escapeHtml(recruiterName)}
+            </td>
+            <td style="padding: 14px 20px;">
+                <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: ${stageInfo.bg}; color: ${stageInfo.color}; border: 1px solid ${stageInfo.border};">
+                    ${stageInfo.status}
+                </span>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+// =========================================================================
+// Recruiter AI Outreach Personalization Chatbot
+// =========================================================================
+let currentCopilotCandId = null;
+let currentCopilotJobId = null;
+
+async function openAiCopilotModal(candId, jobId = null) {
+    currentCopilotCandId = candId || (state.consultants && state.consultants.length > 0 ? state.consultants[0].id : 1);
+    
+    if (!jobId && state.jobs && state.jobs.length > 0) {
+        currentCopilotJobId = state.jobs[0].id;
+    } else {
+        currentCopilotJobId = jobId || 1;
+    }
+
+    const cand = (state.consultants || []).find(c => c.id === currentCopilotCandId) || {};
+    const job = (state.jobs || []).find(j => j.id === currentCopilotJobId) || {};
+
+    const modal = document.getElementById('modal-ai-copilot');
+    if (!modal) return;
+
+    const subEl = document.getElementById('copilot-context-subtitle');
+    if (subEl) {
+        subEl.innerText = `Personalizing pitch for ${cand.name || 'Candidate'} → ${job.title || 'Technical Role'} (${job.company || 'Hiring Team'})`;
+    }
+    const toEmailEl = document.getElementById('copilot-to-email');
+    if (toEmailEl) toEmailEl.value = job.recruiter_email || '';
+    const resNameEl = document.getElementById('copilot-resume-name');
+    if (resNameEl) resNameEl.innerText = cand.resume_filename || 'Candidate_Resume.docx';
+
+    const msgContainer = document.getElementById('copilot-chat-messages');
+    if (msgContainer) {
+        msgContainer.innerHTML = `
+            <div style="display: flex; gap: 10px; align-items: flex-start;">
+                <div style="width: 28px; height: 28px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0;">🤖</div>
+                <div style="background: #f1f5f9; color: #1e293b; padding: 10px 14px; border-radius: 12px; font-size: 0.85rem; max-width: 88%; line-height: 1.5;">
+                    Hello! I am your <strong>Recruiter AI Outreach Copilot</strong>. I've prepared a baseline pitch for <strong>${escapeHtml(cand.name || 'Candidate')}</strong>. Tell me how you'd like to personalize it—e.g. highlight specific skills, adjust rate, change tone, or add immediate interview availability!
+                </div>
+            </div>
+        `;
+    }
+
+    try {
+        const res = await fetch('/api/ai/personalize-draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                candidate_id: currentCopilotCandId,
+                job_id: currentCopilotJobId,
+                instruction: '',
+                current_subject: '',
+                current_body: ''
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            const subjEl = document.getElementById('copilot-subject');
+            if (subjEl) subjEl.value = data.subject || '';
+            const bodyEl = document.getElementById('copilot-body');
+            if (bodyEl) bodyEl.value = data.body || '';
+            if (data.to_email && toEmailEl && !toEmailEl.value) toEmailEl.value = data.to_email;
+        }
+    } catch (e) {
+        console.error('Error fetching baseline pitch:', e);
+    }
+
+    modal.style.display = 'flex';
+    const input = document.getElementById('copilot-user-input');
+    if (input) input.focus();
+}
+
+function closeAiCopilotModal() {
+    const modal = document.getElementById('modal-ai-copilot');
+    if (modal) modal.style.display = 'none';
+}
+
+function applyCopilotQuickPrompt(promptText) {
+    const input = document.getElementById('copilot-user-input');
+    if (input) {
+        input.value = promptText;
+        sendCopilotInstruction();
+    }
+}
+
+async function sendCopilotInstruction() {
+    const input = document.getElementById('copilot-user-input');
+    const instruction = (input.value || '').trim();
+    if (!instruction) return;
+
+    input.value = '';
+    const msgContainer = document.getElementById('copilot-chat-messages');
+    if (msgContainer) {
+        msgContainer.innerHTML += `
+            <div style="display: flex; gap: 10px; align-items: flex-start; justify-content: flex-end;">
+                <div style="background: #2563eb; color: #ffffff; padding: 10px 14px; border-radius: 12px; font-size: 0.85rem; max-width: 85%; line-height: 1.5;">
+                    ${escapeHtml(instruction)}
+                </div>
+                <div style="width: 28px; height: 28px; border-radius: 50%; background: #e2e8f0; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; flex-shrink: 0;">YOU</div>
+            </div>
+        `;
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+    }
+
+    const sendBtn = document.getElementById('btn-copilot-send');
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerText = 'Thinking...';
+    }
+
+    try {
+        const curSubject = document.getElementById('copilot-subject') ? document.getElementById('copilot-subject').value : '';
+        const curBody = document.getElementById('copilot-body') ? document.getElementById('copilot-body').value : '';
+
+        const res = await fetch('/api/ai/personalize-draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                candidate_id: currentCopilotCandId,
+                job_id: currentCopilotJobId,
+                instruction: instruction,
+                current_subject: curSubject,
+                current_body: curBody
+            })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            const subjEl = document.getElementById('copilot-subject');
+            if (subjEl) subjEl.value = data.subject || curSubject;
+            const bodyEl = document.getElementById('copilot-body');
+            if (bodyEl) bodyEl.value = data.body || curBody;
+
+            if (msgContainer) {
+                msgContainer.innerHTML += `
+                    <div style="display: flex; gap: 10px; align-items: flex-start;">
+                        <div style="width: 28px; height: 28px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0;">🤖</div>
+                        <div style="background: #f1f5f9; color: #1e293b; padding: 10px 14px; border-radius: 12px; font-size: 0.85rem; max-width: 88%; line-height: 1.5;">
+                            ${escapeHtml(data.reply || 'Updated draft according to your instructions.')}
+                        </div>
+                    </div>
+                `;
+                msgContainer.scrollTop = msgContainer.scrollHeight;
+            }
+        } else {
+            showToast(data.error || 'Failed to personalize pitch', 'error');
+        }
+    } catch (e) {
+        showToast('Error communicating with AI assistant: ' + e.message, 'error');
+    } finally {
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.innerText = 'Send';
+        }
+    }
+}
+
+async function submitCopilotDraftToGmail() {
+    const toEmailEl = document.getElementById('copilot-to-email');
+    const toEmail = toEmailEl ? toEmailEl.value.trim() : '';
+    const subjectEl = document.getElementById('copilot-subject');
+    const subject = subjectEl ? subjectEl.value.trim() : '';
+    const bodyEl = document.getElementById('copilot-body');
+    const body = bodyEl ? bodyEl.value.trim() : '';
+    const saveBtn = document.getElementById('btn-copilot-save-draft');
+
+    if (!toEmail || !toEmail.includes('@')) {
+        showToast('Please enter a valid recipient recruiter email', 'warning');
+        if (toEmailEl) toEmailEl.focus();
+        return;
+    }
+
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerText = 'Saving to Gmail...';
+    }
+
+    try {
+        const res = await fetch('/api/outreach/create-draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                candidate_id: currentCopilotCandId,
+                job_id: currentCopilotJobId,
+                custom_to_email: toEmail,
+                custom_subject: subject,
+                custom_body: body
+            })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            showToast(`✉️ Personalized Gmail Draft successfully saved for ${data.consultant_name}!`, 'success', 6000);
+            closeAiCopilotModal();
+            const statDrafts = document.getElementById('stat-drafted-count');
+            if (statDrafts) statDrafts.innerText = (parseInt(statDrafts.innerText) || 0) + 1;
+            const statKpiDrafts = document.getElementById('stat-kpi-drafts');
+            if (statKpiDrafts) statKpiDrafts.innerText = (parseInt(statKpiDrafts.innerText) || 0) + 1;
+        } else {
+            showToast(data.error || 'Failed to save draft in Gmail', 'error', 6000);
+        }
+    } catch (e) {
+        showToast('Error creating draft: ' + e.message, 'error');
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerText = '🚀 Save to Gmail Draft';
+        }
+    }
+}

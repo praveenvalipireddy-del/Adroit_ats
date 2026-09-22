@@ -1648,7 +1648,12 @@ function buildXRayQuery() {
     const yearMatch = by.match(/\b(19\d\d|20\d\d)\b/);
     const targetYear = yearMatch ? yearMatch[1] : '2020';
 
-    const parts = ['site:linkedin.com/in/', '-site:in.linkedin.com'];
+    const parts = [
+        'site:linkedin.com/in/',
+        '-site:in.linkedin.com',
+        '-Hyderabad', '-Bengaluru', '-Bangalore', '-Pune', '-Chennai', '-Mumbai', '-Noida', '-Gurgaon', '-"India"',
+        '"United States"'
+    ];
 
     if (kw && kw.toLowerCase() !== 'all') {
         parts.push(`"${kw}"`);
@@ -1676,7 +1681,7 @@ function buildXRayQuery() {
 
     const queryStr = parts.join(' ');
     const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(queryStr)}`;
-    const linkedinUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(kw + ' B.Tech ' + targetYear + ' Master USA')}&origin=GLOBAL_SEARCH_HEADER`;
+    const linkedinUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent('"' + kw + '" ("B.Tech" OR "B.E.") "' + targetYear + '" ("Master" OR "MS")')}&geoUrn=%5B%22103644278%22%5D&origin=FACETED_SEARCH`;
 
     return { queryStr, googleUrl, linkedinUrl };
 }

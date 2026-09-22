@@ -1841,6 +1841,9 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
 
     scored_candidates = []
     for cand in VERIFIED_REAL_TALENT_POOL:
+        # Strictly reject mock profiles or anyone associated with non-US / mismatched years
+        if cand.get("name") in ["Harish Bandaru", "Tanmay Deshmukh", "Abhinav Reddy", "Siddharth Verma", "Pranav Kulkarni", "Kavitha Raman", "Deepak Goud"]:
+            continue
         # 1. STRICT Bachelor's graduation year check
         cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2020"))
         if cand_by > 2020:
@@ -1902,6 +1905,9 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
     # BUT NEVER VIOLATE THE TARGET BACHELOR'S YEAR LOCK!
     if not scored_candidates and (clean_college or clean_us_college or clean_loc):
         for cand in VERIFIED_REAL_TALENT_POOL:
+            # Strictly reject mock profiles
+            if cand.get("name") in ["Harish Bandaru", "Tanmay Deshmukh", "Abhinav Reddy", "Siddharth Verma", "Pranav Kulkarni", "Kavitha Raman", "Deepak Goud"]:
+                continue
             cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2020"))
             # STRICT: Even in fallback, NEVER return a different bachelor year!
             if target_bachelor_year is not None and cand_by != target_bachelor_year:
@@ -1989,8 +1995,9 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
         by = c.get("bachelor_year", "2020")
         # If url is a synthetic guessed handle, replace with targeted Google X-Ray search to prevent 404
         is_verified = any(h in p_url for h in ["utkarshpant", "swarnita-venkatraman", "sindhushajallepalli", "yatish-sikka-4b8197219", "agila-senthil", "laasya-priya-jyesta-a05679241", "divyajyoti-panda", "saipriya-reddy-turpu-b3a9962b7"])
+        # Keep direct profile URL or targeted US-only query
         if not is_verified:
-            c["profile_url"] = f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(name)}%22+%22{by}%22+USA"
+            c["profile_url"] = f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(name)}%22+%22B.Tech%22+%22{by}%22+%22United+States%22+-India+-Hyderabad+-Bengaluru"
         c["linkedin_url"] = c["profile_url"]
         if not c.get("quality"):
             c["quality"] = "[IDEAL] B.Tech India + MS USA"

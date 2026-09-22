@@ -1253,16 +1253,16 @@ function initModals() {
 // =========================================================================
 // 7. USA Talent Sourcing & Students (2018 - 2026)
 // =========================================================================
-function setPresetFilter(keyword, bachelorYear, college = 'All', usCollege = 'All', region = 'United States') {
+function setPresetFilter(keyword, bachelorYear, settlement = 'All', usCollege = 'All', region = 'United States') {
     const kwInput = document.getElementById('filter-student-keyword');
     const byInput = document.getElementById('filter-student-bachelor-year');
-    const colInput = document.getElementById('filter-student-college');
+    const setInput = document.getElementById('filter-student-settlement');
     const usColInput = document.getElementById('filter-student-us-college');
     const locInput = document.getElementById('filter-student-location');
 
     if (kwInput && keyword && keyword !== 'all') kwInput.value = keyword;
     if (byInput && bachelorYear) byInput.value = bachelorYear;
-    if (colInput && college) colInput.value = college;
+    if (setInput && settlement) setInput.value = settlement;
     if (usColInput && usCollege) usColInput.value = usCollege;
     if (locInput && region) locInput.value = region;
 
@@ -1272,7 +1272,7 @@ function setPresetFilter(keyword, bachelorYear, college = 'All', usCollege = 'Al
 async function loadStudents(isScrape = false) {
     const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
-    const college = document.getElementById('filter-student-college')?.value?.trim() || 'All';
+    const settlement = document.getElementById('filter-student-settlement')?.value || 'All';
     const usCollege = document.getElementById('filter-student-us-college')?.value?.trim() || 'All';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
 
@@ -1299,7 +1299,7 @@ async function loadStudents(isScrape = false) {
             body: JSON.stringify({
                 keyword: kw,
                 bachelor_year: by,
-                college: college,
+                settlement: settlement,
                 us_college: usCollege,
                 location: loc,
                 scrape: isScrape
@@ -1376,6 +1376,20 @@ function renderStudentsGrid(candidates) {
     }
 
     tbody.innerHTML = candidates.map(c => {
+        const rawStatus = (c.status_tag || c.status_badge || c.settlement_pathway || '').toLowerCase();
+        let settlementBadge = c.settlement_badge || "🇺🇸 MS USA ➔ STEM OPT";
+        let settlementSub = c.settlement_sub || "3-Year Work Authorization";
+        let settlementBadgeStyle = "background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.35);";
+
+        if (rawStatus.includes('h1b')) {
+            settlementBadge = "🇺🇸 H1B Transfer Eligible";
+            settlementSub = "Direct Work Visa";
+            settlementBadgeStyle = "background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);";
+        } else if (rawStatus.includes('cpt')) {
+            settlementBadge = "🇺🇸 Day 1 CPT Worker";
+            settlementSub = "Curricular Practical Training";
+            settlementBadgeStyle = "background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);";
+        }
         const cleanName = (c.name || 'Candidate')
             .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect|Senior|Junior|Associate)\b/gi, '')
             .replace(/[,\/()]/g, ' ')
@@ -1451,16 +1465,21 @@ function renderStudentsGrid(candidates) {
                 <div style="font-size:0.75rem; color:#8e95aa;">Master's in USA</div>
             </td>
 
-            <!-- 5. US Location -->
-            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.85rem;">
-                &#x1F4CD; ${escapeHtml(c.location || 'United States')}
+            <!-- 5. How Settled in USA -->
+            <td style="padding: 14px 16px;">
+                <div style="display:inline-flex; flex-direction:column; gap:3px;">
+                    <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.78rem; font-weight:700; ${settlementBadgeStyle}">
+                        ${escapeHtml(settlementBadge)}
+                    </span>
+                    <span style="font-size:0.72rem; color:#94a3b8; font-weight:500;">
+                        ${escapeHtml(settlementSub)}
+                    </span>
+                </div>
             </td>
 
-            <!-- 6. Status / Intent -->
-            <td style="padding: 14px 16px;">
-                <span style="display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.75rem; font-weight:600; background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3);">
-                    ${escapeHtml(c.status_badge || c.status_tag || 'OPT / STEM OPT / H1B')}
-                </span>
+            <!-- 6. US Location -->
+            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.85rem;">
+                &#x1F4CD; ${escapeHtml(c.location || 'United States')}
             </td>
 
             <!-- 7. LinkedIn Profile Direct Link -->
@@ -1566,7 +1585,7 @@ function exportStudentsCSV() {
     const kw = document.getElementById('filter-student-keyword')?.value?.trim() || '';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || '';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
-    const college = document.getElementById('filter-student-college')?.value?.trim() || '';
+    const settlement = document.getElementById('filter-student-settlement')?.value || '';
     const usCollege = document.getElementById('filter-student-us-college')?.value?.trim() || '';
 
     fetch('/api/students/export-csv', {
@@ -1576,7 +1595,7 @@ function exportStudentsCSV() {
             keyword: kw,
             location: loc,
             bachelor_year: by,
-            college: college,
+            settlement: settlement,
             us_college: usCollege,
             candidates: state.students || []
         })
@@ -1769,15 +1788,18 @@ function initStudentsTab() {
         });
     }
     const byInput = document.getElementById('filter-student-bachelor-year');
-    const colInput = document.getElementById('filter-student-college');
+    const setInput = document.getElementById('filter-student-settlement');
     const usColInput = document.getElementById('filter-student-us-college');
     const locInput = document.getElementById('filter-student-location');
 
     if (byInput) {
         byInput.addEventListener('change', () => loadStudents(false));
     }
+    if (setInput) {
+        setInput.addEventListener('change', () => loadStudents(false));
+    }
 
-    [kwInput, colInput, usColInput, locInput].forEach(inp => {
+    [kwInput, usColInput, locInput].forEach(inp => {
         if (inp) {
             inp.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {

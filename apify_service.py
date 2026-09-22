@@ -1751,7 +1751,7 @@ VERIFIED_REAL_TALENT_POOL = [
     }
 ]
 
-def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2020, location: str = "United States", count: int = 25, bachelor_max_year: int = None, bachelor_min_year: int = None, bachelor_year: int = None, college: str = None, us_college: str = None) -> List[Dict]:
+def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2020, location: str = "United States", count: int = 25, bachelor_max_year: int = None, bachelor_min_year: int = None, bachelor_year: int = None, college: str = None, us_college: str = None, settlement: str = None) -> List[Dict]:
     """
     High-relevance talent retrieval engine:
     - Primary Filter: Bachelor's degree completed in India in target year (STRICT EXACT MATCH).
@@ -1786,6 +1786,10 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
     clean_us_college = (us_college or "").strip().lower()
     if clean_us_college in ["all", "all universities", "all usa universities", "all us colleges", "all usa colleges / universities", ""]:
         clean_us_college = ""
+
+    clean_settlement = (settlement or "").strip().lower()
+    if clean_settlement in ["all", "all pathways", "all settlement pathways", "all usa settlement pathways", "all visa types", ""]:
+        clean_settlement = ""
 
     clean_loc = (location or "").strip().lower()
     if clean_loc in ["all", "united states", "united states (all)", "united states (all us)", "usa", ""]:
@@ -1873,6 +1877,17 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
         if "us citizen" in status or "citizen" in status:
             continue
 
+        # 5b. How Settled in USA / Visa Pathway filter
+        if clean_settlement:
+            if "stem" in clean_settlement and "stem" not in status and "opt" not in status:
+                continue
+            elif "h1b" in clean_settlement and "h1b" not in status:
+                continue
+            elif "cpt" in clean_settlement and "cpt" not in status:
+                continue
+            elif "opt" in clean_settlement and "opt" not in status:
+                continue
+
         # 6. Relevance scoring
         search_blob = f"{cand.get('name', '')} {cand.get('headline', '')} {cand.get('degree', '')} {cand.get('university', '')} {' '.join(cand.get('skills', []))} {cand.get('summary', '')} {cand.get('location', '')}".lower()
 
@@ -1897,10 +1912,25 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
             scored_candidates.append((10 + random.uniform(0.1, 1.0), cand))
 
     scored_candidates.sort(key=lambda x: x[0], reverse=True)
-    return [c for _, c in scored_candidates[:count]]
+    res_list = [c for _, c in scored_candidates[:count]]
+    for c in res_list:
+        st = (c.get("status_tag") or c.get("status_badge") or "").lower()
+        if "h1b" in st:
+            c["settlement_pathway"] = "H1B Transfer Eligible"
+            c["settlement_badge"] = "🇺🇸 H1B Transfer"
+            c["settlement_sub"] = "Direct Work Visa"
+        elif "cpt" in st:
+            c["settlement_pathway"] = "Day 1 CPT"
+            c["settlement_badge"] = "🇺🇸 Day 1 CPT Worker"
+            c["settlement_sub"] = "Curricular Practical Training"
+        else:
+            c["settlement_pathway"] = "USA Master's ➔ STEM OPT"
+            c["settlement_badge"] = "🇺🇸 MS USA ➔ STEM OPT"
+            c["settlement_sub"] = "3-Year Work Authorization"
+    return res_list
 
 
-def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2012, end_year=2020, location="United States", max_items=25, keyword=None, force_live=False, bachelor_max_year=None, bachelor_min_year=None, bachelor_year=None, college=None, us_college=None) -> List[Dict]:
+def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2012, end_year=2020, location="United States", max_items=25, keyword=None, force_live=False, bachelor_max_year=None, bachelor_min_year=None, bachelor_year=None, college=None, us_college=None, settlement=None) -> List[Dict]:
     """
     Ultra-fast US IT Talent Sourcing Engine.
     - Uses in-memory caching for sub-millisecond repeated searches.
@@ -1909,7 +1939,7 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
     - Response time guaranteed <= 2.5 seconds on cloud (Render).
     """
     search_keyword = (keyword or category or "Computer Science").strip()
-    cache_key = f"{search_keyword.lower()}_{start_year}_{end_year}_{bachelor_year}_{college}_{us_college}_{location.lower()}"
+    cache_key = f"{search_keyword.lower()}_{start_year}_{end_year}_{bachelor_year}_{college}_{us_college}_{settlement}_{location.lower()}"
 
     # Return cached results if available within TTL
     if cache_key in SEARCH_CACHE:
@@ -1952,7 +1982,7 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
     eff_max_year = min(2020, bachelor_max_year if bachelor_max_year is not None else end_year)
 
     # Supplement or instant return with verified pool
-    pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year, bachelor_year=bachelor_year, college=college, us_college=us_college)
+    pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year, bachelor_year=bachelor_year, college=college, us_college=us_college, settlement=settlement)
     for c in pool_candidates:
         p_url = (c.get("profile_url") or c.get("linkedin_url") or "").strip()
         name = c.get("name", "Consultant")

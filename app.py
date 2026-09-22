@@ -1063,6 +1063,7 @@ def api_search_students():
 
     college = str(data.get("college") or "").strip()
     us_college = str(data.get("us_college") or data.get("us_university") or "").strip()
+    settlement = str(data.get("settlement") or data.get("pathway") or data.get("visa") or "").strip()
     location = data.get("location", "United States")
     max_items = int(data.get("max_items") or data.get("limit") or 30)
     force_live = bool(data.get("scrape") or data.get("live") or data.get("force_live"))
@@ -1078,7 +1079,8 @@ def api_search_students():
         force_live=force_live,
         bachelor_year=bachelor_year,
         college=college,
-        us_college=us_college
+        us_college=us_college,
+        settlement=settlement
     )
 
     # Prepend any candidates saved to database by the recruiter

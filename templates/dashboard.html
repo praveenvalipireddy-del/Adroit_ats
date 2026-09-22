@@ -34,7 +34,7 @@
                 </a>
                 <a href="#candidates" class="nav-item" data-tab="candidates">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                    <span>Candidates</span>
+                    <span>Consultants / Bench</span>
                     <span class="nav-badge count-badge">{{ candidates|length }}</span>
                 </a>
                 <a href="#jobs" class="nav-item" data-tab="jobs">
@@ -183,7 +183,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="dashboard-pipeline-tbody">
-                                    <!-- Rendered dynamically by app.js?v=5.6.0 -->
+                                    <!-- Rendered dynamically by app.js?v=5.7.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -486,7 +486,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="students-table-body">
-                                    <!-- Candidate rows loaded dynamically via app.js?v=5.6.0 -->
+                                    <!-- Candidate rows loaded dynamically via app.js?v=5.7.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -583,23 +583,28 @@
 <div class="tab-pane" id="tab-consultants">
                     <div class="section-header">
                         <div>
-                            <h2>Candidates & Talent Bench Hub</h2>
-                            <p>Manage active candidate profiles, upload .docx Master Resumes, and execute 1-click automated outreach drafting.</p>
-                            {% if 'Admin' in user.role %}
-                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
-                                <span style="font-size: 0.85rem; color: #94a3b8; font-weight: 500;">Recruiter Filter:</span>
-                                <select id="select-consultant-recruiter-filter" class="form-control" style="width: auto; padding: 6px 14px; font-size: 0.85rem; background: #ffffff; color: #0284c7; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer;">
-                                    <option value="">All Recruiters (Agency Wide)</option>
-                                    {% for r in recruiters %}
-                                    <option value="{{ r.id }}" {% if selected_recruiter_id == r.id %}selected{% endif %}>{{ r.name }} ({{ r.consultant_count }} consultants)</option>
-                                    {% endfor %}
-                                </select>
+                            <h2>US Bench Consultants Hub</h2>
+                            <p>Manage active bench consultants, master resumes (.docx), and launch targeted 1-click job outreach.</p>
+                            <div style="display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap;">
+                                <div style="position: relative; min-width: 300px; flex: 1; max-width: 440px;">
+                                    <input type="text" id="filter-consultants-search" class="form-control" placeholder="🔍 Search consultants by name, skills, rate, visa..." style="width: 100%; height: 40px; padding: 8px 14px; font-size: 0.88rem; background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                </div>
+                                {% if 'Admin' in user.role %}
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 0.85rem; color: #94a3b8; font-weight: 500;">Recruiter:</span>
+                                    <select id="select-consultant-recruiter-filter" class="form-control" style="width: auto; height: 40px; padding: 7px 14px; font-size: 0.85rem; background: #ffffff; color: #0284c7; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                                        <option value="">All Recruiters (Agency Wide)</option>
+                                        {% for r in recruiters %}
+                                        <option value="{{ r.id }}" {% if selected_recruiter_id == r.id %}selected{% endif %}>{{ r.name }} ({{ r.consultant_count }} consultants)</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                {% endif %}
                             </div>
-                            {% endif %}
                         </div>
-                        <button class="btn btn-primary" id="btn-add-consultant-tab">
+                        <button class="btn btn-primary" id="btn-add-consultant-tab" style="height: 42px;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            + Add Candidate Profile
+                            + Add Consultant Profile
                         </button>
                     </div>
 
@@ -621,7 +626,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="consultants-table-body">
-                                    <!-- Rendered dynamically by app.js?v=5.6.0 in structured rows -->
+                                    <!-- Rendered dynamically by app.js?v=5.7.0 in structured rows -->
                                 </tbody>
                             </table>
                         </div>
@@ -1109,7 +1114,7 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=5.6.0"></script>
+    <script src="/static/js/app.js?v=5.7.0"></script>
 
     <!-- Recruiter Management Inline Fallback -->
     <script>

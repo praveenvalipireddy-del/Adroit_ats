@@ -126,6 +126,23 @@ async function initConsultants() {
         btnAddTab.addEventListener('click', () => openConsultantModal());
     }
 
+    const filterInput = document.getElementById('filter-consultants-search');
+    if (filterInput) {
+        filterInput.addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase().trim();
+            const rows = document.querySelectorAll('#consultants-table-body tr');
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = (!q || text.includes(q)) ? '' : 'none';
+            });
+            const cards = document.querySelectorAll('#consultants-cards-container .consultant-card');
+            cards.forEach(card => {
+                const text = card.innerText.toLowerCase();
+                card.style.display = (!q || text.includes(q)) ? '' : 'none';
+            });
+        });
+    }
+
     const btnHeaderAdd = document.getElementById('btn-open-add-consultant');
     if (btnHeaderAdd) {
         btnHeaderAdd.addEventListener('click', () => openConsultantModal());
@@ -2228,6 +2245,14 @@ function renderConsultantsTable() {
             deleteConsultant(candId, candName);
         });
     });
+
+    const filterInput = document.getElementById('filter-consultants-search');
+    if (filterInput && filterInput.value.trim()) {
+        const q = filterInput.value.toLowerCase().trim();
+        tbody.querySelectorAll('tr').forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(q) ? '' : 'none';
+        });
+    }
 }
 
 // =========================================================================

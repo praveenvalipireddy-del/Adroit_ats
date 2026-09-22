@@ -487,7 +487,7 @@ def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
     try:
         import requests
         resp = requests.get("https://serpapi.com/search", params={
-            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=30)
+            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=3)
         if resp.status_code == 200:
             return [{"url": i.get("link", ""), "title": i.get("title", ""), "snippet": i.get("snippet", "")}
                     for i in resp.json().get("organic_results", [])]
@@ -581,7 +581,7 @@ def scrape_live_linkedin_candidates(
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(_run_single_query, q) for q in queries]
         try:
-            for fut in concurrent.futures.as_completed(futures, timeout=30.0):
+            for fut in concurrent.futures.as_completed(futures, timeout=3.0):
                 try:
                     all_raw_results.extend(fut.result() or [])
                 except Exception:

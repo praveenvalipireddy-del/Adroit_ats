@@ -2065,7 +2065,7 @@ function renderConsultantsTable() {
     if (!state.consultants || state.consultants.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" style="text-align: center; padding: 40px; color: #64748b;">
+                <td colspan="10" style="text-align: center; padding: 40px; color: #64748b;">
                     No candidates found. Click <strong>"Add New Candidate Profile"</strong> to add your first bench candidate.
                 </td>
             </tr>`;
@@ -2119,6 +2119,18 @@ function renderConsultantsTable() {
                 <span style="font-weight: 600; color: #0284c7; font-size: 0.85rem;">
                     👤 ${escapeHtml(c.recruiter_name || 'Assigned')}
                 </span>
+            </td>
+            <td style="padding: 14px 18px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <button
+                        onclick="browseJobsForCandidate(${c.id}, '${escapeHtml(c.title || '').replace(/'/g, '')}')"
+                        style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.15s ease;"
+                        onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'"
+                        title="Find matching 24h jobs for this candidate">
+                        🔍 Browse Jobs
+                    </button>
+                    <span id="job-match-count-${c.id}" style="font-size: 0.72rem; color: #64748b; font-weight: 500; padding-left: 2px;"></span>
+                </div>
             </td>
             <td style="padding: 14px 18px;">
                 ${hasResume ? `

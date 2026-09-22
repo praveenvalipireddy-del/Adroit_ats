@@ -2471,3 +2471,47 @@ async function submitCopilotDraftToGmail() {
         }
     }
 }
+// =========================================================================
+// Candidate -> Jobs: Browse matching live jobs for a specific candidate
+// =========================================================================
+async function browseJobsForCandidate(candidateId, candidateTitle) {
+    // 1. Switch to the Jobs tab first
+    switchTab('jobs');
+
+    // 2. Wait a tick for the tab pane to become visible, then set the
+    //    search query to the candidate title and trigger the job search
+    setTimeout(async () => {
+        const queryInput = document.getElementById('filter-query');
+        if (queryInput && candidateTitle) {
+            // Use first 2-3 words of title for a broad but relevant search
+            const coreTitle = candidateTitle
+                .replace(/^(senior|lead|principal|staff|junior|sr|jr|associate)\s+/i, '')
+                .replace(/[|&,]/g, ' ')
+                .trim()
+                .split(/\s+/)
+                .slice(0, 3)
+                .join(' ');
+            queryInput.value = coreTitle || candidateTitle;
+        }
+
+        // Reset location to United States so we get results
+        const locInput = document.getElementById('filter-location');
+        if (locInput && !locInput.value.trim()) locInput.value = 'United States';
+
+        // Trigger the job search
+        await searchJobs(false);
+
+        // After results load, update the match-count badge on the candidate row
+        setTimeout(() => {
+            const matchSpan = document.getElementById('job-match-count-' + candidateId);
+            if (matchSpan) {
+                const count = (state.jobs || []).length;
+                matchSpan.textContent = count > 0
+                    ? count + ' job' + (count === 1 ? '' : 's') + ' found'
+                    : 'No matches yet';
+                matchSpan.style.color = count > 0 ? '#059669' : '#94a3b8';
+            }
+        }, 3000);
+    }, 200);
+}
+

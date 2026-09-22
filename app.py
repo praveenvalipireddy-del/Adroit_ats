@@ -1,3 +1,4 @@
+import urllib.parse
 import os
 import time
 import random
@@ -1061,6 +1062,7 @@ def api_search_students():
             start_year, end_year = 2012, 2020
 
     college = str(data.get("college") or "").strip()
+    us_college = str(data.get("us_college") or data.get("us_university") or "").strip()
     location = data.get("location", "United States")
     max_items = int(data.get("max_items") or data.get("limit") or 30)
     force_live = bool(data.get("scrape") or data.get("live") or data.get("force_live"))
@@ -1075,7 +1077,8 @@ def api_search_students():
         max_items=max_items,
         force_live=force_live,
         bachelor_year=bachelor_year,
-        college=college
+        college=college,
+        us_college=us_college
     )
 
     # Prepend any candidates saved to database by the recruiter
@@ -1087,12 +1090,16 @@ def api_search_students():
             c_summary = str(db_c.get("resume_summary") or "")
             c_skills = str(db_c.get("primary_skills") or "")
             c_title = str(db_c.get("title") or "")
-            c_year = "2020"
+            # Only include candidate if their resume summary/skills actually specifies the target year
             y_match = re.search(r'\b(19\d\d|20\d\d)\b', c_summary + " " + c_skills + " " + c_title)
-            if y_match:
-                c_year = y_match.group(1)
+            if not y_match:
+                continue
+            c_year = y_match.group(1)
 
-            if bachelor_year is None or int(c_year) == int(bachelor_year):
+            if bachelor_year is not None and int(c_year) != int(bachelor_year):
+                continue
+            if us_college and us_college.lower() not in ["all", ""] and us_college.lower() not in (c_summary + " " + c_title).lower():
+                continue
                 bench_imported.append({
                     "id": db_c.get("id"),
                     "name": db_c.get("name"),

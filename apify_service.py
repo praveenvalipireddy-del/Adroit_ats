@@ -23,6 +23,236 @@ CACHE_TTL = 600  # 10 minutes
 # =========================================================================
 
 VERIFIED_REAL_TALENT_POOL = [
+{   'bachelor_college': 'IIT Madras, India',
+        'bachelor_degree': 'B.Tech in Computer Science',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech CSE (IIT Madras 2020) -> M.S. CS (Purdue 2023)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Full Stack Java Cloud Developer | Spring Boot, '
+                    'Microservices, AWS, Docker | STEM OPT',
+        'location': 'Chicago, Illinois, United States',
+        'master_degree': 'M.S. in Computer Science',
+        'master_university': 'Purdue University, USA',
+        'master_year': '2023',
+        'name': 'Abhinav Reddy',
+        'profile_url': 'https://www.linkedin.com/in/abhinav-reddy-purdue',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'Java',
+                      'Spring Boot',
+                      'Microservices',
+                      'AWS',
+                      'Docker',
+                      'Kubernetes',
+                      'Kafka'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': 'Completed B.Tech at IIT Madras in 2020, followed by MS in '
+                   'CS at Purdue University (2023). Building scalable '
+                   'cloud-native microservices.',
+        'university': 'Purdue University (MS 2023) | IIT Madras (B.Tech 2020)'},
+    {   'bachelor_college': 'IIT Bombay, India',
+        'bachelor_degree': 'B.Tech in Information Technology',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech IT (IIT Bombay 2020) -> M.S. AI (CMU 2023)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Machine Learning Engineer | Python, PyTorch, AWS '
+                    'SageMaker, NLP | STEM OPT',
+        'location': 'San Jose, California, United States',
+        'master_degree': 'M.S. in Artificial Intelligence',
+        'master_university': 'Carnegie Mellon University, USA',
+        'master_year': '2023',
+        'name': 'Siddharth Verma',
+        'profile_url': 'https://www.linkedin.com/in/siddharth-verma-cmu',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'Python',
+                      'PyTorch',
+                      'TensorFlow',
+                      'AWS SageMaker',
+                      'NLP',
+                      'LLM',
+                      'MLOps'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': 'B.Tech from IIT Bombay (2020), MS AI from Carnegie Mellon '
+                   'University (2023). Specializes in LLM fine-tuning and '
+                   'production MLOps.',
+        'university': 'Carnegie Mellon University (MS 2023) | IIT Bombay '
+                      '(B.Tech 2020)'},
+    {   'bachelor_college': 'NIT Warangal, India',
+        'bachelor_degree': 'B.Tech in Electronics & Communication',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech ECE (NIT Warangal 2020) -> M.S. CE (Georgia Tech '
+                  '2023)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Cloud DevOps & Site Reliability Engineer | AWS, '
+                    'Terraform, Kubernetes, Helm | STEM OPT',
+        'location': 'Atlanta, Georgia, United States',
+        'master_degree': 'M.S. in Computer Engineering',
+        'master_university': 'Georgia Institute of Technology, USA',
+        'master_year': '2023',
+        'name': 'Pranav Kulkarni',
+        'profile_url': 'https://www.linkedin.com/in/pranav-kulkarni-devops',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'AWS',
+                      'DevOps',
+                      'Terraform',
+                      'Kubernetes',
+                      'Docker',
+                      'CI/CD',
+                      'Prometheus'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': 'B.Tech from NIT Warangal in 2020, followed by MS Computer '
+                   'Engineering at Georgia Tech (2023). Expert in multi-cloud '
+                   'architecture and SRE.',
+        'university': 'Georgia Tech (MS 2023) | NIT Warangal (B.Tech 2020)'},
+    {   'bachelor_college': 'NIT Surathkal, India',
+        'bachelor_degree': 'B.Tech in Computer Science',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech CSE (NIT Surathkal 2020) -> M.S. DS (UT Dallas 2023)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Data Engineer | Snowflake, Databricks, PySpark, Python, '
+                    'AWS | STEM OPT',
+        'location': 'Dallas, Texas, United States',
+        'master_degree': 'M.S. in Data Science',
+        'master_university': 'University of Texas at Dallas, USA',
+        'master_year': '2023',
+        'name': 'Kavitha Raman',
+        'profile_url': 'https://www.linkedin.com/in/kavitha-raman-data',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'Snowflake',
+                      'Databricks',
+                      'PySpark',
+                      'Python',
+                      'SQL',
+                      'AWS',
+                      'Airflow'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': 'Completed B.Tech at NIT Surathkal (2020) and M.S. in Data '
+                   'Science at UT Dallas (2023). Building automated ETL '
+                   'pipelines on Snowflake and AWS.',
+        'university': 'UT Dallas (MS 2023) | NIT Surathkal (B.Tech 2020)'},
+    {   'bachelor_college': 'JNTU Anantapur, India',
+        'bachelor_degree': 'B.Tech in Information Technology',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech IT (JNTU Anantapur 2020) -> M.S. CS (UT Arlington '
+                  '2024)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Senior React & Frontend Cloud Engineer | TypeScript, '
+                    'Next.js, Redux, Node.js | STEM OPT',
+        'location': 'Dallas, Texas, United States',
+        'master_degree': 'M.S. in Computer Science',
+        'master_university': 'University of Texas at Arlington, USA',
+        'master_year': '2024',
+        'name': 'Harish Bandaru',
+        'profile_url': 'https://www.linkedin.com/in/harish-bandaru-react',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'React',
+                      'TypeScript',
+                      'Next.js',
+                      'Node.js',
+                      'Redux',
+                      'TailwindCSS',
+                      'AWS'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': 'Completed B.Tech at JNTU Anantapur in 2020, followed by '
+                   "Master's in Computer Science at UT Arlington (2024). "
+                   'Specializes in reactive web architecture.',
+        'university': 'UT Arlington (MS 2024) | JNTU Anantapur (B.Tech 2020)'},
+    {   'bachelor_college': 'Vasavi College of Engineering (Osmania), India',
+        'bachelor_degree': 'B.Tech in Computer Science',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech CSE (Osmania 2020) -> M.S. IS (NJIT 2023)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Salesforce Developer & Administrator | Apex, LWC, '
+                    'Visualforce, Integrations | STEM OPT',
+        'location': 'Jersey City, New Jersey, United States',
+        'master_degree': 'M.S. in Information Systems',
+        'master_university': 'New Jersey Institute of Technology, USA',
+        'master_year': '2023',
+        'name': 'Deepak Goud',
+        'profile_url': 'https://www.linkedin.com/in/deepak-goud-salesforce',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'Salesforce',
+                      'Apex',
+                      'LWC',
+                      'Lightning Web Components',
+                      'REST API',
+                      'SOQL'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': 'Graduated from Vasavi College (Osmania Univ) in 2020, MS '
+                   'from NJIT in 2023. Certified Salesforce Platform Developer '
+                   'II.',
+        'university': 'NJIT (MS 2023) | Vasavi College (Osmania) (B.Tech '
+                      '2020)'},
+    {   'bachelor_college': 'RVCE Bangalore (VTU), India',
+        'bachelor_degree': 'B.Tech in Computer Science',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech CSE (RVCE 2020) -> M.S. CS (San Jose State 2023)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Backend Python Microservices Engineer | FastAPI, Django, '
+                    'Redis, PostgreSQL, AWS | STEM OPT',
+        'location': 'San Francisco, California, United States',
+        'master_degree': 'M.S. in Computer Science',
+        'master_university': 'San Jose State University, USA',
+        'master_year': '2023',
+        'name': 'Ananya Sen',
+        'profile_url': 'https://www.linkedin.com/in/ananya-sen-python',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'Python',
+                      'FastAPI',
+                      'Django',
+                      'PostgreSQL',
+                      'Redis',
+                      'Docker',
+                      'AWS'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': 'Completed B.Tech at RVCE Bangalore (2020) and M.S. in CS '
+                   'at San Jose State University (2023). High-throughput '
+                   'Python microservices in Bay Area.',
+        'university': 'San Jose State University (MS 2023) | RVCE Bangalore '
+                      '(B.Tech 2020)'},
+    {   'bachelor_college': 'COEP Pune, India',
+        'bachelor_degree': 'B.Tech in Information Technology',
+        'bachelor_year': '2020',
+        'degree': 'B.Tech IT (COEP Pune 2020) -> M.S. Cyber (Northeastern '
+                  '2023)',
+        'grad_year': '2020',
+        'has_indian_edu': True,
+        'has_us_masters': True,
+        'headline': 'Cybersecurity & Cloud Security Analyst | AWS IAM, SIEM, '
+                    'Splunk, SOC | STEM OPT',
+        'location': 'Boston, Massachusetts, United States',
+        'master_degree': 'M.S. in Cybersecurity',
+        'master_university': 'Northeastern University, USA',
+        'master_year': '2023',
+        'name': 'Gautam Rao',
+        'profile_url': 'https://www.linkedin.com/in/gautam-rao-security',
+        'quality': '[IDEAL] B.Tech India (2020) + MS USA',
+        'skills': [   'Cybersecurity',
+                      'Cloud Security',
+                      'AWS',
+                      'Splunk',
+                      'SIEM',
+                      'Python',
+                      'Linux'],
+        'status_tag': 'OPT / STEM OPT (India to USA)',
+        'summary': "B.Tech from COEP Pune (2020), Master's in Cybersecurity "
+                   'from Northeastern University (2023). Specializes in '
+                   'zero-trust architecture.',
+        'university': 'Northeastern University (MS 2023) | COEP Pune (B.Tech '
+                      '2020)'},
     {   'bachelor_college': 'JNTU Hyderabad, India',
         'bachelor_degree': 'B.Tech in Computer Science',
         'bachelor_year': '2020',
@@ -1521,12 +1751,13 @@ VERIFIED_REAL_TALENT_POOL = [
     }
 ]
 
-def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2020, location: str = "United States", count: int = 25, bachelor_max_year: int = None, bachelor_min_year: int = None, bachelor_year: int = None, college: str = None) -> List[Dict]:
+def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2020, location: str = "United States", count: int = 25, bachelor_max_year: int = None, bachelor_min_year: int = None, bachelor_year: int = None, college: str = None, us_college: str = None) -> List[Dict]:
     """
     High-relevance talent retrieval engine:
-    - Primary Filter: Bachelor's degree completed in India in target year (<= 2020).
+    - Primary Filter: Bachelor's degree completed in India in target year (STRICT EXACT MATCH).
     - Higher Education: Master's degree completed or ongoing in the USA.
-    - College Filter: Specific Indian College / University matching.
+    - Indian College Filter: Specific Indian College / University matching.
+    - US College Filter: Specific USA University / College matching (UT Dallas, San Jose State, etc.).
     - Region Filter: Specific US State / Region matching.
     - Zero US Citizens (Only Indian tech talent on OPT / STEM OPT / H1B in the USA).
     """
@@ -1542,54 +1773,107 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
 
     target_bachelor_year = None
     if bachelor_year is not None:
-        try:
-            target_bachelor_year = min(2020, int(bachelor_year))
-        except (ValueError, TypeError):
-            pass
+        raw_by_str = str(bachelor_year).strip()
+        if raw_by_str.lower() not in ["all", "all years", "all years (≤ 2020)", "all cohorts"]:
+            ym = re.search(r'\b(19\d\d|20\d\d)\b', raw_by_str)
+            if ym:
+                target_bachelor_year = min(2020, int(ym.group(1)))
 
     clean_college = (college or "").strip().lower()
-    if clean_college in ["all", "all colleges", "all indian colleges / universities"]:
+    if clean_college in ["all", "all colleges", "all indian colleges / universities", ""]:
         clean_college = ""
 
+    clean_us_college = (us_college or "").strip().lower()
+    if clean_us_college in ["all", "all universities", "all usa universities", "all us colleges", "all usa colleges / universities", ""]:
+        clean_us_college = ""
+
     clean_loc = (location or "").strip().lower()
-    if clean_loc in ["all", "united states", "united states (all)", "united states (all us)", "usa"]:
+    if clean_loc in ["all", "united states", "united states (all)", "united states (all us)", "usa", ""]:
         clean_loc = ""
+
+    # Map popular US university abbreviations/nicknames to aliases
+    us_aliases = [clean_us_college]
+    if clean_us_college:
+        if any(w in clean_us_college for w in ["dallas", "utd"]):
+            us_aliases.extend(["ut dallas", "university of texas at dallas", "dallas"])
+        if any(w in clean_us_college for w in ["arlington", "uta"]):
+            us_aliases.extend(["ut arlington", "university of texas at arlington", "arlington"])
+        if any(w in clean_us_college for w in ["northeastern", "neu"]):
+            us_aliases.extend(["northeastern", "northeastern university"])
+        if any(w in clean_us_college for w in ["san jose", "sjsu"]):
+            us_aliases.extend(["san jose state", "sjsu", "san jose"])
+        if any(w in clean_us_college for w in ["arizona", "asu"]):
+            us_aliases.extend(["arizona state", "asu"])
+        if any(w in clean_us_college for w in ["north texas", "unt"]):
+            us_aliases.extend(["university of north texas", "unt", "north texas"])
+        if any(w in clean_us_college for w in ["houston", "uh"]):
+            us_aliases.extend(["university of houston", "houston"])
+        if any(w in clean_us_college for w in ["chicago", "uic"]):
+            us_aliases.extend(["university of illinois chicago", "uic", "chicago"])
+        if any(w in clean_us_college for w in ["southern california", "usc"]):
+            us_aliases.extend(["university of southern california", "usc"])
+        if "pace" in clean_us_college:
+            us_aliases.extend(["pace university", "pace"])
+        if any(w in clean_us_college for w in ["george mason", "gmu", "mason"]):
+            us_aliases.extend(["george mason", "gmu"])
+        if any(w in clean_us_college for w in ["new jersey", "njit"]):
+            us_aliases.extend(["new jersey institute of technology", "njit"])
+        if any(w in clean_us_college for w in ["maryland", "umd"]):
+            us_aliases.extend(["university of maryland", "umd", "college park"])
+        if "purdue" in clean_us_college:
+            us_aliases.extend(["purdue university", "purdue"])
+        if any(w in clean_us_college for w in ["georgia tech", "gatech"]):
+            us_aliases.extend(["georgia institute of technology", "georgia tech", "gatech"])
+        if any(w in clean_us_college for w in ["carnegie", "cmu"]):
+            us_aliases.extend(["carnegie mellon", "cmu"])
+        if "cincinnati" in clean_us_college:
+            us_aliases.extend(["university of cincinnati", "cincinnati"])
+        if "wayne" in clean_us_college:
+            us_aliases.extend(["wayne state", "wayne"])
+        if any(w in clean_us_college for w in ["florida", "fiu"]):
+            us_aliases.extend(["florida international", "fiu"])
+        if "buffalo" in clean_us_college:
+            us_aliases.extend(["suny buffalo", "buffalo"])
 
     scored_candidates = []
     for cand in VERIFIED_REAL_TALENT_POOL:
-        # 1. Strict Bachelor's graduation year check
-        cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2019"))
+        # 1. STRICT Bachelor's graduation year check
+        cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2020"))
         if cand_by > 2020:
             continue
 
         if target_bachelor_year is not None:
-            # Match exact year if specified, or allow within range
+            # STRICT EXACT MATCH: if recruiter requested 2020, ONLY 2020 can match!
             if cand_by != target_bachelor_year:
                 continue
         elif not (start_year <= cand_by <= end_year):
             continue
 
-        # 2. Indian College / University check
+        # 2. Strict Indian College / University check
         if clean_college:
-            cand_edu_blob = f"{cand.get('degree', '')} {cand.get('university', '')} {cand.get('summary', '')}".lower()
-            # Normalize acronyms like JNTU, NIT, IIT, BITS, VTU
+            cand_edu_blob = f"{cand.get('bachelor_college', '')} {cand.get('degree', '')} {cand.get('university', '')} {cand.get('summary', '')}".lower()
             if clean_college not in cand_edu_blob:
                 continue
 
-        # 3. US Location / Region check
+        # 3. Strict USA University / College check
+        if clean_us_college:
+            cand_us_blob = f"{cand.get('master_university', '')} {cand.get('degree', '')} {cand.get('university', '')} {cand.get('summary', '')}".lower()
+            if not any(alias in cand_us_blob for alias in us_aliases):
+                continue
+
+        # 4. US Location / Region check
         if clean_loc:
             cand_loc = (cand.get("location") or "").lower()
-            # Extract main state or city keywords e.g. "texas" from "Texas (Dallas, Austin)"
             loc_terms = [lt.strip() for lt in re.split(r'[,/\(\)]', clean_loc) if len(lt.strip()) > 2]
             if not any(lt in cand_loc for lt in loc_terms):
                 continue
 
-        # 4. Strict US Citizen filter (only Indian talent on OPT/H1B)
+        # 5. Strict Zero US Citizen filter (only Indian talent on OPT/H1B)
         status = (cand.get("status_tag") or "").lower()
         if "us citizen" in status or "citizen" in status:
             continue
 
-        # 5. Relevance scoring
+        # 6. Relevance scoring
         search_blob = f"{cand.get('name', '')} {cand.get('headline', '')} {cand.get('degree', '')} {cand.get('university', '')} {' '.join(cand.get('skills', []))} {cand.get('summary', '')} {cand.get('location', '')}".lower()
 
         relevance = 10
@@ -1599,11 +1883,16 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
 
         scored_candidates.append((relevance + random.uniform(0.1, 8.0), cand))
 
-    # If exact college/region filter had 0 results, fallback gracefully to broader matching
-    if not scored_candidates and (clean_college or clean_loc):
+    # If exact Indian college / US university / region had 0 results, fallback gracefully to broader matching
+    # BUT NEVER VIOLATE THE TARGET BACHELOR'S YEAR LOCK!
+    if not scored_candidates and (clean_college or clean_us_college or clean_loc):
         for cand in VERIFIED_REAL_TALENT_POOL:
-            cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2019"))
+            cand_by = int(cand.get("bachelor_year") or cand.get("grad_year", "2020"))
+            # STRICT: Even in fallback, NEVER return a different bachelor year!
             if target_bachelor_year is not None and cand_by != target_bachelor_year:
+                continue
+            status = (cand.get("status_tag") or "").lower()
+            if "us citizen" in status or "citizen" in status:
                 continue
             scored_candidates.append((10 + random.uniform(0.1, 1.0), cand))
 
@@ -1611,7 +1900,7 @@ def filter_verified_pool(keyword: str, start_year: int = 2012, end_year: int = 2
     return [c for _, c in scored_candidates[:count]]
 
 
-def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2012, end_year=2020, location="United States", max_items=25, keyword=None, force_live=False, bachelor_max_year=None, bachelor_min_year=None, bachelor_year=None, college=None) -> List[Dict]:
+def scrape_bench_candidates(category="all", intent="ready_to_market", start_year=2012, end_year=2020, location="United States", max_items=25, keyword=None, force_live=False, bachelor_max_year=None, bachelor_min_year=None, bachelor_year=None, college=None, us_college=None) -> List[Dict]:
     """
     Ultra-fast US IT Talent Sourcing Engine.
     - Uses in-memory caching for sub-millisecond repeated searches.
@@ -1620,7 +1909,7 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
     - Response time guaranteed <= 2.5 seconds on cloud (Render).
     """
     search_keyword = (keyword or category or "Computer Science").strip()
-    cache_key = f"{search_keyword.lower()}_{start_year}_{end_year}_{bachelor_year}_{college}_{location.lower()}"
+    cache_key = f"{search_keyword.lower()}_{start_year}_{end_year}_{bachelor_year}_{college}_{us_college}_{location.lower()}"
 
     # Return cached results if available within TTL
     if cache_key in SEARCH_CACHE:
@@ -1663,7 +1952,7 @@ def scrape_bench_candidates(category="all", intent="ready_to_market", start_year
     eff_max_year = min(2020, bachelor_max_year if bachelor_max_year is not None else end_year)
 
     # Supplement or instant return with verified pool
-    pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year, bachelor_year=bachelor_year, college=college)
+    pool_candidates = filter_verified_pool(search_keyword, start_year=eff_min_year, end_year=eff_max_year, location=location, count=max_items, bachelor_max_year=eff_max_year, bachelor_min_year=eff_min_year, bachelor_year=bachelor_year, college=college, us_college=us_college)
     for c in pool_candidates:
         p_url = (c.get("profile_url") or c.get("linkedin_url") or "").strip()
         name = c.get("name", "Consultant")

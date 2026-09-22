@@ -1253,15 +1253,17 @@ function initModals() {
 // =========================================================================
 // 7. USA Talent Sourcing & Students (2018 - 2026)
 // =========================================================================
-function setPresetFilter(keyword, bachelorYear, college = 'All', region = 'United States') {
+function setPresetFilter(keyword, bachelorYear, college = 'All', usCollege = 'All', region = 'United States') {
     const kwInput = document.getElementById('filter-student-keyword');
     const byInput = document.getElementById('filter-student-bachelor-year');
     const colInput = document.getElementById('filter-student-college');
+    const usColInput = document.getElementById('filter-student-us-college');
     const locInput = document.getElementById('filter-student-location');
 
     if (kwInput && keyword && keyword !== 'all') kwInput.value = keyword;
     if (byInput && bachelorYear) byInput.value = bachelorYear;
     if (colInput && college) colInput.value = college;
+    if (usColInput && usCollege) usColInput.value = usCollege;
     if (locInput && region) locInput.value = region;
 
     loadStudents(false);
@@ -1271,6 +1273,7 @@ async function loadStudents(isScrape = false) {
     const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
     const college = document.getElementById('filter-student-college')?.value?.trim() || 'All';
+    const usCollege = document.getElementById('filter-student-us-college')?.value?.trim() || 'All';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
 
     const loadingElem = document.getElementById('students-loading-state');
@@ -1297,6 +1300,7 @@ async function loadStudents(isScrape = false) {
                 keyword: kw,
                 bachelor_year: by,
                 college: college,
+                us_college: usCollege,
                 location: loc,
                 scrape: isScrape
             })
@@ -1350,13 +1354,15 @@ function renderStudentsGrid(candidates) {
 
     // Strict Double-Lock: ensure only exact target year is rendered
     const byInput = document.getElementById('filter-student-bachelor-year')?.value?.trim();
-    const yearMatch = byInput ? byInput.match(/\b(19\d\d|20\d\d)\b/) : null;
-    if (yearMatch && candidates && candidates.length > 0) {
-        const targetYear = yearMatch[1];
-        candidates = candidates.filter(c => {
-            const candYear = String(c.bachelor_year || c.grad_year || '');
-            return candYear === targetYear;
-        });
+    if (byInput && byInput.toLowerCase() !== 'all') {
+        const yearMatch = byInput.match(/\b(19\d\d|20\d\d)\b/);
+        if (yearMatch && candidates && candidates.length > 0) {
+            const targetYear = yearMatch[1];
+            candidates = candidates.filter(c => {
+                const candYear = String(c.bachelor_year || c.grad_year || '');
+                return candYear === targetYear;
+            });
+        }
     }
 
     if (!candidates || candidates.length === 0) {
@@ -1561,6 +1567,7 @@ function exportStudentsCSV() {
     const loc = document.getElementById('filter-student-location')?.value?.trim() || '';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
     const college = document.getElementById('filter-student-college')?.value?.trim() || '';
+    const usCollege = document.getElementById('filter-student-us-college')?.value?.trim() || '';
 
     fetch('/api/students/export-csv', {
         method: 'POST',
@@ -1570,6 +1577,7 @@ function exportStudentsCSV() {
             location: loc,
             bachelor_year: by,
             college: college,
+            us_college: usCollege,
             candidates: state.students || []
         })
     })
@@ -1598,6 +1606,7 @@ function buildXRayQuery() {
     const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
     const col = document.getElementById('filter-student-college')?.value?.trim() || 'All';
+    const usCol = document.getElementById('filter-student-us-college')?.value?.trim() || 'All';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
 
     const yearMatch = by.match(/\b(19\d\d|20\d\d)\b/);
@@ -1615,6 +1624,11 @@ function buildXRayQuery() {
 
     if (col && !['all', 'all colleges', 'all indian colleges / universities'].includes(col.toLowerCase())) {
         parts.push(`"${col}"`);
+    }
+
+    if (usCol && !['all', 'all universities', 'all usa universities', 'all us colleges'].includes(usCol.toLowerCase())) {
+        const cleanUs = usCol.split(/[,/()]/)[0].trim();
+        if (cleanUs) parts.push(`"${cleanUs}"`);
     }
 
     if (loc && !['all', 'united states', 'united states (all)', 'usa'].includes(loc.toLowerCase())) {
@@ -1756,9 +1770,14 @@ function initStudentsTab() {
     }
     const byInput = document.getElementById('filter-student-bachelor-year');
     const colInput = document.getElementById('filter-student-college');
+    const usColInput = document.getElementById('filter-student-us-college');
     const locInput = document.getElementById('filter-student-location');
 
-    [kwInput, byInput, colInput, locInput].forEach(inp => {
+    if (byInput) {
+        byInput.addEventListener('change', () => loadStudents(false));
+    }
+
+    [kwInput, colInput, usColInput, locInput].forEach(inp => {
         if (inp) {
             inp.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
@@ -1766,6 +1785,7 @@ function initStudentsTab() {
                     loadStudents(false);
                 }
             });
+            inp.addEventListener('change', () => loadStudents(false));
         }
     });
     if (btnExport) {

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hiring Flow - Enterprise ATS & Outreach Platform</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=5.2.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=5.3.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -183,7 +183,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="dashboard-pipeline-tbody">
-                                    <!-- Rendered dynamically by app.js?v=5.2.0 -->
+                                    <!-- Rendered dynamically by app.js?v=5.3.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -325,44 +325,43 @@
                     <!-- MyMulya Style Filter & Search Control Bar -->
                     <div class="filter-panel" style="background: var(--bg-card, #1e2230); border: 1px solid var(--border-color, #2d3348); border-radius: 14px; padding: 22px; margin-bottom: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
                         <form id="form-student-search" onsubmit="return false;">
-                            <div style="display: grid; grid-template-columns: 2fr 1.2fr 1.4fr 1.4fr 1.1fr; gap: 12px; align-items: flex-end;">
+                            <div style="display: grid; grid-template-columns: 1.8fr 1.1fr 1.3fr 1.4fr 1.2fr 100px; gap: 10px; align-items: flex-end;">
                                 <!-- 1. Technology / Major / Keywords -->
                                 <div>
                                     <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        Technology / Major
+                                        Technology / Role
                                     </label>
                                     <div style="position:relative;">
                                         <span style="position:absolute; left:12px; top:11px; color:#64748b; font-size:14px;">🔍</span>
-                                        <input type="text" id="filter-student-keyword" class="form-control" placeholder="e.g. Computer Science, Java, Python, AWS, Data Science" value="Computer Science" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding-left:36px; padding-right:12px; font-size:13px;" />
+                                        <input type="text" id="filter-student-keyword" class="form-control" placeholder="e.g. Java, Python, AWS, Data Science" value="Computer Science" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding-left:36px; padding-right:12px; font-size:13px;" />
                                     </div>
                                 </div>
 
-                                <!-- 2. Single Bachelor's Passed-out Year Filter (India) -->
+                                <!-- 2. Strict Bachelor's Passed-out Year Filter (India) -->
                                 <div>
                                     <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
                                         🎓 Passout Year (India)
                                     </label>
                                     <div style="position:relative;">
-                                        <input type="text" id="filter-student-bachelor-year" class="form-control" placeholder="e.g. 2020" value="2020" list="bachelor-year-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px; font-weight:600;" />
-                                        <datalist id="bachelor-year-options">
-                                            <option value="2020">2020 (India B.Tech ➔ USA MS)</option>
-                                            <option value="2019">2019 (India B.Tech ➔ USA MS)</option>
-                                            <option value="2018">2018 (India B.Tech ➔ USA MS)</option>
-                                            <option value="2017">2017 (India B.Tech ➔ USA MS)</option>
-                                            <option value="2016">2016 (India B.Tech ➔ USA MS)</option>
-                                            <option value="2015">2015 (India B.Tech ➔ USA MS)</option>
+                                        <select id="filter-student-bachelor-year" class="form-control" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#38bdf8; border:1px solid #0284c7; border-radius:8px; padding:0 10px; font-size:13px; font-weight:700; cursor:pointer;">
+                                            <option value="2020" selected>2020 (Strict Match)</option>
+                                            <option value="2019">2019 (Strict Match)</option>
+                                            <option value="2018">2018 (Strict Match)</option>
+                                            <option value="2017">2017 (Strict Match)</option>
+                                            <option value="2016">2016 (Strict Match)</option>
+                                            <option value="2015">2015 (Strict Match)</option>
                                             <option value="All">All Years (≤ 2020)</option>
-                                        </datalist>
+                                        </select>
                                     </div>
                                 </div>
 
                                 <!-- 3. Specific Indian College / University -->
                                 <div>
                                     <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        🏛️ Indian College / Univ
+                                        🏛️ Indian College
                                     </label>
                                     <div style="position:relative;">
-                                        <input type="text" id="filter-student-college" class="form-control" placeholder="All Colleges (or type name)" value="All" list="indian-colleges-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px;" />
+                                        <input type="text" id="filter-student-college" class="form-control" placeholder="All Indian Colleges" value="All" list="indian-colleges-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px;" />
                                         <datalist id="indian-colleges-options">
                                             <option value="All">All Indian Colleges / Universities</option>
                                             <option value="IIT">IIT (Indian Institutes of Technology)</option>
@@ -378,14 +377,50 @@
                                             <option value="SRM">SRM Institute of Science and Tech</option>
                                             <option value="GITAM">GITAM University</option>
                                             <option value="Thapar">Thapar University</option>
+                                            <option value="Andhra University">Andhra University</option>
+                                            <option value="DTU">DTU (Delhi Technological University)</option>
                                         </datalist>
                                     </div>
                                 </div>
 
-                                <!-- 4. US Region / Location -->
+                                <!-- 4. USA University / College Filter -->
+                                <div>
+                                    <label style="display:block; font-size:11px; font-weight:700; color:#38bdf8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        🇺🇸 USA University
+                                    </label>
+                                    <div style="position:relative;">
+                                        <input type="text" id="filter-student-us-college" class="form-control" placeholder="All US Universities" value="All" list="us-colleges-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px;" />
+                                        <datalist id="us-colleges-options">
+                                            <option value="All">All USA Universities</option>
+                                            <option value="UT Dallas">University of Texas at Dallas (UTD)</option>
+                                            <option value="UT Arlington">University of Texas at Arlington (UTA)</option>
+                                            <option value="Northeastern University">Northeastern University (Boston / Silicon Valley)</option>
+                                            <option value="San Jose State University">San Jose State University (SJSU)</option>
+                                            <option value="Arizona State University">Arizona State University (ASU)</option>
+                                            <option value="University of North Texas">University of North Texas (UNT)</option>
+                                            <option value="University of Houston">University of Houston</option>
+                                            <option value="University of Illinois Chicago">University of Illinois Chicago (UIC)</option>
+                                            <option value="University of Southern California">University of Southern California (USC)</option>
+                                            <option value="Pace University">Pace University (New York)</option>
+                                            <option value="George Mason University">George Mason University (GMU)</option>
+                                            <option value="New Jersey Institute of Technology">NJIT (New Jersey)</option>
+                                            <option value="University of Maryland">University of Maryland (UMD)</option>
+                                            <option value="Purdue University">Purdue University</option>
+                                            <option value="Georgia Institute of Technology">Georgia Tech (Gatech)</option>
+                                            <option value="Carnegie Mellon University">Carnegie Mellon University (CMU)</option>
+                                            <option value="University of Cincinnati">University of Cincinnati</option>
+                                            <option value="Wayne State University">Wayne State University</option>
+                                            <option value="Florida International University">Florida International University (FIU)</option>
+                                            <option value="University of Colorado Boulder">CU Boulder</option>
+                                            <option value="SUNY Buffalo">SUNY Buffalo</option>
+                                        </datalist>
+                                    </div>
+                                </div>
+
+                                <!-- 5. US Region / Location -->
                                 <div>
                                     <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        📍 US Region / State
+                                        📍 US State / Region
                                     </label>
                                     <div style="position:relative;">
                                         <input type="text" id="filter-student-location" class="form-control" value="United States" placeholder="e.g. Texas, California, New York" list="us-region-options" style="width:100%; height:42px; background:var(--bg-main, #141722); color:#fff; border:1px solid var(--border-color, #2d3348); border-radius:8px; padding:0 12px; font-size:13px;" />
@@ -404,37 +439,43 @@
                                     </div>
                                 </div>
 
-                                <!-- 5. Search Button -->
+                                <!-- 6. Search Button -->
                                 <div>
-                                    <button type="button" id="btn-apply-student-filter" class="btn btn-primary" style="width:100%; height:42px; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px; background:linear-gradient(135deg, #4f46e5 0%, #4338ca 100%); border:none; box-shadow:0 3px 10px rgba(79, 70, 229, 0.3);">
+                                    <button type="button" id="btn-apply-student-filter" class="btn btn-primary" style="width:100%; height:42px; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg, #4f46e5 0%, #4338ca 100%); border:none; box-shadow:0 3px 10px rgba(79, 70, 229, 0.3);">
                                         <span>🔍 Search</span>
                                     </button>
                                 </div>
                             </div>
 
-                            <!-- Quick Preset Filter Chips: 100% Strict 2020 B.Tech Passouts -->
+                            <!-- Quick Preset Filter Chips -->
                             <div style="display:flex; gap:8px; margin-top:16px; align-items:center; flex-wrap:wrap;">
-                                <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick 2020 Roles:</span>
-                                <button type="button" onclick="setPresetFilter('all', '2020')" class="btn-preset active" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); cursor:pointer; font-weight:600;">
+                                <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick Presets:</span>
+                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'All')" class="btn-preset active" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); cursor:pointer; font-weight:600;">
                                     🎓 All 2020 Passouts
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Java Developer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    ☕ Java / Full Stack (2020)
+                                <button type="button" onclick="setPresetFilter('Java Developer', '2020', 'All', 'All')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    ☕ Java (2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Python Developer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    🐍 Python & Cloud (2020)
+                                <button type="button" onclick="setPresetFilter('Python Developer', '2020', 'All', 'All')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    🐍 Python (2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Data Engineer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    📊 Data & AI/ML (2020)
+                                <button type="button" onclick="setPresetFilter('Data Engineer', '2020', 'All', 'All')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    📊 Data / AI (2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('DevOps AWS', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    ☁️ Cloud / DevOps (2020)
+                                <button type="button" onclick="setPresetFilter('DevOps AWS', '2020', 'All', 'All')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
+                                    ☁️ DevOps (2020)
                                 </button>
-                                <button type="button" onclick="setPresetFilter('React Developer', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    ⚡ React / UI (2020)
+                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'UT Dallas')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); cursor:pointer; font-weight:600;">
+                                    🏛️ UT Dallas
                                 </button>
-                                <button type="button" onclick="setPresetFilter('Salesforce', '2020')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(255,255,255,0.06); color:#e2e8f0; border:1px solid rgba(255,255,255,0.1); cursor:pointer; font-weight:600;">
-                                    💼 Salesforce / CRM (2020)
+                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'San Jose State')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); cursor:pointer; font-weight:600;">
+                                    🏛️ San Jose State
+                                </button>
+                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'Northeastern')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); cursor:pointer; font-weight:600;">
+                                    🏛️ Northeastern
+                                </button>
+                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'Arizona State')" class="btn-preset" style="font-size:11px; padding:4px 10px; border-radius:16px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); cursor:pointer; font-weight:600;">
+                                    🏛️ Arizona State
                                 </button>
                             </div>
                         </form>
@@ -457,7 +498,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="students-table-body">
-                                    <!-- Candidate rows loaded dynamically via app.js?v=5.2.0 -->
+                                    <!-- Candidate rows loaded dynamically via app.js?v=5.3.0 -->
                                 </tbody>
                             </table>
                         </div>
@@ -592,7 +633,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="consultants-table-body">
-                                    <!-- Rendered dynamically by app.js?v=5.2.0 in structured rows -->
+                                    <!-- Rendered dynamically by app.js?v=5.3.0 in structured rows -->
                                 </tbody>
                             </table>
                         </div>
@@ -1080,7 +1121,7 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=5.2.0"></script>
+    <script src="/static/js/app.js?v=5.3.0"></script>
 
     <!-- Recruiter Management Inline Fallback -->
     <script>

@@ -1287,7 +1287,7 @@ async function loadStudents(isScrape = false) {
                 <td colspan="8" style="text-align:center; padding: 36px; color: var(--text-muted);">
                     <div style="display:inline-block; width:32px; height:32px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation: spin 0.8s linear infinite; margin-bottom:12px;"></div>
                     <div style="font-weight:600; color:#fff; font-size:1rem;">Searching Candidates: India B.Tech (${by}) + USA Master's...</div>
-                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Verifying undergraduate degree (${college !== 'All' ? college : 'India'}) and USA settlement (${loc})...</div>
+                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Verifying undergraduate degree (${by} (India)) and USA settlement (${loc})...</div>
                 </td>
             </tr>`;
     }
@@ -1316,7 +1316,7 @@ async function loadStudents(isScrape = false) {
     } catch (err) {
         console.error('Error fetching students:', err);
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load candidate profiles. Please try searching again.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load candidate profiles. Please try searching again.</td></tr>`;
         }
     } finally {
         if (loadingElem) loadingElem.style.display = 'none';
@@ -1624,7 +1624,7 @@ window.exportStudentsCSV = exportStudentsCSV;
 function buildXRayQuery() {
     const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
-    const col = document.getElementById('filter-student-college')?.value?.trim() || 'All';
+    const settlement = document.getElementById('filter-student-settlement')?.value || 'All';
     const usCol = document.getElementById('filter-student-us-college')?.value?.trim() || 'All';
     const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
 
@@ -1641,8 +1641,8 @@ function buildXRayQuery() {
     parts.push(`"${targetYear}"`);
     parts.push('("Master" OR "MS" OR "M.S.")');
 
-    if (col && !['all', 'all colleges', 'all indian colleges / universities'].includes(col.toLowerCase())) {
-        parts.push(`"${col}"`);
+    if (settlement && !['all', 'all pathways', 'all settlement pathways', 'all statuses'].includes(settlement.toLowerCase())) {
+        parts.push(`"${settlement}"`);
     }
 
     if (usCol && !['all', 'all universities', 'all usa universities', 'all us colleges'].includes(usCol.toLowerCase())) {

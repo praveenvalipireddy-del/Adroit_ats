@@ -340,11 +340,17 @@ def _parse_candidate_from_result(
     ]
     has_us_location = any(sig in text_lower for sig in us_location_signals)
 
-    # 6. Bachelor's graduation year (target year, if the recruiter specified one).
-    # Only reject when the preview EXPLICITLY states a conflicting year (a real,
-    # trustworthy negative signal) — don't reject just because the target year
-    # isn't visible in the truncated preview, since the query already required
-    # it as a quoted term on the full page.
+    # 6. MANDATORY: Bachelor's graduation year must be genuinely visible in the
+    # preview text before we accept it — NOT assumed from the query alone.
+    # (Search engines like DuckDuckGo/Bing loosen strict quoted-phrase AND
+    # matching on queries with many quoted clauses, so a returned URL is NOT
+    # a reliable guarantee the full page actually contains the target year —
+    # e.g. this previously let through a candidate whose real Bachelor's was
+    # from 1988 for a "2020" search, because his preview simply contained no
+    # year in the 2012-2020 window at all and the code assumed the target
+    # year applied anyway. That's a real false positive, not just noise, so
+    # this check stays strict even though it means more searches return few
+    # or zero results — an honest empty result beats a confidently wrong one.)
     future_bachelor_matches = re.findall(
         r'(?:b\.?tech|b\.?e\.?|bachelor|undergraduate)[^\d]{0,40}\b(202[1-9]|203[0-9])\b',
         text_lower
@@ -361,12 +367,18 @@ def _parse_candidate_from_result(
 
     if target_bachelor_year is not None:
         target_by = int(target_bachelor_year)
-        if detected_bachelor_years and int(detected_bachelor_years[0]) != target_by:
-            # Preview explicitly shows a different year than requested — reject.
+        if detected_bachelor_years:
+            if int(detected_bachelor_years[0]) != target_by:
+                return None
+            bachelor_year = target_by
+        elif str(target_by) in combined:
+            # Target year appears literally in the preview text, even if not
+            # directly adjacent to a "bachelor"/"B.Tech" keyword.
+            bachelor_year = target_by
+        else:
+            # Target year is not visible anywhere in the preview — we cannot
+            # confirm it, so reject rather than guess.
             return None
-        # Otherwise trust the query's own year requirement, even if the
-        # truncated preview doesn't happen to show it.
-        bachelor_year = target_by
     else:
         if detected_bachelor_years:
             bachelor_year = int(detected_bachelor_years[0])

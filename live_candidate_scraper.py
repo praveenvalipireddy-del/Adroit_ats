@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------
 # API TOKENS (optional)
 # --------------------------------------------------
-SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "9d401009a7f2e0ce89b92baaf0b7613bd440e43a198ee34327cc8ef5a8775773")
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
 APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
 
 # --------------------------------------------------
@@ -487,7 +487,7 @@ def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
     try:
         import requests
         resp = requests.get("https://serpapi.com/search", params={
-            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=3)
+            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=10)
         if resp.status_code == 200:
             return [{"url": i.get("link", ""), "title": i.get("title", ""), "snippet": i.get("snippet", "")}
                     for i in resp.json().get("organic_results", [])]
@@ -499,13 +499,13 @@ def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
 def _search_duckduckgo(query: str, max_results: int = 15) -> List[Dict]:
     try:
         from ddgs import DDGS
-        with DDGS(timeout=5) as ddgs:
+        with DDGS(timeout=12) as ddgs:
             return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
                     for r in ddgs.text(query, max_results=max_results)]
     except Exception:
         try:
             from duckduckgo_search import DDGS as DDGS2
-            with DDGS2(timeout=5) as ddgs2:
+            with DDGS2(timeout=12) as ddgs2:
                 return [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")}
                         for r in ddgs2.text(query, max_results=max_results)]
         except Exception as e:
@@ -561,33 +561,33 @@ def scrape_live_linkedin_candidates(
     clean_keyword = (keyword or "Data Scientist").strip()
     logger.info(f"Scraping '{clean_keyword}' | B.Tech India + MS USA | {start_year}-{end_year}")
 
-    num_queries = 2
+    num_queries = 5
     queries = build_rotating_queries(clean_keyword, start_year, end_year, num_queries, bachelor_year=bachelor_year, college=college, target_location=location)
 
     collected: List[Dict] = []
     seen_this_run: Set[str] = set()
 
     def _run_single_query(q):
-        # 1. Primary: High-speed SerpAPI with residential Google proxies (100% reliable)
+        # 1. Primary: SerpAPI (if a key is configured)
         if SERPAPI_KEY:
             raw = _search_serpapi(q, max_results=10)
             if raw:
                 return raw
-        # 2. Secondary fallback: DuckDuckGo
+        # 2. Fallback: DuckDuckGo (works without any API key)
         return _search_duckduckgo(q, max_results=15) or []
 
     all_raw_results = []
     import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(num_queries, 5)) as pool:
         futures = [pool.submit(_run_single_query, q) for q in queries]
         try:
-            for fut in concurrent.futures.as_completed(futures, timeout=3.0):
+            for fut in concurrent.futures.as_completed(futures, timeout=20.0):
                 try:
                     all_raw_results.extend(fut.result() or [])
                 except Exception:
                     pass
         except concurrent.futures.TimeoutError:
-            logger.info("Parallel query timeout reached (3.0s)")
+            logger.info("Parallel query timeout reached (20s) — using whichever queries finished in time.")
 
     logger.info(f"Parallel fetch collected {len(all_raw_results)} raw results")
     random.shuffle(all_raw_results)

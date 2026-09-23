@@ -1045,8 +1045,10 @@ def api_search_students():
     keyword = data.get("keyword") or data.get("query") or data.get("category") or "Computer Science"
     category = data.get("category", "all")
     intent = data.get("intent", "ready_to_market")
-    
-    # Specific Bachelor's passed-out year in India (STRICT EXACT MATCH)
+
+    # Bachelor's passout year in India — the one filter this workflow uses today
+    # (STRICT EXACT MATCH). More filters (technology/role, visa pathway, US
+    # university, US region) can be reintroduced later without changing this shape.
     raw_by = str(data.get("bachelor_year") or data.get("year") or "").strip()
     bachelor_year = None
     year_match = re.search(r'\b(19\d\d|20\d\d)\b', raw_by)
@@ -1055,19 +1057,14 @@ def api_search_students():
         start_year = bachelor_year
         end_year = bachelor_year
     else:
-        try:
-            start_year = int(data.get("bachelor_min_year") or data.get("from_year") or 2012)
-            end_year = min(2020, int(data.get("bachelor_max_year") or data.get("to_year") or 2020))
-        except (ValueError, TypeError):
-            start_year, end_year = 2012, 2020
+        start_year, end_year = 2012, 2020
 
-    college = str(data.get("college") or "").strip()
-    us_college = str(data.get("us_college") or data.get("us_university") or "").strip()
-    settlement = str(data.get("settlement") or data.get("pathway") or data.get("visa") or "").strip()
     location = data.get("location", "United States")
     max_items = int(data.get("max_items") or data.get("limit") or 30)
-    force_live = bool(data.get("scrape") or data.get("live") or data.get("force_live"))
 
+    # Every search is a genuine live search — there is no fabricated fallback.
+    # A live web search can take longer than an instant lookup, so the caller
+    # should expect this to take up to ~25 seconds.
     candidates = apify_service.scrape_bench_candidates(
         category=category,
         keyword=keyword,
@@ -1076,23 +1073,20 @@ def api_search_students():
         end_year=end_year,
         location=location,
         max_items=max_items,
-        force_live=force_live,
         bachelor_year=bachelor_year,
-        college=college,
-        us_college=us_college,
-        settlement=settlement
     )
 
-    # Prepend any candidates saved to database by the recruiter
+    # Prepend any candidates the recruiter has already added to the database
+    # that genuinely match the requested Bachelor's year.
     try:
         db_cands = models.get_candidates()
         bench_imported = []
         for db_c in db_cands:
-            # Check if matching target year
             c_summary = str(db_c.get("resume_summary") or "")
             c_skills = str(db_c.get("primary_skills") or "")
             c_title = str(db_c.get("title") or "")
-            # Only include candidate if their resume summary/skills actually specifies the target year
+            # Only include a candidate if their resume summary/skills/title
+            # actually specifies the target year
             y_match = re.search(r'\b(19\d\d|20\d\d)\b', c_summary + " " + c_skills + " " + c_title)
             if not y_match:
                 continue
@@ -1100,28 +1094,27 @@ def api_search_students():
 
             if bachelor_year is not None and int(c_year) != int(bachelor_year):
                 continue
-            if us_college and us_college.lower() not in ["all", ""] and us_college.lower() not in (c_summary + " " + c_title).lower():
-                continue
-                bench_imported.append({
-                    "id": db_c.get("id"),
-                    "name": db_c.get("name"),
-                    "headline": db_c.get("title") or "Technical Consultant",
-                    "bachelor_year": c_year,
-                    "grad_year": c_year,
-                    "bachelor_degree": "B.Tech in Computer Science / IT",
-                    "bachelor_college": "Accredited College, India",
-                    "master_degree": "M.S. in Tech (USA)",
-                    "master_university": "US University",
-                    "location": db_c.get("location") or "United States",
-                    "status_badge": "⭐ Bench - Added by Recruiter",
-                    "status_tag": "⭐ Bench - Added by Recruiter",
-                    "quality": "[BENCH] Imported Candidate",
-                    "degree": f"B.Tech India ({c_year}) -> MS USA",
-                    "profile_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
-                    "linkedin_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
-                    "is_imported": True
-                })
-        # Prepend imported candidates
+
+            bench_imported.append({
+                "id": db_c.get("id"),
+                "name": db_c.get("name"),
+                "headline": db_c.get("title") or "Technical Consultant",
+                "bachelor_year": c_year,
+                "grad_year": c_year,
+                "bachelor_degree": "B.Tech in Computer Science / IT",
+                "bachelor_college": "Accredited College, India",
+                "master_degree": "M.S. in Tech (USA)",
+                "master_university": "US University",
+                "location": db_c.get("location") or "United States",
+                "status_badge": "⭐ Bench - Added by Recruiter",
+                "status_tag": "⭐ Bench - Added by Recruiter",
+                "quality": "[BENCH] Imported Candidate",
+                "degree": f"B.Tech India ({c_year}) -> MS USA",
+                "profile_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
+                "linkedin_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
+                "is_imported": True
+            })
+        # Prepend imported candidates (deduped by name against live results)
         seen_names = set(c.get("name", "").lower() for c in bench_imported)
         for cand in candidates:
             if cand.get("name", "").lower() not in seen_names:

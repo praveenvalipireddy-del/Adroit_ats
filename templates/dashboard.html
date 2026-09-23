@@ -322,22 +322,12 @@
                     </div>
 
                     <!-- Search & Filter Controls -->
-                    <!-- MyMulya Style Filter & Search Control Bar -->
+                    <!-- Simplified to a single filter for now: Bachelor's Passout Year (India). -->
+                    <!-- More filters (Technology/Role, Visa Pathway, US University, US Region) will be reintroduced later. -->
                     <div class="filter-panel" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; margin-bottom: 24px; box-shadow: var(--shadow-card);">
                         <form id="form-student-search" onsubmit="return false;">
-                            <div style="display: grid; grid-template-columns: 1.8fr 1.2fr 1.5fr 1.4fr 1.2fr 100px; gap: 12px; align-items: flex-end;">
-                                <!-- 1. Technology / Role / Keywords -->
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        Technology / Role
-                                    </label>
-                                    <div style="position:relative;">
-                                        <span style="position:absolute; left:12px; top:11px; color:#64748b; font-size:14px;">🔍</span>
-                                        <input type="text" id="filter-student-keyword" class="form-control" placeholder="e.g. Java, Python, AWS, Data Science" value="Computer Science" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding-left:36px; padding-right:12px; font-size:13px; font-weight:600;" onfocus="this.style.borderColor='#2563eb'; this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)';" onblur="this.style.borderColor='#cbd5e1'; this.style.boxShadow='none';" />
-                                    </div>
-                                </div>
-
-                                <!-- 2. Strict Bachelor's Passout Year Filter (India) -->
+                            <div style="display: grid; grid-template-columns: 260px 140px 1fr; gap: 12px; align-items: flex-end;">
+                                <!-- 1. Strict Bachelor's Passout Year Filter (India) -->
                                 <div>
                                     <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
                                         🎓 Passout Year (India)
@@ -355,115 +345,30 @@
                                     </div>
                                 </div>
 
-                                <!-- 3. How Settled in USA / Visa Pathway -->
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:700; color:#059669; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        🗽 How Settled in USA
-                                    </label>
-                                    <div style="position:relative;">
-                                        <select id="filter-student-settlement" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#059669; border:1px solid #86efac; border-radius:8px; padding:0 10px; font-size:13px; font-weight:700; cursor:pointer;" onfocus="this.style.borderColor='#10b981'; this.style.boxShadow='0 0 0 3px rgba(16,185,129,0.15)';" onblur="this.style.borderColor='#86efac'; this.style.boxShadow='none';">
-                                            <option value="All" selected>All Settlement Pathways</option>
-                                            <option value="STEM OPT">USA Master's ➔ STEM OPT (3-Yr Work Auth)</option>
-                                            <option value="H1B">Direct H1B / Transfer Eligible</option>
-                                            <option value="OPT">USA Master's (Initial F1 OPT)</option>
-                                            <option value="CPT">Day 1 CPT (Active Student Worker)</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <!-- 4. USA University / College Filter -->
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:700; color:#0284c7; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        🇺🇸 USA University
-                                    </label>
-                                    <div style="position:relative;">
-                                        <input type="text" id="filter-student-us-college" class="form-control" placeholder="All US Universities" value="All" list="us-colleges-options" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 12px; font-size:13px; font-weight:600;" onfocus="this.style.borderColor='#2563eb'; this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)';" onblur="this.style.borderColor='#cbd5e1'; this.style.boxShadow='none';" />
-                                        <datalist id="us-colleges-options">
-                                            <option value="All">All USA Universities</option>
-                                            <option value="UT Dallas">University of Texas at Dallas (UTD)</option>
-                                            <option value="UT Arlington">University of Texas at Arlington (UTA)</option>
-                                            <option value="Northeastern University">Northeastern University (Boston / Silicon Valley)</option>
-                                            <option value="San Jose State University">San Jose State University (SJSU)</option>
-                                            <option value="Arizona State University">Arizona State University (ASU)</option>
-                                            <option value="University of North Texas">University of North Texas (UNT)</option>
-                                            <option value="University of Houston">University of Houston</option>
-                                            <option value="University of Illinois Chicago">University of Illinois Chicago (UIC)</option>
-                                            <option value="University of Southern California">University of Southern California (USC)</option>
-                                            <option value="Pace University">Pace University (New York)</option>
-                                            <option value="George Mason University">George Mason University (GMU)</option>
-                                            <option value="New Jersey Institute of Technology">NJIT (New Jersey)</option>
-                                            <option value="University of Maryland">University of Maryland (UMD)</option>
-                                            <option value="Purdue University">Purdue University</option>
-                                            <option value="Georgia Institute of Technology">Georgia Tech (Gatech)</option>
-                                            <option value="Carnegie Mellon University">Carnegie Mellon University (CMU)</option>
-                                            <option value="University of Cincinnati">University of Cincinnati</option>
-                                            <option value="Wayne State University">Wayne State University</option>
-                                            <option value="Florida International University">Florida International University (FIU)</option>
-                                            <option value="University of Colorado Boulder">CU Boulder</option>
-                                            <option value="SUNY Buffalo">SUNY Buffalo</option>
-                                        </datalist>
-                                    </div>
-                                </div>
-
-                                <!-- 5. US Region / Location -->
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        📍 US State / Region
-                                    </label>
-                                    <div style="position:relative;">
-                                        <input type="text" id="filter-student-location" class="form-control" value="United States" placeholder="e.g. Texas, California, New York" list="us-region-options" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 12px; font-size:13px; font-weight:600;" onfocus="this.style.borderColor='#2563eb'; this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)';" onblur="this.style.borderColor='#cbd5e1'; this.style.boxShadow='none';" />
-                                        <datalist id="us-region-options">
-                                            <option value="United States">United States (All US)</option>
-                                            <option value="Texas">Texas (Dallas, Austin, Houston)</option>
-                                            <option value="California">California (Bay Area, San Jose, LA)</option>
-                                            <option value="New York / New Jersey">New York / New Jersey</option>
-                                            <option value="Illinois">Illinois (Chicago)</option>
-                                            <option value="Georgia">Georgia (Atlanta)</option>
-                                            <option value="Washington">Washington (Seattle)</option>
-                                            <option value="North Carolina">North Carolina (Raleigh / Charlotte)</option>
-                                            <option value="Ohio">Ohio (Columbus / Cincinnati)</option>
-                                            <option value="Virginia">Virginia / Washington DC Metro</option>
-                                        </datalist>
-                                    </div>
-                                </div>
-
-                                <!-- 6. Search Button -->
+                                <!-- 2. Search Button -->
                                 <div>
                                     <button type="button" id="btn-apply-student-filter" class="btn btn-primary" style="width:100%; height:42px; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border:none; border-radius:8px; color:#ffffff; box-shadow:0 3px 10px rgba(37, 99, 235, 0.25); cursor:pointer;">
                                         <span>🔍 Search</span>
                                     </button>
                                 </div>
+
+                                <!-- 3. Honesty note: this is a real live search, not instant canned data -->
+                                <div style="font-size:0.78rem; color:#64748b; line-height:1.4;">
+                                    Runs a live LinkedIn/Google search (can take up to ~20-25 seconds). Results are genuine profiles found on the public web — please verify each one manually before outreach. More filters (technology/role, visa pathway, US university, US region) are coming soon.
+                                </div>
                             </div>
 
-                            <!-- Quick Preset Filter Chips -->
+                            <!-- Quick Preset Filter Chips: year-only, matching the single active filter -->
                             <div style="display:flex; gap:8px; margin-top:16px; align-items:center; flex-wrap:wrap;">
                                 <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick Presets:</span>
-                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'All', 'United States')" class="btn-preset active" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; cursor:pointer; font-weight:700;">
-                                    🎓 All 2020 Passouts
+                                <button type="button" onclick="setPresetFilter(null, '2020')" class="btn-preset active" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; cursor:pointer; font-weight:700;">
+                                    🎓 2020 Passouts
                                 </button>
-                                <button type="button" onclick="setPresetFilter('all', '2020', 'STEM OPT', 'All', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; cursor:pointer; font-weight:700;">
-                                    🗽 MS USA ➔ STEM OPT
+                                <button type="button" onclick="setPresetFilter(null, '2019')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; cursor:pointer; font-weight:700;">
+                                    🎓 2019 Passouts
                                 </button>
-                                <button type="button" onclick="setPresetFilter('all', '2020', 'H1B', 'All', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#fffbeb; color:#b45309; border:1px solid #fde68a; cursor:pointer; font-weight:700;">
-                                    🗽 H1B Transfer Eligible
-                                </button>
-                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'UT Dallas', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f0f9ff; color:#0284c7; border:1px solid #bae6fd; cursor:pointer; font-weight:700;">
-                                    🏛️ UT Dallas
-                                </button>
-                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'San Jose State', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f0f9ff; color:#0284c7; border:1px solid #bae6fd; cursor:pointer; font-weight:700;">
-                                    🏛️ San Jose State
-                                </button>
-                                <button type="button" onclick="setPresetFilter('all', '2020', 'All', 'Northeastern', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f0f9ff; color:#0284c7; border:1px solid #bae6fd; cursor:pointer; font-weight:700;">
-                                    🏛️ Northeastern
-                                </button>
-                                <button type="button" onclick="setPresetFilter('Java Developer', '2020', 'All', 'All', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; cursor:pointer; font-weight:600;">
-                                    ☕ Java (2020)
-                                </button>
-                                <button type="button" onclick="setPresetFilter('Python Developer', '2020', 'All', 'All', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; cursor:pointer; font-weight:600;">
-                                    🐍 Python (2020)
-                                </button>
-                                <button type="button" onclick="setPresetFilter('Data Engineer', '2020', 'All', 'All', 'United States')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; cursor:pointer; font-weight:600;">
-                                    📊 Data / AI (2020)
+                                <button type="button" onclick="setPresetFilter(null, '2018')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; cursor:pointer; font-weight:700;">
+                                    🎓 2018 Passouts
                                 </button>
                             </div>
                         </form>

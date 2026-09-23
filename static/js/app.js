@@ -1270,28 +1270,14 @@ function initModals() {
 // =========================================================================
 // 7. USA Talent Sourcing & Students (2018 - 2026)
 // =========================================================================
-function setPresetFilter(keyword, bachelorYear, settlement = 'All', usCollege = 'All', region = 'United States') {
-    const kwInput = document.getElementById('filter-student-keyword');
+function setPresetFilter(keyword, bachelorYear) {
     const byInput = document.getElementById('filter-student-bachelor-year');
-    const setInput = document.getElementById('filter-student-settlement');
-    const usColInput = document.getElementById('filter-student-us-college');
-    const locInput = document.getElementById('filter-student-location');
-
-    if (kwInput && keyword && keyword !== 'all') kwInput.value = keyword;
     if (byInput && bachelorYear) byInput.value = bachelorYear;
-    if (setInput && settlement) setInput.value = settlement;
-    if (usColInput && usCollege) usColInput.value = usCollege;
-    if (locInput && region) locInput.value = region;
-
-    loadStudents(false);
+    loadStudents();
 }
 
-async function loadStudents(isScrape = false) {
-    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
+async function loadStudents() {
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
-    const settlement = document.getElementById('filter-student-settlement')?.value || 'All';
-    const usCollege = document.getElementById('filter-student-us-college')?.value?.trim() || 'All';
-    const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
 
     const loadingElem = document.getElementById('students-loading-state');
     const resultsElem = document.getElementById('students-results-wrapper');
@@ -1303,8 +1289,8 @@ async function loadStudents(isScrape = false) {
             <tr>
                 <td colspan="8" style="text-align:center; padding: 36px; color: var(--text-muted);">
                     <div style="display:inline-block; width:32px; height:32px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation: spin 0.8s linear infinite; margin-bottom:12px;"></div>
-                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching Candidates: India B.Tech (${by}) + USA Master's...</div>
-                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Verifying undergraduate degree (${by} (India)) and USA settlement (${loc})...</div>
+                    <div style="font-weight:600; color:#fff; font-size:1rem;">Running a live LinkedIn/Google search: India B.Tech (${by}) + USA Master's...</div>
+                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">This is a genuine live search, not instant canned data — it can take up to ~20-25 seconds.</div>
                 </td>
             </tr>`;
     }
@@ -1314,12 +1300,7 @@ async function loadStudents(isScrape = false) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                keyword: kw,
-                bachelor_year: by,
-                settlement: settlement,
-                us_college: usCollege,
-                location: loc,
-                scrape: isScrape
+                bachelor_year: by
             })
         });
 
@@ -1386,7 +1367,7 @@ function renderStudentsGrid(candidates) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-muted);">
-                    No candidates found for Bachelor's completed in India in 2020 or earlier with USA Master's. Try adjusting search filters.
+                    No genuine profiles found via live search for this Bachelor's year. Nothing is ever substituted with fake data — try a different year, or use "Live Google X-Ray" / "Live LinkedIn Search" to search manually.
                 </td>
             </tr>`;
         return;
@@ -1599,21 +1580,13 @@ function closeStudentPitchModal() {
 window.closeStudentPitchModal = closeStudentPitchModal;
 
 function exportStudentsCSV() {
-    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || '';
-    const loc = document.getElementById('filter-student-location')?.value?.trim() || '';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
-    const settlement = document.getElementById('filter-student-settlement')?.value || '';
-    const usCollege = document.getElementById('filter-student-us-college')?.value?.trim() || '';
 
     fetch('/api/students/export-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            keyword: kw,
-            location: loc,
             bachelor_year: by,
-            settlement: settlement,
-            us_college: usCollege,
             candidates: state.students || []
         })
     })
@@ -1639,11 +1612,7 @@ window.exportStudentsCSV = exportStudentsCSV;
 // Path A: Google X-Ray & Live Recruiter Search Engine
 // =========================================================================
 function buildXRayQuery() {
-    const kw = document.getElementById('filter-student-keyword')?.value?.trim() || 'Computer Science';
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
-    const settlement = document.getElementById('filter-student-settlement')?.value || 'All';
-    const usCol = document.getElementById('filter-student-us-college')?.value?.trim() || 'All';
-    const loc = document.getElementById('filter-student-location')?.value?.trim() || 'United States';
 
     const yearMatch = by.match(/\b(19\d\d|20\d\d)\b/);
     const targetYear = yearMatch ? yearMatch[1] : '2020';
@@ -1652,36 +1621,15 @@ function buildXRayQuery() {
         'site:linkedin.com/in/',
         '-site:in.linkedin.com',
         '-Hyderabad', '-Bengaluru', '-Bangalore', '-Pune', '-Chennai', '-Mumbai', '-Noida', '-Gurgaon', '-"India"',
-        '"United States"'
+        '"United States"',
+        '("B.Tech" OR "B.E.")',
+        `"${targetYear}"`,
+        '("Master" OR "MS" OR "M.S.")'
     ];
-
-    if (kw && kw.toLowerCase() !== 'all') {
-        parts.push(`"${kw}"`);
-    }
-
-    parts.push('("B.Tech" OR "B.E.")');
-    parts.push(`"${targetYear}"`);
-    parts.push('("Master" OR "MS" OR "M.S.")');
-
-    if (settlement && !['all', 'all pathways', 'all settlement pathways', 'all statuses'].includes(settlement.toLowerCase())) {
-        parts.push(`"${settlement}"`);
-    }
-
-    if (usCol && !['all', 'all universities', 'all usa universities', 'all us colleges'].includes(usCol.toLowerCase())) {
-        const cleanUs = usCol.split(/[,/()]/)[0].trim();
-        if (cleanUs) parts.push(`"${cleanUs}"`);
-    }
-
-    if (loc && !['all', 'united states', 'united states (all)', 'usa'].includes(loc.toLowerCase())) {
-        const cleanLoc = loc.split(/[,/()]/)[0].trim();
-        if (cleanLoc) parts.push(`"${cleanLoc}"`);
-    } else {
-        parts.push('"United States"');
-    }
 
     const queryStr = parts.join(' ');
     const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(queryStr)}`;
-    const linkedinUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent('"' + kw + '" ("B.Tech" OR "B.E.") "' + targetYear + '" ("Master" OR "MS")')}&geoUrn=%5B%22103644278%22%5D&origin=FACETED_SEARCH`;
+    const linkedinUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent('("B.Tech" OR "B.E.") "' + targetYear + '" ("Master" OR "MS")')}&geoUrn=%5B%22103644278%22%5D&origin=FACETED_SEARCH`;
 
     return { queryStr, googleUrl, linkedinUrl };
 }
@@ -1761,12 +1709,10 @@ async function submitQuickImport(e) {
 function initStudentsTab() {
     const btnFilter = document.getElementById('btn-apply-student-filter');
     const formSearch = document.getElementById('form-student-search');
-    const btnScrape = document.getElementById('btn-trigger-students-scrape');
     const btnExport = document.getElementById('btn-export-students-csv');
     const btnClosePitch = document.getElementById('btn-close-pitch');
     const btnClosePitchX = document.getElementById('btn-close-pitch-modal');
     const btnCopyPitch = document.getElementById('btn-copy-pitch');
-    const kwInput = document.getElementById('filter-student-keyword');
 
     const btnXRay = document.getElementById('btn-open-live-xray');
     if (btnXRay) {
@@ -1796,42 +1742,17 @@ function initStudentsTab() {
     if (formSearch) {
         formSearch.addEventListener('submit', (e) => {
             e.preventDefault();
-            loadStudents(false);
+            loadStudents();
         });
     }
 
     if (btnFilter) {
-        btnFilter.addEventListener('click', () => loadStudents(false));
-    }
-    if (btnScrape) {
-        btnScrape.addEventListener('click', () => {
-            showToast("Scanning LinkedIn live index for US candidates...", "info");
-            loadStudents(true);
-        });
+        btnFilter.addEventListener('click', () => loadStudents());
     }
     const byInput = document.getElementById('filter-student-bachelor-year');
-    const setInput = document.getElementById('filter-student-settlement');
-    const usColInput = document.getElementById('filter-student-us-college');
-    const locInput = document.getElementById('filter-student-location');
-
     if (byInput) {
-        byInput.addEventListener('change', () => loadStudents(false));
+        byInput.addEventListener('change', () => loadStudents());
     }
-    if (setInput) {
-        setInput.addEventListener('change', () => loadStudents(false));
-    }
-
-    [kwInput, usColInput, locInput].forEach(inp => {
-        if (inp) {
-            inp.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    loadStudents(false);
-                }
-            });
-            inp.addEventListener('change', () => loadStudents(false));
-        }
-    });
     if (btnExport) {
         btnExport.addEventListener('click', () => exportStudentsCSV());
     }

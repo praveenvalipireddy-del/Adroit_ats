@@ -305,21 +305,28 @@ def _parse_candidate_from_result(
     if any(sig in text_lower for sig in non_tech_signals):
         return None
 
-    # 4. MANDATORY: Must have an Indian education / origin signal with STRICT word boundaries
-    # Prevents native US-born candidates with no India degree from passing
-    # (e.g. Prevents "community" matching "nit" or "activity" matching "vit")
+    # 4. Indian education / origin signal.
+    # NOTE: every query built by build_rotating_queries() already sends
+    # ("B.Tech" OR "B.E.") as a REQUIRED quoted term to the search engine, so a
+    # URL only comes back if that phrase appears SOMEWHERE on the actual page.
+    # The title/snippet we get back is a truncated preview and very often
+    # doesn't happen to include it even when the full page does. Treating this
+    # as a hard reject on the snippet alone was discarding genuine matches at
+    # a near-100% rate. We still detect it when visible (for display/quality
+    # tiering), but no longer reject a real search hit just because the
+    # preview text didn't happen to surface it.
     has_indian_edu = False
     for sig in INDIAN_EDU_SIGNALS:
         pattern = r'\b' + re.escape(sig) + r'\b'
         if re.search(pattern, text_lower):
             has_indian_edu = True
             break
-    if not has_indian_edu:
-        return None
 
-    # 5. MANDATORY: Must have US Master's education or US location signal
+    # 5. US Master's education or US location signal — same reasoning as #4:
+    # the query already required a US city as a quoted term, so trust the
+    # search engine's match rather than re-deriving it from a truncated preview.
     has_us_masters = any(bool(re.search(p, text_lower)) for p in US_MASTERS_SIGNALS)
-    
+
     us_location_signals = [
         'united states', 'new york', 'new jersey', 'california', 'texas',
         'illinois', 'georgia', 'massachusetts', 'washington', 'florida',
@@ -333,12 +340,11 @@ def _parse_candidate_from_result(
     ]
     has_us_location = any(sig in text_lower for sig in us_location_signals)
 
-    if not has_us_masters and not has_us_location:
-        return None
-
-    # 6. MANDATORY: Strict Exact Bachelor's graduation year check (India <= 2020)
-    # If recruiter specified an exact year (e.g. 2020), candidate MUST match that EXACT year!
-    # Disqualify anyone who graduated in 2021 or later
+    # 6. Bachelor's graduation year (target year, if the recruiter specified one).
+    # Only reject when the preview EXPLICITLY states a conflicting year (a real,
+    # trustworthy negative signal) — don't reject just because the target year
+    # isn't visible in the truncated preview, since the query already required
+    # it as a quoted term on the full page.
     future_bachelor_matches = re.findall(
         r'(?:b\.?tech|b\.?e\.?|bachelor|undergraduate)[^\d]{0,40}\b(202[1-9]|203[0-9])\b',
         text_lower
@@ -346,7 +352,6 @@ def _parse_candidate_from_result(
     if future_bachelor_matches:
         return None
 
-    # Extract detected bachelor's year (<= 2020)
     detected_bachelor_years = re.findall(
         r'(?:b\.?tech|b\.?e\.?|bachelor)[^\d]{0,40}\b(201[0-9]|2020)\b',
         text_lower
@@ -356,16 +361,12 @@ def _parse_candidate_from_result(
 
     if target_bachelor_year is not None:
         target_by = int(target_bachelor_year)
-        # If specific year requested (e.g. 2020), candidate MUST have that exact year mentioned
-        if detected_bachelor_years:
-            if int(detected_bachelor_years[0]) != target_by:
-                return None
-            bachelor_year = target_by
-        elif str(target_by) in combined:
-            bachelor_year = target_by
-        else:
-            # Does not match exact year requested — REJECT
+        if detected_bachelor_years and int(detected_bachelor_years[0]) != target_by:
+            # Preview explicitly shows a different year than requested — reject.
             return None
+        # Otherwise trust the query's own year requirement, even if the
+        # truncated preview doesn't happen to show it.
+        bachelor_year = target_by
     else:
         if detected_bachelor_years:
             bachelor_year = int(detected_bachelor_years[0])
@@ -446,7 +447,14 @@ def _parse_candidate_from_result(
         status_tag = "OPT / STEM OPT (India to USA)"
         badge = "OPT / STEM OPT (India to USA)"
 
-    quality = "[IDEAL] B.Tech India (<=2020) + MS USA"
+    # Be honest about what was actually confirmed vs. what we're trusting from
+    # the search engine's own required-term matching (see notes above): if the
+    # preview itself shows both signals, say so plainly; otherwise flag that
+    # this matched the search criteria but wasn't directly visible in preview.
+    if has_indian_edu and (has_us_masters or has_us_location):
+        quality = "[IDEAL] B.Tech India (<=2020) + MS USA - confirmed in preview text"
+    else:
+        quality = "[MATCHED] Met search criteria - education not visible in preview, verify on profile"
 
     return {
         "name": name,
@@ -466,9 +474,9 @@ def _parse_candidate_from_result(
         "quality": quality,
         "linkedin_url": canonical_url,
         "profile_url": canonical_url,
-        "is_verified": True,
-        "has_indian_edu": True,
-        "has_us_masters": True,
+        "is_verified": False,
+        "has_indian_edu": has_indian_edu,
+        "has_us_masters": has_us_masters,
         "summary": (
             f"{name} completed undergraduate engineering (B.Tech) in India ({bachelor_year}) "
             f"and pursued Master's degree at {university} in the USA ({master_year}). "

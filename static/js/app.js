@@ -1464,7 +1464,8 @@ async function loadStudents(runLive = false) {
         saveStudentsFound(by);
 
         const skipText = summarizeStudentSkips(skipped);
-        const costText = cost !== null ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
+        // Apify finalizes a run's cost slightly after it ends, so only show it when it is a real figure.
+        const costText = (cost !== null && Number(cost) > 0) ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
         setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.`);
         if (found.length === 0) {
             studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Click "Search LinkedIn" again to scan the next pages of results (each search moves on to new profiles).`;

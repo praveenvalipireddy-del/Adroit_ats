@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
+if config.USING_DEFAULT_SECRET_KEY and config.ENV == "production":
+    logger.warning("SECURITY: SECRET_KEY is not set, so sessions are signed with the publicly known default key. "
+                   "Set SECRET_KEY to a long random value in the server environment.")
+if config.ALLOW_DEV_LOGIN and config.ENV == "production":
+    logger.warning("SECURITY: ALLOW_DEV_LOGIN is enabled in production - /dev-login logs in as admin without a password.")
 
 # Ensure required directories exist
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +44,15 @@ models.init_db()
 
 def current_user():
     return session.get("user")
+
+@app.before_request
+def require_login_for_student_api():
+    """Every /api/students/* route (search, paid LinkedIn search, add-to-bench,
+    pitch, CSV export) needs a logged-in user. Several of them previously had no
+    check, so anyone could create bench candidates or trigger paid searches."""
+    if request.method != "OPTIONS" and request.path.startswith("/api/students/") and not current_user():
+        return jsonify({"error": "Login required"}), 401
+
 
 @app.after_request
 def add_cors_headers(response):
@@ -100,12 +114,17 @@ def login():
                 return jsonify({"error": error_msg}), 401
 
     try:
-        return render_template("login.html", error=error_msg, has_azure=config.HAS_AZURE_AUTH, env=config.ENV)
+        return render_template("login.html", error=error_msg, has_azure=config.HAS_AZURE_AUTH, allow_dev_login=config.ALLOW_DEV_LOGIN, env=config.ENV)
     except Exception:
-        return render_template_string(EMBEDDED_LOGIN_HTML, error=error_msg, has_azure=config.HAS_AZURE_AUTH, env=config.ENV)
+        return render_template_string(EMBEDDED_LOGIN_HTML, error=error_msg, has_azure=config.HAS_AZURE_AUTH, allow_dev_login=config.ALLOW_DEV_LOGIN, env=config.ENV)
 
 @app.route("/dev-login", methods=["GET", "POST"])
 def dev_login():
+    # This route logs in as the admin WITHOUT checking any password (it falls back to
+    # get_or_create_user, which returns the existing admin account as-is), so it is
+    # disabled unless ALLOW_DEV_LOGIN=1 is set on the server.
+    if not config.ALLOW_DEV_LOGIN:
+        return make_response("Not found", 404)
     user = models.authenticate_user("praveen@adroit-ai.com", "Admin@2026")
     if not user:
         user = models.get_or_create_user(

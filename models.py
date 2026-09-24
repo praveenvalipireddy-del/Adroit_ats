@@ -362,6 +362,19 @@ def migrate_db(conn):
             if not av_has_pw:
                 cursor.execute("UPDATE users SET password_hash = ?, role = 'Admin' WHERE id = ?", (default_admin_hash, aventra_user["id"]))
 
+        # Admin password: set ADMIN_PASSWORD on the server to control it. Without it the
+        # default published in this public repo stays in effect, so warn loudly.
+        if config.ADMIN_PASSWORD:
+            new_admin_hash = generate_password_hash(config.ADMIN_PASSWORD)
+            for admin_email in ("praveen@adroit-ai.com", "praveen@aventra-ai.com"):
+                cursor.execute("UPDATE users SET password_hash = ? WHERE email = ?", (new_admin_hash, admin_email))
+        else:
+            cursor.execute("SELECT password_hash FROM users WHERE email = ?", ("praveen@adroit-ai.com",))
+            pw_row = cursor.fetchone()
+            if pw_row and pw_row["password_hash"] and check_password_hash(pw_row["password_hash"], "Admin@2026"):
+                logger.warning("SECURITY: the admin account still uses the default password published in the source code. "
+                               "Set ADMIN_PASSWORD in the server environment to change it.")
+
         # Migrate any orphaned candidates without assigned_user_id to Admin (id=1)
         cursor.execute("UPDATE candidates SET assigned_user_id = 1 WHERE assigned_user_id IS NULL OR assigned_user_id = 0")
     except Exception as ex:

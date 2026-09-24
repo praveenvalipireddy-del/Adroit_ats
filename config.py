@@ -22,7 +22,21 @@ else:
     REDIRECT_URI = os.getenv("LOCAL_REDIRECT_URI", "http://localhost:5000/auth/callback")
 
 # --- Flask session secret ---
-SECRET_KEY = os.getenv("SECRET_KEY", "adroit-ats-secret-key-2026-local-dev")
+# Sessions are signed with this key, so it MUST be a private random value in
+# production. Both SECRET_KEY and FLASK_SECRET_KEY are accepted. The fallback
+# below is published in this public repo, so anyone could forge a logged-in
+# admin session with it - it exists only so local development still works.
+_DEFAULT_DEV_SECRET_KEY = "adroit-ats-secret-key-2026-local-dev"
+SECRET_KEY = os.getenv("SECRET_KEY") or os.getenv("FLASK_SECRET_KEY") or _DEFAULT_DEV_SECRET_KEY
+USING_DEFAULT_SECRET_KEY = SECRET_KEY == _DEFAULT_DEV_SECRET_KEY
+
+# --- Login hardening ---
+# /dev-login logs in as the admin WITHOUT a password. It is disabled unless
+# ALLOW_DEV_LOGIN=1 is set on the server (intended for local development only).
+ALLOW_DEV_LOGIN = os.getenv("ALLOW_DEV_LOGIN", "").strip().lower() in ("1", "true", "yes")
+# Set ADMIN_PASSWORD on the server to (re)set the admin account's password at
+# startup instead of relying on the default that is visible in the source.
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 # --- Apify (job scraping) ---
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")

@@ -97,7 +97,7 @@ function switchTab(rawTabId) {
         loadRecruiters();
     } else if (paneKey === 'students') {
         if (!state.students || state.students.length === 0) {
-            loadStudentBench();
+            loadStudents();
         }
     } else if (paneKey === 'jobs') {
         if (!state.jobs || state.jobs.length === 0) {

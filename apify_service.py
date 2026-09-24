@@ -52,10 +52,46 @@ APIFY_LINKEDIN_PEOPLE_SEARCH_ACTOR = "memo23~linkedin-people-search"
 # keep this list and per-college result cap small rather than exhaustive.
 INDIAN_COLLEGES_FOR_SCHOOL_SEARCH = [
     "Indian Institute of Technology",
-    "National Institute of Technology",
+    "NIT Warangal",  # NOT the generic "National Institute of Technology" - that
+                     # phrase is dominated by matches for the unrelated US
+                     # "National Institute of STANDARDS AND Technology (NIST)"
+                     # (confirmed via live testing: 0 genuine candidates out of
+                     # several results). A specific, well-known NIT campus name
+                     # avoids the collision entirely while still surfacing real
+                     # Indian NIT alumni.
     "BITS Pilani",
     "Anna University",
 ]
+
+# Text aliases used to VERIFY a candidate's own summary/about/schools text
+# actually references the searched college, rather than trusting the actor's
+# own (sometimes loose) school-search matching. Necessary because the actor's
+# matching can conflate similarly-worded but unrelated institutions - caught
+# in testing: searching "National Institute of Technology" (the Indian NITs)
+# returned real people whose actual institution was "National Institute of
+# STANDARDS AND Technology (NIST)", a US federal agency with a similar name.
+# Each value is a list of regex-safe, word-boundary-matched alias tokens; a
+# candidate is only kept if at least one alias for the SEARCHED school is
+# found in their own text.
+SCHOOL_TEXT_ALIASES = {
+    "Indian Institute of Technology": [r"\biit\b", r"indian institute of technology"],
+    "NIT Warangal": [r"\bnit\b", r"national institute of technology", r"warangal"],
+    "BITS Pilani": [r"bits pilani", r"\bbits\b", r"birla institute of technology"],
+    "Anna University": [r"anna university"],
+}
+
+
+def _candidate_text_confirms_school(item: Dict, school: str) -> bool:
+    """True if the candidate's own summary/about/schools text genuinely
+    references the searched school (via any known alias), independent of
+    whatever the actor's own school-search matching decided."""
+    combined = " ".join([
+        str(item.get("summary") or ""),
+        str(item.get("about") or ""),
+        " ".join(item.get("schools") or []),
+    ]).lower()
+    aliases = SCHOOL_TEXT_ALIASES.get(school, [re.escape(school.lower())])
+    return any(re.search(alias, combined) for alias in aliases)
 
 
 def search_linkedin_by_school(school: str, location: str = "United States", max_results: int = 5) -> List[Dict]:
@@ -113,6 +149,11 @@ def search_linkedin_by_school(school: str, location: str = "United States", max_
         # testing that some genuinely good matches also have it, e.g. a real
         # candidate whose LinkedIn About section just isn't public.)
         if len(name_tokens[0]) <= 1 or len(name_tokens[-1]) <= 1:
+            continue
+        # MANDATORY: verify the candidate's own text actually references the
+        # searched school - never trust the actor's own matching alone (see
+        # SCHOOL_TEXT_ALIASES note above re: the real NIT/NIST collision).
+        if not _candidate_text_confirms_school(item, school):
             continue
 
         schools_list = item.get("schools") or []

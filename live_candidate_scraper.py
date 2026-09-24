@@ -305,40 +305,47 @@ def _parse_candidate_from_result(
     if any(sig in text_lower for sig in non_tech_signals):
         return None
 
-    # 4. Indian education / origin signal.
-    # NOTE: every query built by build_rotating_queries() already sends
-    # ("B.Tech" OR "B.E.") as a REQUIRED quoted term to the search engine, so a
-    # URL only comes back if that phrase appears SOMEWHERE on the actual page.
-    # The title/snippet we get back is a truncated preview and very often
-    # doesn't happen to include it even when the full page does. Treating this
-    # as a hard reject on the snippet alone was discarding genuine matches at
-    # a near-100% rate. We still detect it when visible (for display/quality
-    # tiering), but no longer reject a real search hit just because the
-    # preview text didn't happen to surface it.
+    # 4. MANDATORY: genuine Indian bachelor's education / origin signal must
+    # actually be visible in the preview text. This is the core business
+    # requirement (bench candidates must genuinely have done their Bachelor's
+    # in India) — a profile with no such signal at all (e.g. a US-born
+    # candidate) must be rejected outright, never assumed.
     has_indian_edu = False
     for sig in INDIAN_EDU_SIGNALS:
         pattern = r'\b' + re.escape(sig) + r'\b'
         if re.search(pattern, text_lower):
             has_indian_edu = True
             break
+    if not has_indian_edu:
+        return None
 
-    # 5. US Master's education or US location signal — same reasoning as #4:
-    # the query already required a US city as a quoted term, so trust the
-    # search engine's match rather than re-deriving it from a truncated preview.
-    has_us_masters = any(bool(re.search(p, text_lower)) for p in US_MASTERS_SIGNALS)
-
-    us_location_signals = [
-        'united states', 'new york', 'new jersey', 'california', 'texas',
-        'illinois', 'georgia', 'massachusetts', 'washington', 'florida',
-        'virginia', 'ohio', 'michigan', 'north carolina', 'seattle',
-        'san jose', 'chicago', 'dallas', 'houston', 'boston', 'atlanta',
-        'austin', 'denver', 'phoenix', 'charlotte', 'raleigh', 'tampa',
-        'pittsburgh', 'detroit', 'minneapolis', 'portland', 'los angeles',
-        'san francisco', 'san diego', 'newark', 'jersey city', ', ny',
-        ', ca', ', tx', ', il', ', ga', ', ma', ', wa', ', fl',
-        'usa', 'u.s.', 'u.s.a',
-    ]
-    has_us_location = any(sig in text_lower for sig in us_location_signals)
+    # 5. MANDATORY: genuine US Master's signal. Simply living/working in a US
+    # city is NOT proof of a US Master's degree, so that alone no longer
+    # counts — an actual Master's-related keyword ("Master", "MS", "M.Tech",
+    # etc.) must be present. We also reject when that Master's mention sits
+    # right next to an Indian institution/keyword (e.g. "Osmania University,
+    # Master of Engineering"), since that's a Master's earned in India, not
+    # the USA — a real case caught in testing.
+    has_us_masters = False
+    for m in re.finditer(r'\b(master|m\.s\.?|ms|mtech|m\.tech|meng|m\.eng)\b', text_lower):
+        # Only look within the same clause/sentence as this Master's mention
+        # (bounded by the nearest '.' before/after), not a fixed character
+        # window — otherwise an unrelated Bachelor's institution named in the
+        # PREVIOUS sentence (e.g. "...IIT Madras. MS in Computer Science...")
+        # would wrongly disqualify a genuinely US-earned Master's.
+        clause_start = text_lower.rfind('.', 0, m.start()) + 1
+        clause_end = text_lower.find('.', m.end())
+        if clause_end == -1:
+            clause_end = len(text_lower)
+        clause = text_lower[clause_start:clause_end]
+        looks_india_based = 'india' in clause or any(
+            re.search(r'\b' + re.escape(sig) + r'\b', clause) for sig in INDIAN_EDU_SIGNALS
+        )
+        if not looks_india_based:
+            has_us_masters = True
+            break
+    if not has_us_masters:
+        return None
 
     # 6. MANDATORY: Bachelor's graduation year must be genuinely visible in the
     # preview text before we accept it — NOT assumed from the query alone.
@@ -459,14 +466,11 @@ def _parse_candidate_from_result(
         status_tag = "OPT / STEM OPT (India to USA)"
         badge = "OPT / STEM OPT (India to USA)"
 
-    # Be honest about what was actually confirmed vs. what we're trusting from
-    # the search engine's own required-term matching (see notes above): if the
-    # preview itself shows both signals, say so plainly; otherwise flag that
-    # this matched the search criteria but wasn't directly visible in preview.
-    if has_indian_edu and (has_us_masters or has_us_location):
-        quality = "[IDEAL] B.Tech India (<=2020) + MS USA - confirmed in preview text"
-    else:
-        quality = "[MATCHED] Met search criteria - education not visible in preview, verify on profile"
+    # By this point both the Indian-education and US-Master's signals were
+    # mandatory checks above (and the target year, if any, was confirmed) —
+    # so every candidate that survives genuinely had all three visible in the
+    # search preview text itself.
+    quality = "[IDEAL] B.Tech India (<=2020) + MS USA - confirmed in preview text"
 
     return {
         "name": name,

@@ -1463,7 +1463,7 @@ function renderStudentsGrid(candidates) {
 
             <!-- 3. Primary Filter: India B.Tech Year (<=2020) -->
             <td style="padding: 14px 16px; text-align:center;">
-                <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:700; ${yearVerified ? 'background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);' : 'background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.4);'}" title="${yearVerified ? 'Bachelor\\'s year confirmed from source text' : 'Year not available from this source — verify manually'}">
+                <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:700; ${yearVerified ? 'background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);' : 'background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.4);'}" title="${yearVerified ? "Bachelor's year confirmed from source text" : 'Year not available from this source — verify manually'}">
                     🎓 ${escapeHtml(bTechYearDisplay)}
                 </span>
             </td>

@@ -1270,55 +1270,161 @@ function initModals() {
 // =========================================================================
 // 7. USA Talent Sourcing & Students (2018 - 2026)
 // =========================================================================
+let studentsLiveSearchRunning = false;
+let studentsEmptyMessage = 'No candidates to show yet. Click "Search LinkedIn" to find India-Bachelor\'s + US-Master\'s profiles for the selected year.';
+
+const STUDENT_SKIP_LABELS = {
+    wrong_bachelor_year: 'had a different Bachelor\'s year',
+    no_bachelor_year: 'had no Bachelor\'s end year on the profile',
+    bachelor_not_india: 'had a Bachelor\'s from a non-Indian college',
+    no_bachelor: 'listed no Bachelor\'s degree',
+    no_us_master: 'had no US Master\'s listed',
+    not_in_us: 'are not currently in the USA',
+    incomplete: 'had incomplete data'
+};
+
+function setStudentsSearchStatus(html) {
+    const el = document.getElementById('students-search-status');
+    if (!el) return;
+    el.innerHTML = html || '';
+    el.style.display = html ? 'block' : 'none';
+}
+
+function summarizeStudentSkips(skipped) {
+    return Object.entries(skipped || {})
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${n} ${STUDENT_SKIP_LABELS[k] || k}`)
+        .join(' · ');
+}
+
 function setPresetFilter(keyword, bachelorYear) {
     const byInput = document.getElementById('filter-student-bachelor-year');
     if (byInput && bachelorYear) byInput.value = bachelorYear;
-    loadStudents();
+    // A year shortcut only sets the filter. The live LinkedIn search costs
+    // Apify credits, so it only runs when the Search button is clicked.
+    loadStudents(false);
 }
 
-async function loadStudents() {
+// runLive=false: instant + free (recruiter-added candidates only).
+// runLive=true : also starts the paid live LinkedIn search and streams results in.
+async function loadStudents(runLive = false) {
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
-
-    const loadingElem = document.getElementById('students-loading-state');
-    const resultsElem = document.getElementById('students-results-wrapper');
     const tbody = document.getElementById('students-table-body');
+    const resultsElem = document.getElementById('students-results-wrapper');
+    const jsonHeaders = { 'Content-Type': 'application/json' };
 
-    if (loadingElem) loadingElem.style.display = 'block';
-    if (tbody) {
+    // 1) Instant and free: candidates already on the recruiter's own bench roster.
+    let imported = [];
+    try {
+        const res = await fetch('/api/students/search', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by }) });
+        if (res.status === 401) { window.location.href = '/login'; return; }
+        const data = await res.json();
+        imported = data.students || data.candidates || data.results || [];
+    } catch (err) {
+        console.error('Error loading bench candidates:', err);
+    }
+    state.students = imported.slice();
+    state.studentsLoaded = true;
+    updateStudentMetrics(state.students);
+    if (resultsElem) resultsElem.style.display = 'block';
+
+    if (!runLive) {
+        studentsEmptyMessage = 'No candidates to show yet. Click "Search LinkedIn" to find India-Bachelor\'s + US-Master\'s profiles for the selected year.';
+        renderStudentsGrid(state.students);
+        setStudentsSearchStatus('Showing candidates already on your bench. Click <b>Search LinkedIn</b> to run a live search (uses Apify credits, roughly $0.20 to $0.75 per search).');
+        return;
+    }
+
+    // 2) Paid live search: start an Apify run, then poll it and stream verified matches in.
+    if (studentsLiveSearchRunning) {
+        showToast('A LinkedIn search is already running - please wait for it to finish.', 'info');
+        return;
+    }
+    studentsLiveSearchRunning = true;
+    const btn = document.getElementById('btn-apply-student-filter');
+    const btnHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span>Searching...</span>'; }
+
+    const showSearching = (scanned, found) => {
+        if (state.students.length > 0 || !tbody) return;
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" style="text-align:center; padding: 36px; color: var(--text-muted);">
                     <div style="display:inline-block; width:32px; height:32px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation: spin 0.8s linear infinite; margin-bottom:12px;"></div>
-                    <div style="font-weight:600; color:#fff; font-size:1rem;">Running a live LinkedIn/Google search: India B.Tech (${by}) + USA Master's...</div>
-                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">This is a genuine live search, not instant canned data — it can take up to ~20-25 seconds.</div>
+                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching LinkedIn: India Bachelor's (${by}) + US Master's...</div>
+                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Scanned ${scanned} profiles so far, ${found} verified match(es). Each profile's education is checked strictly; results appear here as they are found.</div>
                 </td>
             </tr>`;
-    }
+    };
 
+    let matches = [];
+    let scanned = 0;
+    let skipped = {};
+    let cost = null;
     try {
-        const res = await fetch('/api/students/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                bachelor_year: by
-            })
-        });
+        setStudentsSearchStatus('Starting live LinkedIn search...');
+        if (imported.length > 0) renderStudentsGrid(state.students); else showSearching(0, 0);
 
-        const data = await res.json();
-        state.students = data.students || data.candidates || data.results || [];
-        state.studentsLoaded = true;
-
-        updateStudentMetrics(state.students);
-        renderStudentsGrid(state.students);
-
-    } catch (err) {
-        console.error('Error fetching students:', err);
-        if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load candidate profiles. Please try searching again.</td></tr>`;
+        const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by }) });
+        if (startRes.status === 401) { window.location.href = '/login'; return; }
+        const start = await startRes.json().catch(() => ({}));
+        if (!startRes.ok) {
+            studentsEmptyMessage = start.error || 'Could not start the LinkedIn search.';
+            setStudentsSearchStatus(`<span style="color:#ef4444;">${escapeHtml(studentsEmptyMessage)}</span>`);
+            renderStudentsGrid(state.students);
+            return;
         }
+
+        let offset = 0;
+        let done = false;
+        let failures = 0;
+        const startedAt = Date.now();
+        while (!done && Date.now() - startedAt < 6 * 60 * 1000) {
+            await new Promise(r => setTimeout(r, 4000));
+            const pollRes = await fetch('/api/students/search-poll', {
+                method: 'POST',
+                headers: jsonHeaders,
+                body: JSON.stringify({ run_id: start.run_id, dataset_id: start.dataset_id, bachelor_year: by, offset: offset, matched_so_far: matches.length })
+            });
+            const poll = await pollRes.json().catch(() => ({}));
+            if (!pollRes.ok) {
+                failures += 1;
+                if (failures >= 3) throw new Error(poll.error || 'Lost contact with the search service.');
+                continue;
+            }
+            failures = 0;
+            offset = poll.next_offset;
+            scanned += poll.scanned_new || 0;
+            Object.entries(poll.skipped || {}).forEach(([k, n]) => { skipped[k] = (skipped[k] || 0) + n; });
+            if (poll.cost_usd !== null && poll.cost_usd !== undefined) cost = poll.cost_usd;
+            if (poll.new_matches && poll.new_matches.length) {
+                matches = matches.concat(poll.new_matches);
+                state.students = imported.concat(matches);
+                renderStudentsGrid(state.students);
+            } else {
+                showSearching(scanned, matches.length);
+            }
+            done = !!poll.done;
+            const secs = Math.round((Date.now() - startedAt) / 1000);
+            setStudentsSearchStatus(`${done ? 'Finished' : 'Searching'}: scanned ${scanned} profiles, <b>${matches.length}</b> verified match(es) for ${escapeHtml(by)} (${secs}s).`);
+        }
+
+        const skipText = summarizeStudentSkips(skipped);
+        const costText = cost !== null ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
+        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> verified match(es) for ${escapeHtml(by)}. ${skipText ? 'Not shown because they ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText}`);
+        if (matches.length === 0) {
+            studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Each search scans a different slice of LinkedIn, so trying again (or another year) can find more.`;
+            renderStudentsGrid(state.students);
+        }
+    } catch (err) {
+        console.error('Live LinkedIn search error:', err);
+        studentsEmptyMessage = 'The LinkedIn search failed: ' + (err.message || 'unknown error') + '. Please try again.';
+        setStudentsSearchStatus(`<span style="color:#ef4444;">${escapeHtml(studentsEmptyMessage)}</span>`);
+        renderStudentsGrid(state.students);
     } finally {
-        if (loadingElem) loadingElem.style.display = 'none';
-        if (resultsElem) resultsElem.style.display = 'block';
+        studentsLiveSearchRunning = false;
+        if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
     }
 }
 
@@ -1372,7 +1478,7 @@ function renderStudentsGrid(candidates) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-muted);">
-                    No genuine profiles found via live search for this Bachelor's year. Nothing is ever substituted with fake data — try a different year, or use "Live Google X-Ray" / "Live LinkedIn Search" to search manually.
+                    ${escapeHtml(studentsEmptyMessage)} Nothing is ever substituted with fake data.
                 </td>
             </tr>`;
         return;
@@ -1647,7 +1753,7 @@ function buildXRayQuery() {
 
 function launchLiveXRaySearch() {
     const { queryStr, googleUrl } = buildXRayQuery();
-    showToast(`Launching Live Google X-Ray for 2020 Passouts...`, 'info');
+    showToast('Opening Google X-Ray for the selected passout year...', 'info');
     window.open(googleUrl, '_blank');
 }
 
@@ -1750,19 +1856,21 @@ function initStudentsTab() {
         formImport.addEventListener('submit', submitQuickImport);
     }
 
+    // Only an explicit Search click starts the paid live LinkedIn search.
+    // Changing the year dropdown just refreshes the free bench-roster view.
     if (formSearch) {
         formSearch.addEventListener('submit', (e) => {
             e.preventDefault();
-            loadStudents();
+            loadStudents(true);
         });
     }
 
     if (btnFilter) {
-        btnFilter.addEventListener('click', () => loadStudents());
+        btnFilter.addEventListener('click', () => loadStudents(true));
     }
     const byInput = document.getElementById('filter-student-bachelor-year');
     if (byInput) {
-        byInput.addEventListener('change', () => loadStudents());
+        byInput.addEventListener('change', () => loadStudents(false));
     }
     if (btnExport) {
         btnExport.addEventListener('click', () => exportStudentsCSV());

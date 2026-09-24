@@ -16,6 +16,7 @@ import config
 import models
 import resume_bot
 import apify_service
+import linkedin_sourcing
 import gmail_multi_manager
 import us_job_scrapers
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
@@ -1036,10 +1037,20 @@ def api_resume_bot_download_docx():
 # US IT Staffing - Bench Candidates & Student Sourcing (2018 - 2026)
 # =========================================================================
 
+def _parse_bachelor_year(data):
+    """Selected Bachelor's passout year (India). None means 'All years'."""
+    raw_by = str((data or {}).get("bachelor_year") or (data or {}).get("year") or "").strip()
+    year_match = re.search(r'\b(19\d\d|20\d\d)\b', raw_by)
+    return min(2020, int(year_match.group(1))) if year_match else None
+
+
 @app.route("/api/students/search", methods=["GET", "POST", "OPTIONS"])
 def api_search_students():
     if request.method == "OPTIONS":
         return make_response("", 200)
+
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
 
     data = request.get_json(silent=True) or request.args.to_dict()
     keyword = data.get("keyword") or data.get("query") or data.get("category") or "Computer Science"
@@ -1049,49 +1060,18 @@ def api_search_students():
     # Bachelor's passout year in India — the one filter this workflow uses today
     # (STRICT EXACT MATCH). More filters (technology/role, visa pathway, US
     # university, US region) can be reintroduced later without changing this shape.
-    raw_by = str(data.get("bachelor_year") or data.get("year") or "").strip()
-    bachelor_year = None
-    year_match = re.search(r'\b(19\d\d|20\d\d)\b', raw_by)
-    if year_match:
-        bachelor_year = min(2020, int(year_match.group(1)))
-        start_year = bachelor_year
-        end_year = bachelor_year
+    bachelor_year = _parse_bachelor_year(data)
+    if bachelor_year:
+        start_year = end_year = bachelor_year
     else:
         start_year, end_year = 2012, 2020
-
     location = data.get("location", "United States")
-    max_items = int(data.get("max_items") or data.get("limit") or 30)
 
-    # Every search is a genuine live search — there is no fabricated fallback.
-    # A live web search can take longer than an instant lookup, so the caller
-    # should expect this to take up to ~25 seconds.
-    candidates = apify_service.scrape_bench_candidates(
-        category=category,
-        keyword=keyword,
-        intent=intent,
-        start_year=start_year,
-        end_year=end_year,
-        location=location,
-        max_items=max_items,
-        bachelor_year=bachelor_year,
-    )
-
-    # Supplement with real, school-matched profiles from the Apify LinkedIn
-    # People Search actor (public/cookie-free mode). This source has NO
-    # graduation year data at all (verified via live testing) — by product
-    # decision it's used anyway for real names/schools/direct profile URLs,
-    # with every result honestly marked year_verified=False so the recruiter
-    # knows to confirm the actual passout year on the profile themselves.
-    # No-ops (and costs nothing) if APIFY_API_TOKEN isn't configured.
-    try:
-        seen_urls = set(c.get("profile_url") for c in candidates)
-        apify_candidates = apify_service.search_linkedin_bench_candidates_by_schools(location=location)
-        for c in apify_candidates:
-            if c.get("profile_url") not in seen_urls:
-                seen_urls.add(c.get("profile_url"))
-                candidates.append(c)
-    except Exception as ex:
-        logger.warning(f"Apify school-search supplement failed: {ex}")
+    # This endpoint is now FREE and instant: it only returns candidates the
+    # recruiter has already added to the ATS. The live LinkedIn search (which
+    # costs Apify credits) is a separate, explicit action: /api/students/search-start
+    # + /api/students/search-poll.
+    candidates = []
 
     # Prepend any candidates the recruiter has already added to the database
     # that genuinely match the requested Bachelor's year.
@@ -1112,21 +1092,28 @@ def api_search_students():
             if bachelor_year is not None and int(c_year) != int(bachelor_year):
                 continue
 
+            # HONEST labelling: we only know this person is on the recruiter's
+            # own bench roster and that their resume text mentions this year
+            # somewhere. We do NOT know their degree, college or Master's, so
+            # none is claimed - the recruiter confirms from the resume.
             bench_imported.append({
                 "id": db_c.get("id"),
                 "name": db_c.get("name"),
                 "headline": db_c.get("title") or "Technical Consultant",
                 "bachelor_year": c_year,
                 "grad_year": c_year,
-                "bachelor_degree": "B.Tech in Computer Science / IT",
-                "bachelor_college": "Accredited College, India",
-                "master_degree": "M.S. in Tech (USA)",
-                "master_university": "US University",
+                "bachelor_degree": "Degree: see resume",
+                "bachelor_college": "Recruiter-added (details not verified)",
+                "master_degree": "Master's: see resume",
+                "master_university": "See resume",
                 "location": db_c.get("location") or "United States",
                 "status_badge": "⭐ Bench - Added by Recruiter",
                 "status_tag": "⭐ Bench - Added by Recruiter",
-                "quality": "[BENCH] Imported Candidate",
-                "degree": f"B.Tech India ({c_year}) -> MS USA",
+                "settlement_badge": "⭐ On your bench",
+                "settlement_sub": "Year taken from resume text - unverified",
+                "year_verified": False,
+                "quality": "[BENCH] Recruiter-added candidate - education not verified",
+                "degree": f"Resume mentions {c_year} (education not verified)",
                 "profile_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
                 "linkedin_url": db_c.get("resume_filename") if (db_c.get("resume_filename") or "").startswith("http") else f"https://www.google.com/search?q=site:linkedin.com/in/+%22{urllib.parse.quote_plus(db_c.get('name', ''))}%22+USA",
                 "is_imported": True
@@ -1155,6 +1142,58 @@ def api_search_students():
         "candidates": candidates,
         "results": candidates
     })
+
+_APIFY_ID_RE = re.compile(r"^[A-Za-z0-9]{8,40}$")
+
+
+@app.route("/api/students/search-start", methods=["POST", "OPTIONS"])
+def api_students_search_start():
+    """Start a live LinkedIn search (costs Apify credits, capped per search and
+    per day). Returns the Apify run/dataset ids; the client then polls
+    /api/students/search-poll. Login required - this spends real money."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+
+    data = request.get_json(silent=True) or {}
+    bachelor_year = _parse_bachelor_year(data)
+    result = linkedin_sourcing.start_search(
+        bachelor_year,
+        pages=data.get("pages") or linkedin_sourcing.DEFAULT_PAGES,
+        location=data.get("location") or "United States",
+    )
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), result.get("code", 500)
+    result["bachelor_year"] = bachelor_year
+    return jsonify(result)
+
+
+@app.route("/api/students/search-poll", methods=["POST", "OPTIONS"])
+def api_students_search_poll():
+    """Poll a running LinkedIn search: returns run status plus ONLY the newly
+    scanned profiles that pass the strict India-Bachelor's + US-Master's check."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+
+    data = request.get_json(silent=True) or {}
+    run_id = str(data.get("run_id") or "")
+    dataset_id = str(data.get("dataset_id") or "")
+    if not _APIFY_ID_RE.match(run_id) or not _APIFY_ID_RE.match(dataset_id):
+        return jsonify({"error": "Invalid run reference"}), 400
+    try:
+        offset = max(0, int(data.get("offset") or 0))
+        matched_so_far = max(0, int(data.get("matched_so_far") or 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid offset"}), 400
+
+    result = linkedin_sourcing.poll_search(run_id, dataset_id, _parse_bachelor_year(data), offset, matched_so_far)
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), result.get("code", 500)
+    return jsonify(result)
+
 
 @app.route("/api/students/add-to-bench", methods=["POST", "OPTIONS"])
 def api_add_student_to_bench():

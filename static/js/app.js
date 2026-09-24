@@ -1352,8 +1352,8 @@ async function loadStudents(runLive = false) {
             <tr>
                 <td colspan="8" style="text-align:center; padding: 36px; color: var(--text-muted);">
                     <div style="display:inline-block; width:32px; height:32px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation: spin 0.8s linear infinite; margin-bottom:12px;"></div>
-                    <div style="font-weight:600; color:#fff; font-size:1rem;">Searching LinkedIn: India Bachelor's (${by}) + US Master's...</div>
-                    <div style="font-size:0.85rem; margin-top:4px; color:#94a3b8;">Scanned ${scanned} profiles so far, ${found} verified match(es). Each profile's education is checked strictly; results appear here as they are found.</div>
+                    <div style="font-weight:600; color:#0f172a; font-size:1rem;">Searching LinkedIn: India Bachelor's (${by}) + US Master's...</div>
+                    <div style="font-size:0.85rem; margin-top:4px; color:#64748b;">Scanned ${scanned} profiles so far, ${found} verified match(es). Each profile's education is checked strictly; results appear here as they are found.</div>
                 </td>
             </tr>`;
     };
@@ -1412,7 +1412,7 @@ async function loadStudents(runLive = false) {
 
         const skipText = summarizeStudentSkips(skipped);
         const costText = cost !== null ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
-        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> verified match(es) for ${escapeHtml(by)}. ${skipText ? 'Not shown because they ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText}`);
+        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> verified match(es) for ${escapeHtml(by)}. ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText}`);
         if (matches.length === 0) {
             studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Each search scans a different slice of LinkedIn, so trying again (or another year) can find more.`;
             renderStudentsGrid(state.students);
@@ -1488,16 +1488,16 @@ function renderStudentsGrid(candidates) {
         const rawStatus = (c.status_tag || c.status_badge || c.settlement_pathway || '').toLowerCase();
         let settlementBadge = c.settlement_badge || "🇺🇸 MS USA ➔ STEM OPT";
         let settlementSub = c.settlement_sub || "3-Year Work Authorization";
-        let settlementBadgeStyle = "background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.35);";
+        let settlementBadgeStyle = "background:rgba(16,185,129,0.12); color:#047857; border:1px solid rgba(16,185,129,0.4);";
 
         if (rawStatus.includes('h1b')) {
             settlementBadge = "🇺🇸 H1B Transfer Eligible";
             settlementSub = "Direct Work Visa";
-            settlementBadgeStyle = "background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);";
+            settlementBadgeStyle = "background:rgba(245,158,11,0.15); color:#b45309; border:1px solid rgba(245,158,11,0.4);";
         } else if (rawStatus.includes('cpt')) {
             settlementBadge = "🇺🇸 Day 1 CPT Worker";
             settlementSub = "Curricular Practical Training";
-            settlementBadgeStyle = "background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);";
+            settlementBadgeStyle = "background:rgba(2,132,199,0.10); color:#0369a1; border:1px solid rgba(2,132,199,0.35);";
         }
         const cleanName = (c.name || 'Candidate')
             .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect|Senior|Junior|Associate)\b/gi, '')
@@ -1530,7 +1530,7 @@ function renderStudentsGrid(candidates) {
         const mUni = c.master_university || c.university || 'US University';
 
         return `
-        <tr style="border-bottom: 1px solid #1e2230; transition: background 0.15s ease;" onmouseover="this.style.background='rgba(99,102,241,0.04)'" onmouseout="this.style.background='transparent'">
+        <tr style="border-bottom: 1px solid #e2e8f0; transition: background 0.15s ease;" onmouseover="this.style.background='rgba(37,99,235,0.05)'" onmouseout="this.style.background='transparent'">
             <!-- 1. Candidate Name -->
             <td style="padding: 14px 16px;">
                 <div style="display:flex; align-items:center; gap:12px;">
@@ -1540,13 +1540,13 @@ function renderStudentsGrid(candidates) {
                         </div>
                     </a>
                     <div>
-                        <div style="font-weight:600; color:#fff; font-size:0.95rem;">
-                            <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none; display:inline-flex; align-items:center; gap:6px;" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='inherit'" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return true;">
+                        <div style="font-weight:600; color:#0f172a; font-size:0.95rem;">
+                            <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none; display:inline-flex; align-items:center; gap:6px;" onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='inherit'" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return true;">
                                 <span>${escapeHtml(c.name || 'US Candidate')}</span>
                                 <span style="color:#0a66c2; font-size:11px; font-weight:700; background:rgba(10,102,194,0.18); padding:1px 6px; border-radius:4px; border:1px solid rgba(10,102,194,0.4);">in &#x2197;</span>
                             </a>
                         </div>
-                        <div style="font-size:0.8rem; color:#8e95aa; margin-top:2px;">
+                        <div style="font-size:0.8rem; color:#475569; margin-top:2px; max-width:280px;">
                             ${escapeHtml(c.headline || c.skills || 'Software Engineer')}
                         </div>
                     </div>
@@ -1555,13 +1555,13 @@ function renderStudentsGrid(candidates) {
 
             <!-- 2. India Bachelor's & US Master's Journey -->
             <td style="padding: 14px 16px; font-size:0.85rem;">
-                <div style="font-weight:600; color:#e2e8f0; display:flex; align-items:center; gap:5px;">
+                <div style="font-weight:600; color:#1e293b; display:flex; align-items:center; gap:5px;">
                     <span>🇮🇳</span> <span>${escapeHtml(bTechDegree)} (${escapeHtml(bTechYearDisplay)})</span>
                 </div>
-                <div style="font-size:0.75rem; color:#94a3b8; margin-bottom:4px;">
+                <div style="font-size:0.75rem; color:#64748b; margin-bottom:4px;">
                     ${escapeHtml(bTechCollege)}
                 </div>
-                <div style="font-weight:500; color:#38bdf8; display:flex; align-items:center; gap:5px; font-size:0.8rem;">
+                <div style="font-weight:500; color:#0369a1; display:flex; align-items:center; gap:5px; font-size:0.8rem;">
                     <span>🇺🇸</span> <span>${escapeHtml(mDegree)}</span>
                 </div>
                 ${!yearVerified ? '<div style="font-size:0.72rem; color:#f59e0b; margin-top:3px;">⚠️ Real profile match, but this source has no graduation year data — confirm on their profile.</div>' : ''}
@@ -1569,15 +1569,15 @@ function renderStudentsGrid(candidates) {
 
             <!-- 3. Primary Filter: India B.Tech Year (<=2020) -->
             <td style="padding: 14px 16px; text-align:center;">
-                <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:700; ${yearVerified ? 'background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);' : 'background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.4);'}" title="${yearVerified ? "Bachelor's year confirmed from source text" : 'Year not available from this source — verify manually'}">
+                <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:700; ${yearVerified ? 'background:rgba(2,132,199,0.10); color:#0369a1; border:1px solid rgba(2,132,199,0.35);' : 'background:rgba(245,158,11,0.15); color:#b45309; border:1px solid rgba(245,158,11,0.45);'}" title="${yearVerified ? "Bachelor's year confirmed from source text" : 'Year not available from this source — verify manually'}">
                     🎓 ${escapeHtml(bTechYearDisplay)}
                 </span>
             </td>
 
             <!-- 4. US University (Higher Education) -->
-            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.85rem;">
-                <div style="font-weight:500;">${escapeHtml(mUni)}</div>
-                <div style="font-size:0.75rem; color:#8e95aa;">Master's in USA</div>
+            <td style="padding: 14px 16px; color:#334155; font-size:0.85rem;">
+                <div style="font-weight:600;">${escapeHtml(mUni)}</div>
+                <div style="font-size:0.75rem; color:#64748b;">Master's school (confirm it is in the USA)</div>
             </td>
 
             <!-- 5. How Settled in USA -->
@@ -1586,25 +1586,25 @@ function renderStudentsGrid(candidates) {
                     <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.78rem; font-weight:700; ${settlementBadgeStyle}">
                         ${escapeHtml(settlementBadge)}
                     </span>
-                    <span style="font-size:0.72rem; color:#94a3b8; font-weight:500;">
+                    <span style="font-size:0.72rem; color:#64748b; font-weight:500;">
                         ${escapeHtml(settlementSub)}
                     </span>
                 </div>
             </td>
 
             <!-- 6. US Location -->
-            <td style="padding: 14px 16px; color:#cbd5e1; font-size:0.85rem;">
+            <td style="padding: 14px 16px; color:#334155; font-size:0.85rem;">
                 &#x1F4CD; ${escapeHtml(c.location || 'United States')}
             </td>
 
             <!-- 7. LinkedIn Profile Direct Link -->
             <td style="padding: 14px 16px;">
                 <div style="display:inline-flex; gap:5px; align-items:center;">
-                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; background:rgba(10,102,194,0.22); border:1px solid #0a66c2; color:#60a5fa; font-weight:600; padding:4px 9px;" title="Direct LinkedIn Profile" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return false;">
+                    <a href="${targetLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; background:rgba(10,102,194,0.10); border:1px solid #0a66c2; color:#0a66c2; font-weight:600; padding:4px 9px;" title="Direct LinkedIn Profile" onclick="event.stopPropagation(); window.open('${targetLiUrl}', '_blank'); return false;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
                         LinkedIn &#x2197;
                     </a>
-                    <a href="${googleLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:3px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-weight:500; padding:4px 7px;" title="Find Exact Profile via Google" onclick="event.stopPropagation(); window.open('${googleLiUrl}', '_blank'); return false;">
+                    <a href="${googleLiUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-xs" style="text-decoration:none; display:inline-flex; align-items:center; gap:3px; background:#f8fafc; border:1px solid #cbd5e1; color:#475569; font-weight:500; padding:4px 7px;" title="Find Exact Profile via Google" onclick="event.stopPropagation(); window.open('${googleLiUrl}', '_blank'); return false;">
                         G &#x2197;
                     </a>
                 </div>
@@ -1613,7 +1613,7 @@ function renderStudentsGrid(candidates) {
             <!-- 8. Quick Actions -->
             <td style="padding: 14px 16px; text-align:right;">
                 <div style="display:inline-flex; gap:6px; align-items:center;">
-                    <button class="btn btn-secondary btn-xs" onclick='onOpenStudentPitch(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3);">
+                    <button class="btn btn-secondary btn-xs" onclick='onOpenStudentPitch(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="background:rgba(99,102,241,0.10); color:#4338ca; border:1px solid rgba(99,102,241,0.35);">
                         Pitch
                     </button>
                     <button class="btn btn-success btn-xs" onclick='onAddStudentToBench(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);">

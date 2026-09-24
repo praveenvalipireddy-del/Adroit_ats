@@ -1160,7 +1160,7 @@ def api_students_search_start():
     bachelor_year = _parse_bachelor_year(data)
     result = linkedin_sourcing.start_search(
         bachelor_year,
-        pages=data.get("pages") or linkedin_sourcing.DEFAULT_PAGES,
+        pages=data.get("pages") or 1,   # number of parallel one-page runs to start (max 5)
         location=data.get("location") or "United States",
         start_page=data.get("start_page") or 1,
     )

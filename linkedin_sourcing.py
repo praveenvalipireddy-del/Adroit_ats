@@ -299,63 +299,106 @@ def todays_spend_usd() -> float:
 
 
 MAX_START_PAGE = 80   # LinkedIn search results are capped around 100 pages of 25
+MAX_WAVE = 5          # parallel one-page runs started per request (free Apify plan allows 5 concurrent runs)
+MIN_HEADROOM_USD = 0.25
 
 
-def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, location: str = "United States",
+def account_headroom() -> Optional[Dict]:
+    """This month's Apify usage vs the plan's monthly limit (None if unavailable)."""
+    try:
+        r = requests.get(f"{API}/users/me/limits", params={"token": _token()}, timeout=15)
+        d = r.json().get("data", {})
+        return {
+            "used": float(d["current"]["monthlyUsageUsd"]),
+            "limit": float(d["limits"]["maxMonthlyUsageUsd"]),
+            "resets": (d.get("monthlyUsageCycle") or {}).get("endAt", "")[:10],
+        }
+    except Exception as ex:
+        logger.warning(f"Could not read Apify account limits: {ex}")
+        return None
+
+
+def _apify_error_text(resp) -> str:
+    try:
+        err = resp.json().get("error") or {}
+        return (err.get("message") or err.get("type") or "").strip()
+    except Exception:
+        return ""
+
+
+def start_search(bachelor_year: Optional[int], pages: int = 1, location: str = "United States",
                  start_page: int = 1) -> Dict:
-    """Start an async run. start_page lets repeat searches continue from the
-    next pages of LinkedIn results (new profiles) instead of re-scanning (and
-    re-paying for) the same first pages."""
+    """Start `pages` ONE-PAGE runs in parallel (pages <= MAX_WAVE), for LinkedIn
+    result pages start_page .. start_page+pages-1.
+
+    One page per run because Apify's free plan caps each run of this actor at
+    ~25 profiles (verified in the run log: "Free users are limited up to 25
+    items per run") - so a deeper search is several runs, which works on any
+    plan. start_page lets repeat searches continue with NEW profiles instead of
+    re-scanning (and re-paying for) the same first pages."""
     if not _token():
         return {"error": "APIFY_API_TOKEN is not configured on the server.", "code": 503}
-    spent = todays_spend_usd()
-    if spent >= DAILY_BUDGET_USD:
-        return {"error": f"Daily LinkedIn sourcing budget reached (${spent:.2f} of ${DAILY_BUDGET_USD:.2f}). Try again tomorrow or raise SOURCING_DAILY_BUDGET_USD.", "code": 429}
 
     try:
-        pages = max(1, min(int(pages or DEFAULT_PAGES), MAX_PAGES))
+        pages = max(1, min(int(pages or 1), MAX_WAVE))
     except (TypeError, ValueError):
-        pages = DEFAULT_PAGES
+        pages = 1
     try:
         start_page = max(1, min(int(start_page or 1), MAX_START_PAGE))
     except (TypeError, ValueError):
         start_page = 1
-    # Cap this run's spend from the pages requested (never above the hard ceiling).
-    max_spend = round(min(MAX_SPEND_PER_SEARCH_USD, pages * COST_PER_PAGE_USD + 0.10), 2)
-    run_timeout = min(900, 90 + pages * 45)
-    if spent + max_spend > DAILY_BUDGET_USD:
-        return {"error": f"This search could cost up to ${max_spend:.2f} and ${spent:.2f} has already been spent today (daily budget ${DAILY_BUDGET_USD:.2f}). Choose a smaller depth, or raise SOURCING_DAILY_BUDGET_USD on the server.", "code": 429}
-    payload = {
-        "profileScraperMode": "Full",
-        "schools": INDIAN_SCHOOLS_FOR_SEARCH,
-        "locations": [location],
-        "yearsOfExperienceIds": experience_ids_for_year(bachelor_year),
-        "maxItems": pages * 25,
-        "startPage": start_page,
-        "takePages": pages,
-    }
-    try:
-        r = requests.post(
-            f"{API}/acts/{ACTOR}/runs",
-            params={"token": _token(), "maxTotalChargeUsd": max_spend, "timeout": run_timeout},
-            json=payload, timeout=30,
-        )
-        if r.status_code not in (200, 201):
-            logger.error(f"Apify start failed HTTP {r.status_code}: {r.text[:300]}")
-            return {"error": f"Could not start the LinkedIn search (Apify HTTP {r.status_code}).", "code": 502}
-        data = r.json().get("data", {})
-        return {
-            "run_id": data.get("id"),
-            "dataset_id": data.get("defaultDatasetId"),
-            "max_spend_usd": max_spend,
-            "spent_today_usd": spent,
-            "pages": pages,
-            "start_page": start_page,
-            "next_start_page": start_page + pages,
+
+    wave_cost = round(pages * COST_PER_PAGE_USD, 2)
+    head = account_headroom()
+    if head and head["limit"] - head["used"] < max(MIN_HEADROOM_USD, min(wave_cost, 1.0)):
+        return {"error": (f"Your Apify account has used ${head['used']:.2f} of its ${head['limit']:.2f} monthly limit, "
+                          f"so LinkedIn searching is paused. It resets on {head['resets'] or 'the 1st of next month'}, "
+                          "or you can upgrade / add credit at console.apify.com/billing."), "code": 402}
+
+    spent = todays_spend_usd()
+    if spent + wave_cost > DAILY_BUDGET_USD:
+        return {"error": (f"Today's LinkedIn sourcing budget (${DAILY_BUDGET_USD:.2f}) is reached: ${spent:.2f} spent, "
+                          f"and this step could cost about ${wave_cost:.2f}. Raise SOURCING_DAILY_BUDGET_USD on the server to continue."), "code": 429}
+
+    per_run_cap = round(min(MAX_SPEND_PER_SEARCH_USD, COST_PER_PAGE_USD + 0.10), 2)
+    runs, first_error = [], None
+    for i in range(pages):
+        page_no = start_page + i
+        payload = {
+            "profileScraperMode": "Full",
+            "schools": INDIAN_SCHOOLS_FOR_SEARCH,
+            "locations": [location],
+            "yearsOfExperienceIds": experience_ids_for_year(bachelor_year),
+            "maxItems": 25,
+            "startPage": page_no,
+            "takePages": 1,
         }
-    except Exception as ex:
-        logger.error(f"Apify start exception: {ex}")
-        return {"error": "Could not reach Apify to start the search.", "code": 502}
+        try:
+            r = requests.post(f"{API}/acts/{ACTOR}/runs",
+                              params={"token": _token(), "maxTotalChargeUsd": per_run_cap, "timeout": 240},
+                              json=payload, timeout=30)
+            if r.status_code in (200, 201):
+                data = r.json().get("data", {})
+                runs.append({"run_id": data.get("id"), "dataset_id": data.get("defaultDatasetId"), "start_page": page_no})
+            else:
+                first_error = first_error or (_apify_error_text(r) or f"Apify HTTP {r.status_code}")
+                logger.error(f"Apify start failed HTTP {r.status_code}: {r.text[:300]}")
+                break
+        except Exception as ex:
+            first_error = first_error or "Could not reach Apify"
+            logger.error(f"Apify start exception: {ex}")
+            break
+
+    if not runs:
+        return {"error": f"Could not start the LinkedIn search: {first_error}.", "code": 502}
+    return {
+        "runs": runs,
+        "pages_started": len(runs),
+        "next_start_page": start_page + len(runs),
+        "max_spend_usd": round(per_run_cap * len(runs), 2),
+        "spent_today_usd": spent,
+        "warning": first_error,
+    }
 
 
 _PROFILE_FIELDS = "linkedinUrl,firstName,lastName,headline,location,education,currentPosition"

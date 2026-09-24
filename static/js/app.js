@@ -1415,61 +1415,78 @@ async function loadStudents(runLive = false) {
         const depthPages = parseInt(document.getElementById('filter-student-depth')?.value || '6', 10) || 6;
         // Stop early (and stop paying) once this many verified matches have been found.
         const targetMatches = depthPages <= 3 ? 8 : (depthPages <= 6 ? 15 : 30);
-        const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, start_page: startPage, pages: depthPages }) });
-        if (startRes.status === 401) { window.location.href = '/login'; return; }
-        const start = await startRes.json().catch(() => ({}));
-        if (!startRes.ok) {
-            studentsEmptyMessage = start.error || 'Could not start the LinkedIn search.';
-            setStudentsSearchStatus(`<span style="color:#ef4444;">${escapeHtml(studentsEmptyMessage)}</span>`);
+        const WAVE = 3;   // one-page runs started in parallel per step
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        const costByRun = {};
+        let nextPage = startPage;
+        let pagesUsed = 0;
+        let stopMessage = '';
+        const startedAt = Date.now();
+        const timeLeft = () => Date.now() - startedAt < 16 * 60 * 1000;
+
+        // Depth = several one-page Apify runs (a free Apify plan caps each run at ~25 profiles).
+        // Each wave starts up to WAVE runs in parallel, polls them until they finish, then
+        // decides whether to continue (more pages allowed and target matches not yet reached).
+        while (pagesUsed < depthPages && matches.length < targetMatches && timeLeft()) {
+            const waveSize = Math.min(WAVE, depthPages - pagesUsed);
+            const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, start_page: nextPage, pages: waveSize }) });
+            if (startRes.status === 401) { window.location.href = '/login'; return; }
+            const start = await startRes.json().catch(() => ({}));
+            if (!startRes.ok) { stopMessage = start.error || 'Could not start the LinkedIn search.'; break; }
+            const runs = (start.runs || []).map(r => ({ ...r, offset: 0, done: false, failures: 0 }));
+            pagesUsed += runs.length;
+            nextPage = start.next_start_page || (nextPage + runs.length);
+            if (start.warning) stopMessage = start.warning;
+
+            while (runs.some(r => !r.done) && timeLeft()) {
+                await sleep(4000);
+                await Promise.all(runs.filter(r => !r.done).map(async (r) => {
+                    try {
+                        const pollRes = await fetch('/api/students/search-poll', {
+                            method: 'POST',
+                            headers: jsonHeaders,
+                            body: JSON.stringify({ run_id: r.run_id, dataset_id: r.dataset_id, bachelor_year: by, offset: r.offset, matched_so_far: matches.length, target: targetMatches })
+                        });
+                        const poll = await pollRes.json().catch(() => ({}));
+                        if (!pollRes.ok) { r.failures += 1; if (r.failures >= 3) r.done = true; return; }
+                        r.failures = 0;
+                        r.offset = poll.next_offset;
+                        scanned += poll.scanned_new || 0;
+                        Object.entries(poll.skipped || {}).forEach(([k, n]) => { skipped[k] = (skipped[k] || 0) + n; });
+                        if (poll.cost_usd !== null && poll.cost_usd !== undefined) costByRun[r.run_id] = Number(poll.cost_usd);
+                        const knownUrls = new Set(found.map(c => c.profile_url));
+                        const fresh = (poll.new_matches || []).filter(c => !knownUrls.has(c.profile_url));
+                        fresh.forEach(c => found.push(c));
+                        matches = matches.concat(fresh);
+                        r.done = !!poll.done;
+                    } catch (e) {
+                        r.failures += 1;
+                        if (r.failures >= 3) r.done = true;
+                    }
+                }));
+                state.students = imported.concat(found);
+                if (matches.length > 0) renderStudentsGrid(state.students); else showSearching(scanned, 0);
+                const secs = Math.round((Date.now() - startedAt) / 1000);
+                setStudentsSearchStatus(`Searching: scanned ${scanned} profiles (${pagesUsed} of ${depthPages} pages started), <b>${matches.length}</b> new verified match(es) for ${escapeHtml(by)} (${secs}s).`);
+            }
+        }
+        cost = Object.values(costByRun).reduce((a, b) => a + b, 0);
+
+        if (pagesUsed === 0) {
+            studentsEmptyMessage = stopMessage || 'Could not start the LinkedIn search.';
+            setStudentsSearchStatus(`<span style="color:#b91c1c;">${escapeHtml(studentsEmptyMessage)}</span>`);
             renderStudentsGrid(state.students);
             return;
         }
 
-        let offset = 0;
-        let done = false;
-        let failures = 0;
-        const startedAt = Date.now();
-        while (!done && Date.now() - startedAt < 16 * 60 * 1000) {
-            await new Promise(r => setTimeout(r, 4000));
-            const pollRes = await fetch('/api/students/search-poll', {
-                method: 'POST',
-                headers: jsonHeaders,
-                body: JSON.stringify({ run_id: start.run_id, dataset_id: start.dataset_id, bachelor_year: by, offset: offset, matched_so_far: matches.length, target: targetMatches })
-            });
-            const poll = await pollRes.json().catch(() => ({}));
-            if (!pollRes.ok) {
-                failures += 1;
-                if (failures >= 3) throw new Error(poll.error || 'Lost contact with the search service.');
-                continue;
-            }
-            failures = 0;
-            offset = poll.next_offset;
-            scanned += poll.scanned_new || 0;
-            Object.entries(poll.skipped || {}).forEach(([k, n]) => { skipped[k] = (skipped[k] || 0) + n; });
-            if (poll.cost_usd !== null && poll.cost_usd !== undefined) cost = poll.cost_usd;
-            const knownUrls = new Set(found.map(c => c.profile_url));
-            const fresh = (poll.new_matches || []).filter(c => !knownUrls.has(c.profile_url));
-            if (fresh.length) {
-                fresh.forEach(c => found.push(c));
-                matches = matches.concat(fresh);
-                state.students = imported.concat(found);
-                renderStudentsGrid(state.students);
-            } else {
-                showSearching(scanned, matches.length);
-            }
-            done = !!poll.done;
-            const secs = Math.round((Date.now() - startedAt) / 1000);
-            setStudentsSearchStatus(`${done ? 'Finished' : 'Searching'}: scanned ${scanned} profiles, <b>${matches.length}</b> new verified match(es) for ${escapeHtml(by)} (${secs}s).`);
-        }
-
         // Next search continues from the following pages of LinkedIn results.
-        setStudentsNextPage(by, start.next_start_page || (startPage + (start.pages || 3)));
+        setStudentsNextPage(by, nextPage);
         saveStudentsFound(by);
 
         const skipText = summarizeStudentSkips(skipped);
         // Apify finalizes a run's cost slightly after it ends, so only show it when it is a real figure.
         const costText = (cost !== null && Number(cost) > 0) ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
-        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.`);
+        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.${stopMessage ? ' <span style="color:#b45309;">Note: ' + escapeHtml(stopMessage) + '</span>' : ''}`);
         if (found.length === 0) {
             studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Click "Search LinkedIn" again to scan the next pages of results (each search moves on to new profiles).`;
             renderStudentsGrid(state.students);

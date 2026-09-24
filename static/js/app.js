@@ -1459,7 +1459,12 @@ async function loadStudents(runLive = false) {
             saveStudentsFound(by);
             const skipText = summarizeStudentSkips(data.skipped || {});
             const totalText = (data.total_matching || data.total_matching === 0) ? ` People Data Labs reports about ${Number(data.total_matching).toLocaleString()} people matching the search overall.` : '';
-            setStudentsSearchStatus(`Fetched <b>${data.records_used || 0}</b> record(s) (${data.records_used || 0} free-tier credit(s) used), <b>${fresh.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${totalText} ${data.exhausted ? 'No more records for this search.' : 'Click Search LinkedIn again for the next batch.'}`);
+            const modeText = data.mode === 'broad' ? ' (broader query used: lower precision)' : '';
+            const examples = data.skipped_examples || [];
+            const detailsHtml = examples.length
+                ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Why were some records skipped? (education entries only, no names)</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${examples.map((ex, i) => `<div style="margin-bottom:6px;"><b>Record ${i + 1}: ${escapeHtml(STUDENT_SKIP_LABELS[ex.reason] || ex.reason)}</b><br>${(ex.education || []).map(l => escapeHtml(l)).join('<br>')}</div>`).join('')}</div></details>`
+                : '';
+            setStudentsSearchStatus(`Fetched <b>${data.records_used || 0}</b> record(s) (${data.records_used || 0} free-tier credit(s) used)${modeText}, <b>${fresh.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${totalText} ${data.exhausted ? 'No more records for this search.' : 'Click Search LinkedIn again for the next batch.'}${detailsHtml}`);
             if (found.length === 0) {
                 studentsEmptyMessage = `People Data Labs returned ${data.records_used || 0} record(s) but none passed the strict check for Bachelor's ${by} in India plus a US Master's. ${data.exhausted ? 'There are no more records for this search.' : 'Click again for the next batch.'}`;
             }

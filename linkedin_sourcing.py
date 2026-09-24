@@ -489,27 +489,74 @@ def pdl_configured() -> bool:
     return bool((config.PDL_API_KEY or "").strip())
 
 
-def build_pdl_query(bachelor_year: Optional[int], strict: bool = True) -> Dict:
+# Name stems of Indian colleges (lowercase). Matching on the school NAME is used
+# instead of "school country = India": PDL flattens the education array, so a
+# country clause is satisfied by ANY entry - and many Indian-origin people have
+# an Indian high school/junior college plus a US Bachelor's, which the country
+# clause wrongly lets through (4 of the first 10 real records were exactly that).
+# A college name only ever appears on a college entry.
+INDIAN_COLLEGE_NAME_STEMS = [
+    "jawaharlal nehru technological university", "jntu", "osmania university", "vellore institute of technology",
+    "vit university", "srm university", "srm institute of science and technology", "manipal institute of technology",
+    "manipal university", "manipal academy of higher education", "amrita vishwa vidyapeetham", "amrita school of engineering",
+    "anna university", "visvesvaraya technological university", "andhra university", "birla institute of technology and science",
+    "bits pilani", "gitam", "koneru lakshmaiah", "kl university", "sastra", "psg college of technology",
+    "sathyabama", "thapar", "delhi technological university", "chaitanya bharathi institute", "vasavi college of engineering",
+    "vnr vignana jyothi", "gokaraju rangaraju", "mahatma gandhi institute of technology", "savitribai phule pune university",
+    "university of mumbai", "mumbai university", "indian institute of technology", "national institute of technology",
+    "international institute of information technology", "iiit", "kakatiya university", "cvr college of engineering",
+    "sreenidhi institute", "mvsr engineering college", "vardhaman college of engineering", "bms college of engineering",
+    "rv college of engineering", "pes university", "nirma university", "amity university", "lovely professional university",
+    "kalasalingam", "acharya nagarjuna university", "jain university", "christ university", "malla reddy",
+]
+
+
+def _indian_college_clause() -> Dict:
+    should = []
+    for stem in INDIAN_COLLEGE_NAME_STEMS:
+        should.append({"prefix": {"education.school.name": stem}})
+        should.append({"match_phrase": {"education.school.name": stem}})
+    return {"bool": {"should": should, "minimum_should_match": 1}}
+
+
+def build_pdl_query(bachelor_year: Optional[int], strict: bool = True, now_year: Optional[int] = None) -> Dict:
     """Elasticsearch-style query for PDL's Person Search API.
 
-    strict=True additionally requires an education entry that STARTED 3-5 years
-    before the target year (a 4-year Bachelor's ending in Y starts around Y-4);
-    since a Master's ending in Y starts about Y-2, this keeps out most people
-    whose *Master's* (not Bachelor's) ended in the target year."""
+    PDL flattens the education array, so no clause can be tied to the same entry
+    as another. The query therefore stacks constraints that each cut down the
+    wrong-year / wrong-country false positives, and every returned record is
+    still re-checked strictly in evaluate_pdl_person:
+
+      - Indian COLLEGE NAME on some entry (not just an Indian country flag);
+      - some entry ends in the target year;
+      - must_not any entry ending in the 3 years BEFORE the target year, which
+        removes people whose target-year end date is their Master's (their
+        Bachelor's ended 1-3 years earlier) - the biggest false-positive source;
+      - total experience close to what someone who graduated that year has;
+      - strict=True also requires an entry that STARTED 3-5 years before the
+        target year (a 4-year Bachelor's ending in Y starts around Y-4)."""
+    now_year = now_year or datetime.now(timezone.utc).year
     must = [
         {"term": {"location_country": "united states"}},
-        {"term": {"education.school.location.country": "india"}},
+        _indian_college_clause(),
         {"term": {"education.degrees": "bachelors"}},
         {"term": {"education.school.location.country": "united states"}},
         {"term": {"education.degrees": "masters"}},
     ]
+    must_not = []
     if bachelor_year:
+        n = max(0, now_year - bachelor_year)
         must.append({"range": {"education.end_date": {"gte": f"{bachelor_year}-01-01", "lte": f"{bachelor_year}-12-31"}}})
+        must.append({"range": {"inferred_years_experience": {"gte": max(0, n - 2), "lte": n + 4}}})
+        must_not.append({"range": {"education.end_date": {"gte": f"{bachelor_year - 3}-01-01", "lte": f"{bachelor_year - 1}-12-31"}}})
         if strict:
             must.append({"range": {"education.start_date": {"gte": f"{bachelor_year - 5}-01-01", "lte": f"{bachelor_year - 3}-12-31"}}})
     else:
         must.append({"range": {"education.end_date": {"gte": "2010-01-01", "lte": "2020-12-31"}}})
-    return {"bool": {"must": must}}
+    query = {"bool": {"must": must}}
+    if must_not:
+        query["bool"]["must_not"] = must_not
+    return query
 
 
 def _pdl_year(value) -> Optional[int]:
@@ -526,6 +573,22 @@ def _pdl_linkedin_url(raw: Optional[str]) -> str:
     if raw.startswith("http"):
         return raw
     return "https://" + (raw if raw.startswith("www.") else "www." + raw.lstrip("/"))
+
+
+def _pdl_education_summary(person: Dict) -> List[str]:
+    """Anonymous one-line-per-entry education summary (no name/URL), shown in the
+    UI so it is clear WHY a returned record was skipped."""
+    lines = []
+    for e in (person.get("education") or []):
+        if not isinstance(e, dict):
+            continue
+        school = (e.get("school") or {})
+        country = _pdl_school_country(e) or "?"
+        degrees = ", ".join(e.get("degrees") or []) or "-"
+        start = (e.get("start_date") or "?")[:7]
+        end = (e.get("end_date") or "?")[:7]
+        lines.append(f"{school.get('name') or '?'} [{country}] | {degrees} | {start} to {end}")
+    return lines or ["(no education listed)"]
 
 
 def _pdl_school_country(entry: Dict) -> str:
@@ -686,18 +749,21 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
 
         payload = r.json()
         records = payload.get("data") or []
-        matches, skipped = [], {}
+        matches, skipped, examples = [], {}, []
         for person in records:
             cand, reason = evaluate_pdl_person(person, bachelor_year)
             if cand:
                 matches.append(cand)
             else:
                 skipped[reason] = skipped.get(reason, 0) + 1
+                if len(examples) < 8:
+                    examples.append({"reason": reason, "education": _pdl_education_summary(person)})
         return {
             "matches": matches,
             "records_used": len(records),
             "scanned": len(records),
             "skipped": skipped,
+            "skipped_examples": examples,
             "total_matching": payload.get("total"),
             "next_scroll_token": payload.get("scroll_token"),
             "exhausted": len(records) < size or not payload.get("scroll_token"),

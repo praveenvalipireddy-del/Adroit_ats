@@ -3,9 +3,12 @@ import re
 import sqlite3
 import urllib.parse
 import json
+import logging
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 import config
+
+logger = logging.getLogger("models")
 
 
 class DbRow(dict):

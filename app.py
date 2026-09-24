@@ -1076,6 +1076,23 @@ def api_search_students():
         bachelor_year=bachelor_year,
     )
 
+    # Supplement with real, school-matched profiles from the Apify LinkedIn
+    # People Search actor (public/cookie-free mode). This source has NO
+    # graduation year data at all (verified via live testing) — by product
+    # decision it's used anyway for real names/schools/direct profile URLs,
+    # with every result honestly marked year_verified=False so the recruiter
+    # knows to confirm the actual passout year on the profile themselves.
+    # No-ops (and costs nothing) if APIFY_API_TOKEN isn't configured.
+    try:
+        seen_urls = set(c.get("profile_url") for c in candidates)
+        apify_candidates = apify_service.search_linkedin_bench_candidates_by_schools(location=location)
+        for c in apify_candidates:
+            if c.get("profile_url") not in seen_urls:
+                seen_urls.add(c.get("profile_url"))
+                candidates.append(c)
+    except Exception as ex:
+        logger.warning(f"Apify school-search supplement failed: {ex}")
+
     # Prepend any candidates the recruiter has already added to the database
     # that genuinely match the requested Bachelor's year.
     try:

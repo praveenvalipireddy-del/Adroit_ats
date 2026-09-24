@@ -1350,13 +1350,18 @@ function renderStudentsGrid(candidates) {
     const tbody = document.getElementById('students-table-body');
     if (!tbody) return;
 
-    // Strict Double-Lock: ensure only exact target year is rendered
+    // Strict Double-Lock: ensure only exact target year is rendered, for
+    // candidates that actually HAVE year data. Candidates explicitly marked
+    // year_verified=false (e.g. the Apify school-search source, which has no
+    // year data by design) are exempt from this filter rather than being
+    // silently dropped - they're shown with a "verify manually" badge instead.
     const byInput = document.getElementById('filter-student-bachelor-year')?.value?.trim();
     if (byInput && byInput.toLowerCase() !== 'all') {
         const yearMatch = byInput.match(/\b(19\d\d|20\d\d)\b/);
         if (yearMatch && candidates && candidates.length > 0) {
             const targetYear = yearMatch[1];
             candidates = candidates.filter(c => {
+                if (c.year_verified === false) return true;
                 const candYear = String(c.bachelor_year || c.grad_year || '');
                 return candYear === targetYear;
             });
@@ -1406,7 +1411,12 @@ function renderStudentsGrid(candidates) {
         const googleLiUrl = `https://www.google.com/search?q=site:linkedin.com/in/+${encodeURIComponent('"' + cleanName + '"')}+USA`;
         const initials = (c.name || 'US').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
-        const bTechYear = c.bachelor_year || c.grad_year || '2020';
+        // Honesty: only show a year if one was actually verified from the
+        // source text. Some sources (e.g. the Apify school-search) genuinely
+        // have no year data at all - never default that to a guessed year.
+        const yearVerified = c.year_verified !== false;
+        const bTechYear = (c.bachelor_year || c.grad_year || '').trim();
+        const bTechYearDisplay = yearVerified && bTechYear ? bTechYear : '⚠️ Verify';
         const bTechCollege = c.bachelor_college || 'India Accredited College';
         const bTechDegree = c.bachelor_degree || 'B.Tech / B.E.';
 
@@ -1440,7 +1450,7 @@ function renderStudentsGrid(candidates) {
             <!-- 2. India Bachelor's & US Master's Journey -->
             <td style="padding: 14px 16px; font-size:0.85rem;">
                 <div style="font-weight:600; color:#e2e8f0; display:flex; align-items:center; gap:5px;">
-                    <span>🇮🇳</span> <span>${escapeHtml(bTechDegree)} (${escapeHtml(bTechYear)})</span>
+                    <span>🇮🇳</span> <span>${escapeHtml(bTechDegree)} (${escapeHtml(bTechYearDisplay)})</span>
                 </div>
                 <div style="font-size:0.75rem; color:#94a3b8; margin-bottom:4px;">
                     ${escapeHtml(bTechCollege)}
@@ -1448,12 +1458,13 @@ function renderStudentsGrid(candidates) {
                 <div style="font-weight:500; color:#38bdf8; display:flex; align-items:center; gap:5px; font-size:0.8rem;">
                     <span>🇺🇸</span> <span>${escapeHtml(mDegree)}</span>
                 </div>
+                ${!yearVerified ? '<div style="font-size:0.72rem; color:#f59e0b; margin-top:3px;">⚠️ Real profile match, but this source has no graduation year data — confirm on their profile.</div>' : ''}
             </td>
 
             <!-- 3. Primary Filter: India B.Tech Year (<=2020) -->
             <td style="padding: 14px 16px; text-align:center;">
-                <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:700; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);" title="Completed Bachelor's in India in 2020 or earlier">
-                    🎓 ${escapeHtml(bTechYear)}
+                <span style="display:inline-block; padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:700; ${yearVerified ? 'background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);' : 'background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.4);'}" title="${yearVerified ? 'Bachelor\\'s year confirmed from source text' : 'Year not available from this source — verify manually'}">
+                    🎓 ${escapeHtml(bTechYearDisplay)}
                 </span>
             </td>
 

@@ -35,4 +35,7 @@ if DATABASE_URL.startswith("postgres://"):
 DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "ats.db"))
 
 # --- SerpAPI (Google SERP scraper for LinkedIn) ---
-SERPAPI_KEY = os.getenv("SERPAPI_KEY", "9d401009a7f2e0ce89b92baaf0b7613bd440e43a198ee34327cc8ef5a8775773")
+# NOTE: previously had a hardcoded key here as a fallback default - that key
+# was exposed in a public commit and should be treated as compromised. Set
+# SERPAPI_KEY as an environment variable instead; this has no fallback value.
+SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")

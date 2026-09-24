@@ -1298,6 +1298,47 @@ function summarizeStudentSkips(skipped) {
         .join(' · ');
 }
 
+// Verified LinkedIn matches accumulate per selected year (and per day), and each
+// new search continues from the next pages of LinkedIn results, so clicking
+// "Search LinkedIn" again finds NEW people instead of re-scanning (and
+// re-paying for) the same first pages.
+const studentsFound = {};
+
+function studentsDayKey(prefix, by) {
+    return `${prefix}:${new Date().toISOString().slice(0, 10)}:${by}`;
+}
+
+function loadStudentsFound(by) {
+    if (!studentsFound[by]) {
+        try {
+            studentsFound[by] = JSON.parse(localStorage.getItem(studentsDayKey('studentsFound', by)) || '[]');
+        } catch (e) {
+            studentsFound[by] = [];
+        }
+    }
+    return studentsFound[by];
+}
+
+function saveStudentsFound(by) {
+    try {
+        localStorage.setItem(studentsDayKey('studentsFound', by), JSON.stringify(studentsFound[by] || []));
+    } catch (e) { /* storage unavailable: results just won't persist across reloads */ }
+}
+
+function getStudentsNextPage(by) {
+    try {
+        return Math.max(1, parseInt(localStorage.getItem(studentsDayKey('studentsNextPage', by)) || '1', 10) || 1);
+    } catch (e) {
+        return 1;
+    }
+}
+
+function setStudentsNextPage(by, page) {
+    try {
+        localStorage.setItem(studentsDayKey('studentsNextPage', by), String(page > 80 ? 1 : page));
+    } catch (e) { /* ignore */ }
+}
+
 function setPresetFilter(keyword, bachelorYear) {
     const byInput = document.getElementById('filter-student-bachelor-year');
     if (byInput && bachelorYear) byInput.value = bachelorYear;
@@ -1324,7 +1365,8 @@ async function loadStudents(runLive = false) {
     } catch (err) {
         console.error('Error loading bench candidates:', err);
     }
-    state.students = imported.slice();
+    const found = loadStudentsFound(by);
+    state.students = imported.concat(found);
     state.studentsLoaded = true;
     updateStudentMetrics(state.students);
     if (resultsElem) resultsElem.style.display = 'block';
@@ -1332,7 +1374,10 @@ async function loadStudents(runLive = false) {
     if (!runLive) {
         studentsEmptyMessage = 'No candidates to show yet. Click "Search LinkedIn" to find India-Bachelor\'s + US-Master\'s profiles for the selected year.';
         renderStudentsGrid(state.students);
-        setStudentsSearchStatus('Showing candidates already on your bench. Click <b>Search LinkedIn</b> to run a live search (uses Apify credits, roughly $0.20 to $0.75 per search).');
+        const nextPage = getStudentsNextPage(by);
+        setStudentsSearchStatus(found.length > 0
+            ? `Showing <b>${found.length}</b> verified LinkedIn match(es) found earlier today for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to scan the next pages of results for more (uses Apify credits, roughly $0.20 to $0.75).`
+            : `Click <b>Search LinkedIn</b> to run a live search${nextPage > 1 ? ` (continues from LinkedIn results page ${nextPage})` : ''}. It uses Apify credits, roughly $0.20 to $0.75 per search.`);
         return;
     }
 
@@ -1366,7 +1411,8 @@ async function loadStudents(runLive = false) {
         setStudentsSearchStatus('Starting live LinkedIn search...');
         if (imported.length > 0) renderStudentsGrid(state.students); else showSearching(0, 0);
 
-        const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by }) });
+        const startPage = getStudentsNextPage(by);
+        const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, start_page: startPage }) });
         if (startRes.status === 401) { window.location.href = '/login'; return; }
         const start = await startRes.json().catch(() => ({}));
         if (!startRes.ok) {
@@ -1398,23 +1444,30 @@ async function loadStudents(runLive = false) {
             scanned += poll.scanned_new || 0;
             Object.entries(poll.skipped || {}).forEach(([k, n]) => { skipped[k] = (skipped[k] || 0) + n; });
             if (poll.cost_usd !== null && poll.cost_usd !== undefined) cost = poll.cost_usd;
-            if (poll.new_matches && poll.new_matches.length) {
-                matches = matches.concat(poll.new_matches);
-                state.students = imported.concat(matches);
+            const knownUrls = new Set(found.map(c => c.profile_url));
+            const fresh = (poll.new_matches || []).filter(c => !knownUrls.has(c.profile_url));
+            if (fresh.length) {
+                fresh.forEach(c => found.push(c));
+                matches = matches.concat(fresh);
+                state.students = imported.concat(found);
                 renderStudentsGrid(state.students);
             } else {
                 showSearching(scanned, matches.length);
             }
             done = !!poll.done;
             const secs = Math.round((Date.now() - startedAt) / 1000);
-            setStudentsSearchStatus(`${done ? 'Finished' : 'Searching'}: scanned ${scanned} profiles, <b>${matches.length}</b> verified match(es) for ${escapeHtml(by)} (${secs}s).`);
+            setStudentsSearchStatus(`${done ? 'Finished' : 'Searching'}: scanned ${scanned} profiles, <b>${matches.length}</b> new verified match(es) for ${escapeHtml(by)} (${secs}s).`);
         }
+
+        // Next search continues from the following pages of LinkedIn results.
+        setStudentsNextPage(by, start.next_start_page || (startPage + (start.pages || 3)));
+        saveStudentsFound(by);
 
         const skipText = summarizeStudentSkips(skipped);
         const costText = cost !== null ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
-        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> verified match(es) for ${escapeHtml(by)}. ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText}`);
-        if (matches.length === 0) {
-            studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Each search scans a different slice of LinkedIn, so trying again (or another year) can find more.`;
+        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.`);
+        if (found.length === 0) {
+            studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Click "Search LinkedIn" again to scan the next pages of results (each search moves on to new profiles).`;
             renderStudentsGrid(state.students);
         }
     } catch (err) {
@@ -1424,6 +1477,7 @@ async function loadStudents(runLive = false) {
         renderStudentsGrid(state.students);
     } finally {
         studentsLiveSearchRunning = false;
+        saveStudentsFound(by);
         if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
     }
 }

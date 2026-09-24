@@ -1162,6 +1162,7 @@ def api_students_search_start():
         bachelor_year,
         pages=data.get("pages") or linkedin_sourcing.DEFAULT_PAGES,
         location=data.get("location") or "United States",
+        start_page=data.get("start_page") or 1,
     )
     if result.get("error"):
         return jsonify({"error": result["error"]}), result.get("code", 500)

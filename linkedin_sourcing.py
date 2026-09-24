@@ -290,7 +290,14 @@ def todays_spend_usd() -> float:
         return 0.0
 
 
-def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, location: str = "United States") -> Dict:
+MAX_START_PAGE = 80   # LinkedIn search results are capped around 100 pages of 25
+
+
+def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, location: str = "United States",
+                 start_page: int = 1) -> Dict:
+    """Start an async run. start_page lets repeat searches continue from the
+    next pages of LinkedIn results (new profiles) instead of re-scanning (and
+    re-paying for) the same first pages."""
     if not _token():
         return {"error": "APIFY_API_TOKEN is not configured on the server.", "code": 503}
     spent = todays_spend_usd()
@@ -298,12 +305,17 @@ def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, locat
         return {"error": f"Daily LinkedIn sourcing budget reached (${spent:.2f} of ${DAILY_BUDGET_USD:.2f}). Try again tomorrow or raise SOURCING_DAILY_BUDGET_USD.", "code": 429}
 
     pages = max(1, min(int(pages or DEFAULT_PAGES), 4))
+    try:
+        start_page = max(1, min(int(start_page or 1), MAX_START_PAGE))
+    except (TypeError, ValueError):
+        start_page = 1
     payload = {
         "profileScraperMode": "Full",
         "schools": INDIAN_SCHOOLS_FOR_SEARCH,
         "locations": [location],
         "yearsOfExperienceIds": experience_ids_for_year(bachelor_year),
         "maxItems": pages * 25,
+        "startPage": start_page,
         "takePages": pages,
     }
     try:
@@ -322,6 +334,8 @@ def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, locat
             "max_spend_usd": MAX_SPEND_PER_SEARCH_USD,
             "spent_today_usd": spent,
             "pages": pages,
+            "start_page": start_page,
+            "next_start_page": start_page + pages,
         }
     except Exception as ex:
         logger.error(f"Apify start exception: {ex}")

@@ -512,20 +512,34 @@ INDIAN_COLLEGE_NAME_STEMS = [
 
 
 def _indian_college_clause() -> Dict:
-    should = []
-    for stem in INDIAN_COLLEGE_NAME_STEMS:
-        should.append({"prefix": {"education.school.name": stem}})
-        should.append({"match_phrase": {"education.school.name": stem}})
-    return {"bool": {"should": should, "minimum_should_match": 1}}
+    # education.school.name is a TEXT field in PDL (analysed into single words), so
+    # a `prefix` on a multi-word name can never match; match_phrase is the right query.
+    return {"bool": {"should": [{"match_phrase": {"education.school.name": stem}} for stem in INDIAN_COLLEGE_NAME_STEMS],
+                     "minimum_should_match": 1}}
 
 
-def build_pdl_query(bachelor_year: Optional[int], strict: bool = True, now_year: Optional[int] = None) -> Dict:
+# Search steps, most precise first. A step only runs when the one before it found
+# nobody (or PDL rejected it), and an empty PDL result costs no credits - so the
+# ladder finds the strictest query PDL can actually satisfy without wasting any.
+# Every returned record is still checked strictly in evaluate_pdl_person.
+PDL_TIERS = [
+    ("strict", "full query"),
+    ("no_start_date", "without the Bachelor's start-date clause"),
+    ("no_experience", "without the start-date and years-of-experience clauses"),
+    ("names_only", "Indian college name + Bachelor's year only"),
+    ("india_flag", "any Indian school on the profile (lowest precision)"),
+]
+PDL_TIER_NAMES = [name for name, _ in PDL_TIERS]
+
+
+def build_pdl_query(bachelor_year: Optional[int], tier: str = "strict", now_year: Optional[int] = None) -> Dict:
     """Elasticsearch-style query for PDL's Person Search API.
 
     PDL flattens the education array, so no clause can be tied to the same entry
     as another. The query therefore stacks constraints that each cut down the
-    wrong-year / wrong-country false positives, and every returned record is
-    still re-checked strictly in evaluate_pdl_person:
+    wrong-year / wrong-country false positives (see PDL_TIERS for which are
+    dropped at each step); every returned record is re-checked strictly in
+    evaluate_pdl_person:
 
       - Indian COLLEGE NAME on some entry (not just an Indian country flag);
       - some entry ends in the target year;
@@ -533,12 +547,13 @@ def build_pdl_query(bachelor_year: Optional[int], strict: bool = True, now_year:
         removes people whose target-year end date is their Master's (their
         Bachelor's ended 1-3 years earlier) - the biggest false-positive source;
       - total experience close to what someone who graduated that year has;
-      - strict=True also requires an entry that STARTED 3-5 years before the
-        target year (a 4-year Bachelor's ending in Y starts around Y-4)."""
+      - an entry that STARTED 3-5 years before the target year (a 4-year
+        Bachelor's ending in Y starts around Y-4)."""
+    level = PDL_TIER_NAMES.index(tier) if tier in PDL_TIER_NAMES else 0
     now_year = now_year or datetime.now(timezone.utc).year
     must = [
         {"term": {"location_country": "united states"}},
-        _indian_college_clause(),
+        {"term": {"education.school.location.country": "india"}} if level >= 4 else _indian_college_clause(),
         {"term": {"education.degrees": "bachelors"}},
         {"term": {"education.school.location.country": "united states"}},
         {"term": {"education.degrees": "masters"}},
@@ -547,9 +562,11 @@ def build_pdl_query(bachelor_year: Optional[int], strict: bool = True, now_year:
     if bachelor_year:
         n = max(0, now_year - bachelor_year)
         must.append({"range": {"education.end_date": {"gte": f"{bachelor_year}-01-01", "lte": f"{bachelor_year}-12-31"}}})
-        must.append({"range": {"inferred_years_experience": {"gte": max(0, n - 2), "lte": n + 4}}})
-        must_not.append({"range": {"education.end_date": {"gte": f"{bachelor_year - 3}-01-01", "lte": f"{bachelor_year - 1}-12-31"}}})
-        if strict:
+        if level <= 1:
+            must.append({"range": {"inferred_years_experience": {"gte": max(0, n - 2), "lte": n + 4}}})
+        if level <= 2:
+            must_not.append({"range": {"education.end_date": {"gte": f"{bachelor_year - 3}-01-01", "lte": f"{bachelor_year - 1}-12-31"}}})
+        if level == 0:
             must.append({"range": {"education.start_date": {"gte": f"{bachelor_year - 5}-01-01", "lte": f"{bachelor_year - 3}-12-31"}}})
     else:
         must.append({"range": {"education.end_date": {"gte": "2010-01-01", "lte": "2020-12-31"}}})
@@ -696,11 +713,24 @@ def evaluate_pdl_person(person: Dict, bachelor_year: Optional[int]) -> Tuple[Opt
     return candidate, "match"
 
 
+def _pdl_error_message(r) -> str:
+    try:
+        err = r.json().get("error")
+        return (err.get("message") if isinstance(err, dict) else str(err or "")).strip()
+    except Exception:
+        return (r.text or "")[:200].strip()
+
+
 def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optional[str] = None,
-               strict: bool = True) -> Dict:
+               mode: Optional[str] = None) -> Dict:
     """One PDL Person Search call (each RETURNED record costs 1 free-tier credit).
-    Returns verified matches plus what was skipped and why. If the strict query
-    finds nothing on the first call it is retried without the start-date clause."""
+    Returns verified matches plus what was skipped and why.
+
+    On a first call the search walks PDL_TIERS from `mode` (default: strictest)
+    down until a step returns records - empty results and rejected queries cost
+    nothing. A continuation (scroll_token) must reuse the exact query, so it runs
+    only the step named by `mode`. The result names the step used (`mode`,
+    `mode_label`) and lists what each attempted step returned (`tried`)."""
     if not pdl_configured():
         return {"error": "PDL_API_KEY is not configured on the server.", "code": 503}
     try:
@@ -708,10 +738,16 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
     except (TypeError, ValueError):
         size = 25
 
-    mode = "strict" if strict else "broad"
-    for attempt in range(2):
+    if mode == "broad":      # value saved by an earlier version of the page
+        mode = "no_start_date"
+    start = PDL_TIER_NAMES.index(mode) if mode in PDL_TIER_NAMES else 0
+    levels = [start] if scroll_token else list(range(start, len(PDL_TIERS)))
+
+    tried, rejected = [], []
+    for level in levels:
+        name, label = PDL_TIERS[level]
         body = {
-            "query": build_pdl_query(bachelor_year, strict=(mode == "strict")),
+            "query": build_pdl_query(bachelor_year, tier=name),
             "size": size,
             "titlecase": True,
             "data_include": _PDL_FIELDS,
@@ -726,12 +762,14 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
             return {"error": "Could not reach People Data Labs.", "code": 502}
 
         if r.status_code == 404:
-            # No matching records (this costs nothing).
-            if mode == "strict" and not scroll_token and attempt == 0:
-                mode = "broad"     # retry once without the start-date clause
-                continue
-            return {"matches": [], "records_used": 0, "scanned": 0, "skipped": {}, "total_matching": 0,
-                    "next_scroll_token": None, "exhausted": True, "mode": mode}
+            tried.append({"tier": name, "label": label, "result": "no matching records (free)"})
+            continue
+        if r.status_code == 400:
+            msg = _pdl_error_message(r)
+            logger.error(f"PDL rejected query tier={name}: {msg[:300]}")
+            rejected.append(msg)
+            tried.append({"tier": name, "label": label, "result": "query rejected by PDL: " + (msg[:160] or "no reason given")})
+            continue
         if r.status_code in (401, 403):
             return {"error": "People Data Labs rejected the API key. Check PDL_API_KEY.", "code": 502}
         if r.status_code == 402:
@@ -739,16 +777,15 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
         if r.status_code == 429:
             return {"error": "People Data Labs rate limit reached - wait a few seconds and try again.", "code": 429}
         if r.status_code != 200:
-            msg = ""
-            try:
-                msg = (r.json().get("error") or {}).get("message", "")
-            except Exception:
-                pass
             logger.error(f"PDL HTTP {r.status_code}: {r.text[:300]}")
-            return {"error": f"People Data Labs returned an error ({r.status_code}). {msg}".strip(), "code": 502}
+            return {"error": f"People Data Labs returned an error ({r.status_code}). {_pdl_error_message(r)}".strip(), "code": 502}
 
         payload = r.json()
         records = payload.get("data") or []
+        if not records and not scroll_token:
+            tried.append({"tier": name, "label": label, "result": "no matching records (free)"})
+            continue
+        tried.append({"tier": name, "label": label, "result": f"{len(records)} record(s)"})
         matches, skipped, examples = [], {}, []
         for person in records:
             cand, reason = evaluate_pdl_person(person, bachelor_year)
@@ -767,6 +804,14 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
             "total_matching": payload.get("total"),
             "next_scroll_token": payload.get("scroll_token"),
             "exhausted": len(records) < size or not payload.get("scroll_token"),
-            "mode": mode,
+            "mode": name,
+            "mode_label": label,
+            "tried": tried,
         }
-    return {"error": "People Data Labs search did not return a result.", "code": 502}
+
+    if rejected and len(rejected) == len(tried):
+        # Every attempted step was refused by PDL itself: surface its reason.
+        return {"error": f"People Data Labs rejected the search query ({rejected[0][:200]}).", "code": 502, "tried": tried}
+    last_name, last_label = PDL_TIERS[levels[-1]]
+    return {"matches": [], "records_used": 0, "scanned": 0, "skipped": {}, "skipped_examples": [], "total_matching": 0,
+            "next_scroll_token": None, "exhausted": True, "mode": last_name, "mode_label": last_label, "tried": tried}

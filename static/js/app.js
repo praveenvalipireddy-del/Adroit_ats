@@ -1428,7 +1428,8 @@ async function loadStudents(runLive = false) {
         // ---- People Data Labs: one quick call, results already filtered on education ----
         if (source === 'pdl') {
             const size = parseInt(document.getElementById('filter-student-pdl-size')?.value || '25', 10) || 25;
-            const pdlKey = studentsDayKey('studentsPdl', by);
+            // 'studentsPdl2': new key so an "exhausted" flag saved by the older, stricter query cannot block a retry
+            const pdlKey = studentsDayKey('studentsPdl2', by);
             let saved = {};
             try { saved = JSON.parse(localStorage.getItem(pdlKey) || '{}'); } catch (e) { saved = {}; }
             if (saved.exhausted) {
@@ -1445,28 +1446,33 @@ async function loadStudents(runLive = false) {
             });
             if (res.status === 401) { window.location.href = '/login'; return; }
             const data = await res.json().catch(() => ({}));
+            const stepsHtml = (tried) => (tried || []).length
+                ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Search steps tried</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${tried.map(t => `${escapeHtml(t.label)}: ${escapeHtml(t.result)}`).join('<br>')}</div></details>`
+                : '';
             if (!res.ok) {
                 studentsEmptyMessage = data.error || 'The People Data Labs search failed.';
-                setStudentsSearchStatus(`<span style="color:#b91c1c;">${escapeHtml(studentsEmptyMessage)}</span>`);
+                setStudentsSearchStatus(`<span style="color:#b91c1c;">${escapeHtml(studentsEmptyMessage)}</span>${stepsHtml(data.tried)}`);
                 renderStudentsGrid(state.students);
                 return;
             }
             const knownUrls = new Set(found.map(c => c.profile_url));
             const fresh = (data.matches || []).filter(c => !knownUrls.has(c.profile_url));
             fresh.forEach(c => found.push(c));
-            try { localStorage.setItem(pdlKey, JSON.stringify({ token: data.exhausted ? null : (data.next_scroll_token || null), mode: data.mode || 'strict', exhausted: !!data.exhausted })); } catch (e) { /* ignore */ }
+            try { localStorage.setItem(pdlKey, JSON.stringify({ token: data.exhausted ? null : (data.next_scroll_token || null), mode: (!data.exhausted && data.next_scroll_token) ? (data.mode || 'strict') : 'strict', exhausted: !!data.exhausted && (data.records_used || 0) > 0 })); } catch (e) { /* ignore */ }
             state.students = imported.concat(found);
             saveStudentsFound(by);
             const skipText = summarizeStudentSkips(data.skipped || {});
-            const totalText = (data.total_matching || data.total_matching === 0) ? ` People Data Labs reports about ${Number(data.total_matching).toLocaleString()} people matching the search overall.` : '';
-            const modeText = data.mode === 'broad' ? ' (broader query used: lower precision)' : '';
+            const totalText = data.total_matching ? ` People Data Labs reports about ${Number(data.total_matching).toLocaleString()} people matching the search overall.` : '';
+            const modeText = (data.records_used || 0) > 0 && data.mode && data.mode !== 'strict' ?` (relaxed search: ${escapeHtml(data.mode_label || data.mode)} - lower precision)` : '';
             const examples = data.skipped_examples || [];
             const detailsHtml = examples.length
                 ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Why were some records skipped? (education entries only, no names)</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${examples.map((ex, i) => `<div style="margin-bottom:6px;"><b>Record ${i + 1}: ${escapeHtml(STUDENT_SKIP_LABELS[ex.reason] || ex.reason)}</b><br>${(ex.education || []).map(l => escapeHtml(l)).join('<br>')}</div>`).join('')}</div></details>`
                 : '';
-            setStudentsSearchStatus(`Fetched <b>${data.records_used || 0}</b> record(s) (${data.records_used || 0} free-tier credit(s) used)${modeText}, <b>${fresh.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${totalText} ${data.exhausted ? 'No more records for this search.' : 'Click Search LinkedIn again for the next batch.'}${detailsHtml}`);
+            setStudentsSearchStatus(`Fetched <b>${data.records_used || 0}</b> record(s) (${data.records_used || 0} free-tier credit(s) used)${modeText}, <b>${fresh.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${totalText} ${data.exhausted ? 'No more records for this search.' : 'Click Search LinkedIn again for the next batch.'}${detailsHtml}${stepsHtml(data.tried)}`);
             if (found.length === 0) {
-                studentsEmptyMessage = `People Data Labs returned ${data.records_used || 0} record(s) but none passed the strict check for Bachelor's ${by} in India plus a US Master's. ${data.exhausted ? 'There are no more records for this search.' : 'Click again for the next batch.'}`;
+                studentsEmptyMessage = (data.records_used || 0) === 0
+                    ? `People Data Labs has no records for Bachelor's ${by} at an Indian college plus a US Master's, even with the loosest check (no credits were used). Try another year, or use the Google X-Ray / LinkedIn Search buttons above.`
+                    : `People Data Labs returned ${data.records_used || 0} record(s) but none passed the strict check for Bachelor's ${by} in India plus a US Master's. ${data.exhausted ? 'There are no more records for this search.' : 'Click again for the next batch.'}`;
             }
             renderStudentsGrid(state.students);
             return;

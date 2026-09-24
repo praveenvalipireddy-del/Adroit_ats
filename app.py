@@ -1233,10 +1233,10 @@ def api_students_pdl_search():
         _parse_bachelor_year(data),
         size=data.get("size") or 25,
         scroll_token=(data.get("scroll_token") or None),
-        strict=(data.get("mode") != "broad"),
+        mode=(data.get("mode") or None),
     )
     if result.get("error"):
-        return jsonify({"error": result["error"]}), result.get("code", 500)
+        return jsonify({"error": result["error"], "tried": result.get("tried") or []}), result.get("code", 500)
     return jsonify(result)
 
 

@@ -1376,8 +1376,8 @@ async function loadStudents(runLive = false) {
         renderStudentsGrid(state.students);
         const nextPage = getStudentsNextPage(by);
         setStudentsSearchStatus(found.length > 0
-            ? `Showing <b>${found.length}</b> verified LinkedIn match(es) found earlier today for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to scan the next pages of results for more (uses Apify credits, roughly $0.20 to $0.75).`
-            : `Click <b>Search LinkedIn</b> to run a live search${nextPage > 1 ? ` (continues from LinkedIn results page ${nextPage})` : ''}. It uses Apify credits, roughly $0.20 to $0.75 per search.`);
+            ? `Showing <b>${found.length}</b> verified LinkedIn match(es) found earlier today for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to scan the next pages of results for more (about $0.20 per 25 profiles scanned; pick the depth first).`
+            : `Click <b>Search LinkedIn</b> to run a live search${nextPage > 1 ? ` (continues from LinkedIn results page ${nextPage})` : ''}. It uses Apify credits, about $0.20 per 25 profiles scanned; pick the depth first.`);
         return;
     }
 
@@ -1412,7 +1412,10 @@ async function loadStudents(runLive = false) {
         if (imported.length > 0) renderStudentsGrid(state.students); else showSearching(0, 0);
 
         const startPage = getStudentsNextPage(by);
-        const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, start_page: startPage }) });
+        const depthPages = parseInt(document.getElementById('filter-student-depth')?.value || '6', 10) || 6;
+        // Stop early (and stop paying) once this many verified matches have been found.
+        const targetMatches = depthPages <= 3 ? 8 : (depthPages <= 6 ? 15 : 30);
+        const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, start_page: startPage, pages: depthPages }) });
         if (startRes.status === 401) { window.location.href = '/login'; return; }
         const start = await startRes.json().catch(() => ({}));
         if (!startRes.ok) {
@@ -1426,12 +1429,12 @@ async function loadStudents(runLive = false) {
         let done = false;
         let failures = 0;
         const startedAt = Date.now();
-        while (!done && Date.now() - startedAt < 6 * 60 * 1000) {
+        while (!done && Date.now() - startedAt < 16 * 60 * 1000) {
             await new Promise(r => setTimeout(r, 4000));
             const pollRes = await fetch('/api/students/search-poll', {
                 method: 'POST',
                 headers: jsonHeaders,
-                body: JSON.stringify({ run_id: start.run_id, dataset_id: start.dataset_id, bachelor_year: by, offset: offset, matched_so_far: matches.length })
+                body: JSON.stringify({ run_id: start.run_id, dataset_id: start.dataset_id, bachelor_year: by, offset: offset, matched_so_far: matches.length, target: targetMatches })
             });
             const poll = await pollRes.json().catch(() => ({}));
             if (!pollRes.ok) {

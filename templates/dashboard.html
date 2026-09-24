@@ -330,10 +330,10 @@
                     <div class="filter-panel" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; margin-bottom: 24px; box-shadow: var(--shadow-card);">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
                             <span style="font-size:11px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; padding:3px 9px; border-radius:6px;">Live LinkedIn search</span>
-                            <span style="font-size:0.8rem; color:#64748b;">Uses Apify credits (about $0.20 to $0.75 per search, capped). Matches stream into the table below as they are found (usually 30 to 90 seconds). Click again to scan the next pages of LinkedIn results for new people; matches found today are kept.</span>
+                            <span style="font-size:0.8rem; color:#64748b;">Uses Apify credits: about $0.20 per 25 profiles scanned, and the depth you pick is the maximum spend. Only roughly 1 in 10 scanned profiles fits the exact year plus a US Master's, so a deeper search finds more people. It stops early once enough matches are found, and clicking again continues with new profiles (matches found today are kept).</span>
                         </div>
                         <form id="form-student-search" onsubmit="return false;">
-                            <div style="display: grid; grid-template-columns: 260px 140px 1fr; gap: 12px; align-items: flex-end;">
+                            <div style="display: grid; grid-template-columns: 240px 300px 140px 1fr; gap: 12px; align-items: flex-end;">
                                 <!-- 1. Strict Bachelor's Passout Year Filter (India) -->
                                 <div>
                                     <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
@@ -352,7 +352,19 @@
                                     </div>
                                 </div>
 
-                                <!-- 2. Search Button -->
+                                <!-- 2. Search depth: how many LinkedIn profiles to scan per click (this is what costs money) -->
+                                <div>
+                                    <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        🔎 Search depth
+                                    </label>
+                                    <select id="filter-student-depth" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
+                                        <option value="3">Quick: 75 profiles (about $0.60)</option>
+                                        <option value="6" selected>Standard: 150 profiles (about $1.20)</option>
+                                        <option value="12">Deep: 300 profiles (about $2.40)</option>
+                                    </select>
+                                </div>
+
+                                <!-- 3. Search Button -->
                                 <div>
                                     <button type="button" id="btn-apply-student-filter" class="btn btn-primary" style="width:100%; height:42px; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border:none; border-radius:8px; color:#ffffff; box-shadow:0 3px 10px rgba(37, 99, 235, 0.25); cursor:pointer;">
                                         <span>🔍 Search LinkedIn</span>
@@ -1029,7 +1041,7 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=5.10.3"></script>
+    <script src="/static/js/app.js?v=5.11.0"></script>
 
     <!-- Recruiter Management Inline Fallback -->
     <script>

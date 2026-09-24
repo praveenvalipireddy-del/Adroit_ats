@@ -35,11 +35,14 @@ logger = logging.getLogger("linkedin_sourcing")
 ACTOR = "harvestapi~linkedin-profile-search"
 API = "https://api.apify.com/v2"
 
-MAX_SPEND_PER_SEARCH_USD = float(os.getenv("SOURCING_MAX_SPEND_USD", "0.75"))
+# Hard ceiling for any single search. The actual per-run cap is derived from the
+# number of pages requested (see start_search), never above this.
+MAX_SPEND_PER_SEARCH_USD = float(os.getenv("SOURCING_MAX_SPEND_USD", "3.00"))
 DAILY_BUDGET_USD = float(os.getenv("SOURCING_DAILY_BUDGET_USD", "5"))
-DEFAULT_PAGES = 3          # 25 profiles per page
-TARGET_MATCHES = 12        # stop early (abort the run) once this many verified matches exist
-RUN_TIMEOUT_SECS = 300
+DEFAULT_PAGES = 6          # 25 profiles per page
+MAX_PAGES = 12
+COST_PER_PAGE_USD = 0.21   # $0.10 search page + 25 x $0.004 full profiles (+ small margin)
+TARGET_MATCHES = 15        # stop early (abort the run) once this many verified matches exist
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
 
 # Broad spread of Indian colleges (not just IIT/NIT) - the LinkedIn "school"
@@ -155,12 +158,17 @@ def _degree_text(entry: Dict) -> str:
 def experience_ids_for_year(bachelor_year: Optional[int], now_year: Optional[int] = None) -> List[str]:
     """LinkedIn 'years of experience' facet ids that plausibly cover people who
     graduated in bachelor_year (1: <1y, 2: 1-2y, 3: 3-5y, 4: 6-10y, 5: 10y+).
-    Only used to improve yield; the strict year check is done on real data."""
+    Only used to improve yield; the strict year check is done on real data.
+
+    Calibrated on real profiles: total experience (first job start -> today)
+    for someone who graduated N years ago runs from about N-1 up to N+3,
+    because internships and pre-graduation roles count. (The first version of
+    this used N-3..N and wrongly excluded e.g. the 11+ year bucket for 2016.)"""
     if not bachelor_year:
         return ["2", "3", "4"]
     now_year = now_year or datetime.now(timezone.utc).year
     n = max(0, now_year - bachelor_year)
-    lo, hi = max(0, n - 3), n
+    lo, hi = max(0, n - 1), n + 3
     buckets = {"1": (0, 0), "2": (1, 2), "3": (3, 5), "4": (6, 10), "5": (11, 60)}
     return [k for k, (a, b) in buckets.items() if a <= hi and b >= lo]
 
@@ -304,11 +312,19 @@ def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, locat
     if spent >= DAILY_BUDGET_USD:
         return {"error": f"Daily LinkedIn sourcing budget reached (${spent:.2f} of ${DAILY_BUDGET_USD:.2f}). Try again tomorrow or raise SOURCING_DAILY_BUDGET_USD.", "code": 429}
 
-    pages = max(1, min(int(pages or DEFAULT_PAGES), 4))
+    try:
+        pages = max(1, min(int(pages or DEFAULT_PAGES), MAX_PAGES))
+    except (TypeError, ValueError):
+        pages = DEFAULT_PAGES
     try:
         start_page = max(1, min(int(start_page or 1), MAX_START_PAGE))
     except (TypeError, ValueError):
         start_page = 1
+    # Cap this run's spend from the pages requested (never above the hard ceiling).
+    max_spend = round(min(MAX_SPEND_PER_SEARCH_USD, pages * COST_PER_PAGE_USD + 0.10), 2)
+    run_timeout = min(900, 90 + pages * 45)
+    if spent + max_spend > DAILY_BUDGET_USD:
+        return {"error": f"This search could cost up to ${max_spend:.2f} and ${spent:.2f} has already been spent today (daily budget ${DAILY_BUDGET_USD:.2f}). Choose a smaller depth, or raise SOURCING_DAILY_BUDGET_USD on the server.", "code": 429}
     payload = {
         "profileScraperMode": "Full",
         "schools": INDIAN_SCHOOLS_FOR_SEARCH,
@@ -321,7 +337,7 @@ def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, locat
     try:
         r = requests.post(
             f"{API}/acts/{ACTOR}/runs",
-            params={"token": _token(), "maxTotalChargeUsd": MAX_SPEND_PER_SEARCH_USD, "timeout": RUN_TIMEOUT_SECS},
+            params={"token": _token(), "maxTotalChargeUsd": max_spend, "timeout": run_timeout},
             json=payload, timeout=30,
         )
         if r.status_code not in (200, 201):
@@ -331,7 +347,7 @@ def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, locat
         return {
             "run_id": data.get("id"),
             "dataset_id": data.get("defaultDatasetId"),
-            "max_spend_usd": MAX_SPEND_PER_SEARCH_USD,
+            "max_spend_usd": max_spend,
             "spent_today_usd": spent,
             "pages": pages,
             "start_page": start_page,
@@ -345,18 +361,26 @@ def start_search(bachelor_year: Optional[int], pages: int = DEFAULT_PAGES, locat
 _PROFILE_FIELDS = "linkedinUrl,firstName,lastName,headline,location,education,currentPosition"
 
 
-def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offset: int = 0, matched_so_far: int = 0) -> Dict:
+POLL_BATCH = 200
+
+
+def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offset: int = 0, matched_so_far: int = 0,
+                target: int = TARGET_MATCHES) -> Dict:
     """Fetch the run status and evaluate only the NEW dataset items since
-    `offset`. Aborts the run once enough verified matches exist (saves money)."""
+    `offset`. Aborts the run once `target` verified matches exist (saves money)."""
     if not _token():
         return {"error": "APIFY_API_TOKEN is not configured on the server.", "code": 503}
+    try:
+        target = max(3, min(int(target or TARGET_MATCHES), 60))
+    except (TypeError, ValueError):
+        target = TARGET_MATCHES
     try:
         run = requests.get(f"{API}/actor-runs/{run_id}", params={"token": _token()}, timeout=20).json().get("data", {})
         status = run.get("status") or "UNKNOWN"
         items_resp = requests.get(
             f"{API}/datasets/{dataset_id}/items",
-            params={"token": _token(), "offset": offset, "limit": 100, "fields": _PROFILE_FIELDS, "clean": 1},
-            timeout=45,
+            params={"token": _token(), "offset": offset, "limit": POLL_BATCH, "fields": _PROFILE_FIELDS, "clean": 1},
+            timeout=60,
         )
         raw_items = items_resp.json() if items_resp.status_code == 200 else []
         if not isinstance(raw_items, list):
@@ -375,14 +399,17 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
 
     total_matched = matched_so_far + len(matches)
     aborted = False
-    if status in ("RUNNING", "READY") and total_matched >= TARGET_MATCHES:
+    if status in ("RUNNING", "READY") and total_matched >= target:
         try:
             requests.post(f"{API}/actor-runs/{run_id}/abort", params={"token": _token()}, timeout=15)
             aborted = True
         except Exception as ex:
             logger.warning(f"Could not abort run {run_id}: {ex}")
 
-    done = status in TERMINAL_STATUSES or status == "ABORTING" or aborted
+    # Only finished once the run has ended AND every item has been read (a full
+    # batch means there may be more waiting at the next offset).
+    more_waiting = len(raw_items) >= POLL_BATCH
+    done = (status in TERMINAL_STATUSES or status == "ABORTING" or aborted) and not more_waiting
     return {
         "status": "ABORTED" if aborted else status,
         "done": done,

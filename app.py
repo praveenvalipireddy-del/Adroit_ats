@@ -1190,7 +1190,10 @@ def api_students_search_poll():
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid offset"}), 400
 
-    result = linkedin_sourcing.poll_search(run_id, dataset_id, _parse_bachelor_year(data), offset, matched_so_far)
+    result = linkedin_sourcing.poll_search(
+        run_id, dataset_id, _parse_bachelor_year(data), offset, matched_so_far,
+        target=data.get("target") or linkedin_sourcing.TARGET_MATCHES,
+    )
     if result.get("error"):
         return jsonify({"error": result["error"]}), result.get("code", 500)
     return jsonify(result)

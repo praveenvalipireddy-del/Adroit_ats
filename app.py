@@ -180,7 +180,8 @@ def dashboard():
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
-            has_apify=bool(config.APIFY_API_TOKEN)
+            has_apify=bool(config.APIFY_API_TOKEN),
+            has_pdl=linkedin_sourcing.pdl_configured()
         )
     except Exception as e:
         logger.warning(f"Using embedded template fallback: {e}")
@@ -192,7 +193,8 @@ def dashboard():
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
-            has_apify=bool(config.APIFY_API_TOKEN)
+            has_apify=bool(config.APIFY_API_TOKEN),
+            has_pdl=linkedin_sourcing.pdl_configured()
         )
 
 # --- Stats & Activity API ---
@@ -1212,6 +1214,26 @@ def api_students_search_poll():
     result = linkedin_sourcing.poll_search(
         run_id, dataset_id, _parse_bachelor_year(data), offset, matched_so_far,
         target=data.get("target") or linkedin_sourcing.TARGET_MATCHES,
+    )
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), result.get("code", 500)
+    return jsonify(result)
+
+
+@app.route("/api/students/pdl-search", methods=["POST", "OPTIONS"])
+def api_students_pdl_search():
+    """Search People Data Labs (free tier: 100 records/month; each RETURNED record
+    costs 1 credit). Synchronous - one quick call returns already-verified
+    India-Bachelor's + US-Master's matches. Login is enforced by the
+    /api/students/ before_request guard."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    data = request.get_json(silent=True) or {}
+    result = linkedin_sourcing.pdl_search(
+        _parse_bachelor_year(data),
+        size=data.get("size") or 25,
+        scroll_token=(data.get("scroll_token") or None),
+        strict=(data.get("mode") != "broad"),
     )
     if result.get("error"):
         return jsonify({"error": result["error"]}), result.get("code", 500)

@@ -463,3 +463,244 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
         "cost_usd": run.get("usageTotalUsd"),
         "stopped_early": aborted,
     }
+
+
+# =============================================================================
+# People Data Labs (PDL) source - free tier: 100 records / month
+# =============================================================================
+# PDL is a licensed people database with STRUCTURED education entries (school,
+# degree, start/end date, and the country the school is in), so the search can
+# filter server-side on the criteria instead of scanning random profiles. You
+# are charged per record RETURNED (1 credit each), so a search that mostly
+# returns matches is what makes the free 100/month go far.
+#
+# Limitation: PDL's education array is not "nested", so a search cannot force
+# the Bachelor's, the India school and the year to be the SAME entry (e.g. it
+# can return someone whose Master's, not Bachelor's, ended in the target year).
+# Every returned record is therefore re-checked strictly in evaluate_pdl_person,
+# and the query is made as tight as it can be to keep wasted credits low.
+
+PDL_ENDPOINT = "https://api.peopledatalabs.com/v5/person/search"
+PDL_MAX_RECORDS_PER_SEARCH = int(os.getenv("PDL_MAX_RECORDS_PER_SEARCH", "50"))
+_PDL_FIELDS = "full_name,first_name,last_name,linkedin_url,job_title,job_company_name,location_name,location_country,education"
+
+
+def pdl_configured() -> bool:
+    return bool((config.PDL_API_KEY or "").strip())
+
+
+def build_pdl_query(bachelor_year: Optional[int], strict: bool = True) -> Dict:
+    """Elasticsearch-style query for PDL's Person Search API.
+
+    strict=True additionally requires an education entry that STARTED 3-5 years
+    before the target year (a 4-year Bachelor's ending in Y starts around Y-4);
+    since a Master's ending in Y starts about Y-2, this keeps out most people
+    whose *Master's* (not Bachelor's) ended in the target year."""
+    must = [
+        {"term": {"location_country": "united states"}},
+        {"term": {"education.school.location.country": "india"}},
+        {"term": {"education.degrees": "bachelors"}},
+        {"term": {"education.school.location.country": "united states"}},
+        {"term": {"education.degrees": "masters"}},
+    ]
+    if bachelor_year:
+        must.append({"range": {"education.end_date": {"gte": f"{bachelor_year}-01-01", "lte": f"{bachelor_year}-12-31"}}})
+        if strict:
+            must.append({"range": {"education.start_date": {"gte": f"{bachelor_year - 5}-01-01", "lte": f"{bachelor_year - 3}-12-31"}}})
+    else:
+        must.append({"range": {"education.end_date": {"gte": "2010-01-01", "lte": "2020-12-31"}}})
+    return {"bool": {"must": must}}
+
+
+def _pdl_year(value) -> Optional[int]:
+    """PDL dates are strings like '2020', '2020-05' or '2020-05-01'."""
+    if isinstance(value, str) and len(value) >= 4 and value[:4].isdigit():
+        return int(value[:4])
+    return None
+
+
+def _pdl_linkedin_url(raw: Optional[str]) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("http"):
+        return raw
+    return "https://" + (raw if raw.startswith("www.") else "www." + raw.lstrip("/"))
+
+
+def _pdl_school_country(entry: Dict) -> str:
+    school = entry.get("school") or {}
+    loc = school.get("location") or {}
+    return (loc.get("country") or "").strip().lower()
+
+
+def evaluate_pdl_person(person: Dict, bachelor_year: Optional[int]) -> Tuple[Optional[Dict], str]:
+    """Strictly evaluate one PDL person record (same rules as evaluate_profile,
+    but using the school's real COUNTRY when PDL has it, falling back to
+    name-based checks only when the country is missing)."""
+    url = _pdl_linkedin_url(person.get("linkedin_url"))
+    full_name = (person.get("full_name") or f"{person.get('first_name') or ''} {person.get('last_name') or ''}").strip()
+    if not full_name or not url:
+        return None, "incomplete"
+    if (person.get("location_country") or "").strip().lower() != "united states":
+        return None, "not_in_us"
+
+    education = [e for e in (person.get("education") or []) if isinstance(e, dict)]
+
+    def is_degree(entry, kind):
+        return kind in [d.lower() for d in (entry.get("degrees") or [])]
+
+    def is_india(entry):
+        country = _pdl_school_country(entry)
+        return country == "india" if country else is_indian_institution((entry.get("school") or {}).get("name"))
+
+    def is_us(entry):
+        country = _pdl_school_country(entry)
+        if country:
+            return country == "united states"
+        name = (entry.get("school") or {}).get("name")
+        return bool(name) and not is_indian_institution(name) and not looks_like_non_us_institution(name)
+
+    if not any(is_degree(e, "bachelors") for e in education):
+        return None, "no_bachelor"
+    bachelors = [e for e in education if is_degree(e, "bachelors") and is_india(e)]
+    if not bachelors:
+        return None, "bachelor_not_india"
+    dated = [(e, _pdl_year(e.get("end_date"))) for e in bachelors]
+    dated = [(e, y) for e, y in dated if y]
+    if not dated:
+        return None, "no_bachelor_year"
+    if bachelor_year:
+        chosen = next(((e, y) for e, y in dated if y == bachelor_year), None)
+    else:
+        chosen = next(((e, y) for e, y in dated if 2010 <= y <= 2020), None)
+    if not chosen:
+        return None, "wrong_bachelor_year"
+    b_entry, b_year = chosen
+
+    masters = []
+    for e in education:
+        if not is_degree(e, "masters") or not is_us(e):
+            continue
+        text = " ".join([" ".join(e.get("degrees") or []), " ".join(e.get("majors") or []), " ".join(e.get("raw") or [])])
+        if _NOT_TECH_MASTER_RE.search(text):
+            continue
+        m_year = _pdl_year(e.get("end_date"))
+        if m_year and m_year < b_year:
+            continue
+        masters.append((e, m_year))
+    if not masters:
+        return None, "no_us_master"
+    m_entry, m_year = masters[0]
+
+    def degree_label(entry, default):
+        majors = ", ".join(entry.get("majors") or [])
+        degrees = ", ".join(entry.get("degrees") or [])
+        label = (degrees or default).title()
+        return f"{label} - {majors.title()}" if majors else label
+
+    nice = lambda s: s.title() if s and s.islower() else s
+    b_school = nice((b_entry.get("school") or {}).get("name") or "")
+    m_school = nice((m_entry.get("school") or {}).get("name") or "")
+    headline_parts = [person.get("job_title") or "", person.get("job_company_name") or ""]
+    headline = " at ".join(p.strip().title() for p in headline_parts if p and p.strip()) or "Technology Professional"
+    location_text = (person.get("location_name") or "United States").title()
+
+    candidate = {
+        "name": full_name.title() if full_name.islower() else full_name,
+        "headline": headline,
+        "title": headline,
+        "bachelor_year": str(b_year),
+        "grad_year": str(b_year),
+        "bachelor_degree": degree_label(b_entry, "bachelors"),
+        "bachelor_college": b_school,
+        "master_degree": degree_label(m_entry, "masters") + (f" ({m_year})" if m_year else " (year not listed)"),
+        "master_university": m_school,
+        "master_year": str(m_year) if m_year else "",
+        "university": m_school,
+        "degree": f"{degree_label(b_entry, 'bachelors')} ({b_school}, {b_year}) -> {degree_label(m_entry, 'masters')} ({m_school}{', ' + str(m_year) if m_year else ''})",
+        "location": location_text,
+        "status_tag": f"Verified: India Bachelor's {b_year} -> US Master's",
+        "status_badge": f"Verified: India Bachelor's {b_year} -> US Master's",
+        "settlement_badge": "🇺🇸 Located in USA",
+        "settlement_sub": "Work authorization: confirm with candidate",
+        "quality": "[VERIFIED] Bachelor's year, Indian college and US Master's from People Data Labs education records",
+        "profile_url": url,
+        "linkedin_url": url,
+        "year_verified": True,
+        "source": "people_data_labs",
+    }
+    return candidate, "match"
+
+
+def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optional[str] = None,
+               strict: bool = True) -> Dict:
+    """One PDL Person Search call (each RETURNED record costs 1 free-tier credit).
+    Returns verified matches plus what was skipped and why. If the strict query
+    finds nothing on the first call it is retried without the start-date clause."""
+    if not pdl_configured():
+        return {"error": "PDL_API_KEY is not configured on the server.", "code": 503}
+    try:
+        size = max(1, min(int(size or 25), PDL_MAX_RECORDS_PER_SEARCH, 100))
+    except (TypeError, ValueError):
+        size = 25
+
+    mode = "strict" if strict else "broad"
+    for attempt in range(2):
+        body = {
+            "query": build_pdl_query(bachelor_year, strict=(mode == "strict")),
+            "size": size,
+            "titlecase": True,
+            "data_include": _PDL_FIELDS,
+        }
+        if scroll_token:
+            body["scroll_token"] = scroll_token
+        try:
+            r = requests.post(PDL_ENDPOINT, headers={"X-Api-Key": config.PDL_API_KEY.strip(), "Content-Type": "application/json"},
+                              json=body, timeout=60)
+        except Exception as ex:
+            logger.error(f"PDL request failed: {ex}")
+            return {"error": "Could not reach People Data Labs.", "code": 502}
+
+        if r.status_code == 404:
+            # No matching records (this costs nothing).
+            if mode == "strict" and not scroll_token and attempt == 0:
+                mode = "broad"     # retry once without the start-date clause
+                continue
+            return {"matches": [], "records_used": 0, "scanned": 0, "skipped": {}, "total_matching": 0,
+                    "next_scroll_token": None, "exhausted": True, "mode": mode}
+        if r.status_code in (401, 403):
+            return {"error": "People Data Labs rejected the API key. Check PDL_API_KEY.", "code": 502}
+        if r.status_code == 402:
+            return {"error": "People Data Labs credits are used up for this month (the free plan includes 100 records a month).", "code": 402}
+        if r.status_code == 429:
+            return {"error": "People Data Labs rate limit reached - wait a few seconds and try again.", "code": 429}
+        if r.status_code != 200:
+            msg = ""
+            try:
+                msg = (r.json().get("error") or {}).get("message", "")
+            except Exception:
+                pass
+            logger.error(f"PDL HTTP {r.status_code}: {r.text[:300]}")
+            return {"error": f"People Data Labs returned an error ({r.status_code}). {msg}".strip(), "code": 502}
+
+        payload = r.json()
+        records = payload.get("data") or []
+        matches, skipped = [], {}
+        for person in records:
+            cand, reason = evaluate_pdl_person(person, bachelor_year)
+            if cand:
+                matches.append(cand)
+            else:
+                skipped[reason] = skipped.get(reason, 0) + 1
+        return {
+            "matches": matches,
+            "records_used": len(records),
+            "scanned": len(records),
+            "skipped": skipped,
+            "total_matching": payload.get("total"),
+            "next_scroll_token": payload.get("scroll_token"),
+            "exhausted": len(records) < size or not payload.get("scroll_token"),
+            "mode": mode,
+        }
+    return {"error": "People Data Labs search did not return a result.", "code": 502}

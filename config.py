@@ -41,6 +41,9 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 # --- Apify (job scraping) ---
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 
+# --- People Data Labs (structured people search; free tier = 100 records/month) ---
+PDL_API_KEY = os.getenv("PDL_API_KEY", "")
+
 # --- Database ---
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()

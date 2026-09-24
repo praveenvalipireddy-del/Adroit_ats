@@ -330,9 +330,27 @@
                     <div class="filter-panel" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; margin-bottom: 24px; box-shadow: var(--shadow-card);">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
                             <span style="font-size:11px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; padding:3px 9px; border-radius:6px;">Live LinkedIn search</span>
-                            <span style="font-size:0.8rem; color:#64748b;">Uses Apify credits: about $0.20 per 25 profiles scanned, and the depth you pick is the maximum spend. Only roughly 1 in 10 scanned profiles fits the exact year plus a US Master's, so a deeper search finds more people. It stops early once enough matches are found, and clicking again continues with new profiles (matches found today are kept).</span>
+                            <span style="font-size:0.8rem; color:#64748b;">Pick a data source. <b>People Data Labs</b> (free tier) searches its database on the education fields themselves, so nearly every record it returns is already a candidate; it uses 1 of your 100 free monthly records per person returned. <b>Apify</b> scans LinkedIn profiles at about $0.20 per 25, and only roughly 1 in 10 fits. Either way, every result is re-checked against the profile's education before it is shown, and clicking again continues with new people (matches found today are kept).</span>
                         </div>
                         <form id="form-student-search" onsubmit="return false;">
+                            <!-- Data source: which automated provider to use -->
+                            <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
+                                <div>
+                                    <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        🗂️ Data source
+                                    </label>
+                                    <select id="filter-student-source" class="form-control" style="height:42px; min-width:380px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
+                                        {% if has_pdl %}<option value="pdl">People Data Labs (free tier: 100 records/month)</option>{% endif %}
+                                        {% if has_apify %}<option value="apify">Apify LinkedIn (paid: about $0.20 per 25 profiles)</option>{% endif %}
+                                        {% if not has_pdl and not has_apify %}<option value="">No automated source set up yet</option>{% endif %}
+                                    </select>
+                                </div>
+                                {% if not has_pdl and not has_apify %}
+                                <div style="font-size:0.8rem; color:#b45309; max-width:520px; line-height:1.4;">
+                                    Automated search needs a data source. The free option: create a free account at peopledatalabs.com, copy the API key and add it as <b>PDL_API_KEY</b> in the server's Environment settings.
+                                </div>
+                                {% endif %}
+                            </div>
                             <div style="display: grid; grid-template-columns: 240px 300px 140px 1fr; gap: 12px; align-items: flex-end;">
                                 <!-- 1. Strict Bachelor's Passout Year Filter (India) -->
                                 <div>
@@ -352,16 +370,28 @@
                                     </div>
                                 </div>
 
-                                <!-- 2. Search depth: how many LinkedIn profiles to scan per click (this is what costs money) -->
+                                <!-- 2. Search size: what each click costs. Which control shows depends on the data source. -->
                                 <div>
-                                    <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        🔎 Search depth
-                                    </label>
-                                    <select id="filter-student-depth" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
-                                        <option value="3">Quick: 75 profiles (about $0.60)</option>
-                                        <option value="6" selected>Standard: 150 profiles (about $1.20)</option>
-                                        <option value="12">Deep: 300 profiles (about $2.40)</option>
-                                    </select>
+                                    <div id="wrap-depth-apify" style="display:none;">
+                                        <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                            🔎 Search depth
+                                        </label>
+                                        <select id="filter-student-depth" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
+                                            <option value="3">Quick: 75 profiles (about $0.60)</option>
+                                            <option value="6" selected>Standard: 150 profiles (about $1.20)</option>
+                                            <option value="12">Deep: 300 profiles (about $2.40)</option>
+                                        </select>
+                                    </div>
+                                    <div id="wrap-depth-pdl">
+                                        <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                                            🔎 Records to fetch
+                                        </label>
+                                        <select id="filter-student-pdl-size" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
+                                            <option value="10">10 records (10 free credits)</option>
+                                            <option value="25" selected>25 records (25 free credits)</option>
+                                            <option value="50">50 records (half the monthly free credits)</option>
+                                        </select>
+                                    </div>
                                 </div>
 
                                 <!-- 3. Search Button -->
@@ -1041,7 +1071,7 @@
     <!-- TOAST NOTIFICATION CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="/static/js/app.js?v=5.11.1"></script>
+    <script src="/static/js/app.js?v=5.12.0"></script>
 
     <!-- Recruiter Management Inline Fallback -->
     <script>

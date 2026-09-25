@@ -1298,46 +1298,11 @@ function summarizeStudentSkips(skipped) {
         .join(' · ');
 }
 
-// Verified LinkedIn matches accumulate per selected year (and per day), and each
-// new search continues from the next pages of LinkedIn results, so clicking
-// "Search LinkedIn" again finds NEW people instead of re-scanning (and
-// re-paying for) the same first pages.
-const studentsFound = {};
-
-function studentsDayKey(prefix, by) {
-    return `${prefix}:${new Date().toISOString().slice(0, 10)}:${by}`;
-}
-
-function loadStudentsFound(by) {
-    if (!studentsFound[by]) {
-        try {
-            studentsFound[by] = JSON.parse(localStorage.getItem(studentsDayKey('studentsFound', by)) || '[]');
-        } catch (e) {
-            studentsFound[by] = [];
-        }
-    }
-    return studentsFound[by];
-}
-
-function saveStudentsFound(by) {
-    try {
-        localStorage.setItem(studentsDayKey('studentsFound', by), JSON.stringify(studentsFound[by] || []));
-    } catch (e) { /* storage unavailable: results just won't persist across reloads */ }
-}
-
-function getStudentsNextPage(by) {
-    try {
-        return Math.max(1, parseInt(localStorage.getItem(studentsDayKey('studentsNextPage', by)) || '1', 10) || 1);
-    } catch (e) {
-        return 1;
-    }
-}
-
-function setStudentsNextPage(by, page) {
-    try {
-        localStorage.setItem(studentsDayKey('studentsNextPage', by), String(page > 80 ? 1 : page));
-    } catch (e) { /* ignore */ }
-}
+// Verified LinkedIn matches are stored server-side in a shared pool (sourcing_store.py)
+// so every recruiter on the team sees each other's finds and nobody re-pays PDL/Apify to
+// re-discover the same person. The Sourcing tab reads that pool for free on open; only
+// "Search LinkedIn" spends credits, and even then continues from wherever the TEAM's last
+// search left off (see /api/students/sourced-pool, search-start, pdl-search on the server).
 
 // Show the size control that belongs to the selected data source.
 function syncStudentSourceUi() {
@@ -1360,6 +1325,7 @@ function setPresetFilter(keyword, bachelorYear) {
 // runLive=true : also starts the paid live LinkedIn search and streams results in.
 async function loadStudents(runLive = false) {
     const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
+    const source = document.getElementById('filter-student-source')?.value || '';
     const tbody = document.getElementById('students-table-body');
     const resultsElem = document.getElementById('students-results-wrapper');
     const jsonHeaders = { 'Content-Type': 'application/json' };
@@ -1374,7 +1340,22 @@ async function loadStudents(runLive = false) {
     } catch (err) {
         console.error('Error loading bench candidates:', err);
     }
-    const found = loadStudentsFound(by);
+
+    // 2) Instant and free: everything the WHOLE TEAM has already found for this source
+    // + year, read straight from the shared database - no PDL/Apify call involved.
+    let found = [];
+    let poolExhausted = false;
+    if (source) {
+        try {
+            const poolRes = await fetch(`/api/students/sourced-pool?source=${encodeURIComponent(source)}&bachelor_year=${encodeURIComponent(by)}`);
+            if (poolRes.status === 401) { window.location.href = '/login'; return; }
+            const poolData = await poolRes.json().catch(() => ({}));
+            found = poolData.matches || [];
+            poolExhausted = !!poolData.exhausted;
+        } catch (err) {
+            console.error('Error loading shared sourcing pool:', err);
+        }
+    }
     state.students = imported.concat(found);
     state.studentsLoaded = true;
     updateStudentMetrics(state.students);
@@ -1383,9 +1364,8 @@ async function loadStudents(runLive = false) {
     if (!runLive) {
         studentsEmptyMessage = 'No candidates to show yet. Click "Search LinkedIn" to find India-Bachelor\'s + US-Master\'s profiles for the selected year.';
         renderStudentsGrid(state.students);
-        const nextPage = getStudentsNextPage(by);
         setStudentsSearchStatus(found.length > 0
-            ? `Showing <b>${found.length}</b> verified LinkedIn match(es) found earlier today for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to fetch more (it uses your chosen data source's credits; pick the size first).`
+            ? `Showing <b>${found.length}</b> verified match(es) your team has already found for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to fetch more (it uses your chosen data source's credits; pick the size first).`
             : `Pick a data source and size, then click <b>Search LinkedIn</b>. People Data Labs uses 1 free monthly record per person returned; Apify costs about $0.20 per 25 profiles scanned.`);
         return;
     }
@@ -1417,7 +1397,6 @@ async function loadStudents(runLive = false) {
     let skipped = {};
     let cost = null;
     try {
-        const source = document.getElementById('filter-student-source')?.value || '';
         if (!source) {
             studentsEmptyMessage = 'No automated data source is set up yet. Add PDL_API_KEY (free at peopledatalabs.com) in the server settings, or use the Google X-Ray / LinkedIn Search buttons above.';
             setStudentsSearchStatus(`<span style="color:#b45309;">${escapeHtml(studentsEmptyMessage)}</span>`);
@@ -1428,12 +1407,13 @@ async function loadStudents(runLive = false) {
         // ---- People Data Labs: one quick call, results already filtered on education ----
         if (source === 'pdl') {
             const size = parseInt(document.getElementById('filter-student-pdl-size')?.value || '25', 10) || 25;
-            // 'studentsPdl2': new key so an "exhausted" flag saved by the older, stricter query cannot block a retry
-            const pdlKey = studentsDayKey('studentsPdl2', by);
-            let saved = {};
-            try { saved = JSON.parse(localStorage.getItem(pdlKey) || '{}'); } catch (e) { saved = {}; }
-            if (saved.exhausted) {
-                setStudentsSearchStatus(`You have already fetched every People Data Labs record for ${escapeHtml(by)} today (${found.length} verified match(es) shown). Try another year, or switch the data source.`);
+            const stepsHtml = (tried) => (tried || []).length
+                ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Search steps tried</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${tried.map(t => `${escapeHtml(t.label)}: ${escapeHtml(t.result)}`).join('<br>')}</div></details>`
+                : '';
+            // The server (not this browser) tracks whether the TEAM has already exhausted
+            // this search, so a teammate finishing it on another machine is honored here too.
+            if (poolExhausted) {
+                setStudentsSearchStatus(`Your team has already fetched every People Data Labs record for ${escapeHtml(by)} (${found.length} verified match(es) shown). Try another year, or switch the data source.`);
                 renderStudentsGrid(state.students);
                 return;
             }
@@ -1442,13 +1422,10 @@ async function loadStudents(runLive = false) {
             const res = await fetch('/api/students/pdl-search', {
                 method: 'POST',
                 headers: jsonHeaders,
-                body: JSON.stringify({ bachelor_year: by, size: size, scroll_token: saved.token || null, mode: saved.mode || 'strict' })
+                body: JSON.stringify({ bachelor_year: by, size: size })
             });
             if (res.status === 401) { window.location.href = '/login'; return; }
             const data = await res.json().catch(() => ({}));
-            const stepsHtml = (tried) => (tried || []).length
-                ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Search steps tried</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${tried.map(t => `${escapeHtml(t.label)}: ${escapeHtml(t.result)}`).join('<br>')}</div></details>`
-                : '';
             if (!res.ok) {
                 studentsEmptyMessage = data.error || 'The People Data Labs search failed.';
                 setStudentsSearchStatus(`<span style="color:#b91c1c;">${escapeHtml(studentsEmptyMessage)}</span>${stepsHtml(data.tried)}`);
@@ -1458,9 +1435,7 @@ async function loadStudents(runLive = false) {
             const knownUrls = new Set(found.map(c => c.profile_url));
             const fresh = (data.matches || []).filter(c => !knownUrls.has(c.profile_url));
             fresh.forEach(c => found.push(c));
-            try { localStorage.setItem(pdlKey, JSON.stringify({ token: data.exhausted ? null : (data.next_scroll_token || null), mode: (!data.exhausted && data.next_scroll_token) ? (data.mode || 'strict') : 'strict', exhausted: !!data.exhausted && (data.records_used || 0) > 0 })); } catch (e) { /* ignore */ }
             state.students = imported.concat(found);
-            saveStudentsFound(by);
             const skipText = summarizeStudentSkips(data.skipped || {});
             const totalText = data.total_matching ? ` People Data Labs reports about ${Number(data.total_matching).toLocaleString()} people matching the search overall.` : '';
             const modeText = (data.records_used || 0) > 0 && data.mode && data.mode !== 'strict' ?` (relaxed search: ${escapeHtml(data.mode_label || data.mode)} - lower precision)` : '';
@@ -1468,7 +1443,7 @@ async function loadStudents(runLive = false) {
             const detailsHtml = examples.length
                 ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Why were some records skipped? (education entries only, no names)</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${examples.map((ex, i) => `<div style="margin-bottom:6px;"><b>Record ${i + 1}: ${escapeHtml(STUDENT_SKIP_LABELS[ex.reason] || ex.reason)}</b><br>${(ex.education || []).map(l => escapeHtml(l)).join('<br>')}</div>`).join('')}</div></details>`
                 : '';
-            setStudentsSearchStatus(`Fetched <b>${data.records_used || 0}</b> record(s) (${data.records_used || 0} free-tier credit(s) used)${modeText}, <b>${fresh.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${totalText} ${data.exhausted ? 'No more records for this search.' : 'Click Search LinkedIn again for the next batch.'}${detailsHtml}${stepsHtml(data.tried)}`);
+            setStudentsSearchStatus(`Fetched <b>${data.records_used || 0}</b> record(s) (${data.records_used || 0} free-tier credit(s) used)${modeText}, <b>${fresh.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} across your team). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${totalText} ${data.exhausted ? 'No more records for this search.' : 'Click Search LinkedIn again for the next batch.'}${detailsHtml}${stepsHtml(data.tried)}`);
             if (found.length === 0) {
                 studentsEmptyMessage = (data.records_used || 0) === 0
                     ? `People Data Labs has no records for Bachelor's ${by} at an Indian college plus a US Master's, even with the loosest check (no credits were used). Try another year, or use the Google X-Ray / LinkedIn Search buttons above.`
@@ -1482,14 +1457,12 @@ async function loadStudents(runLive = false) {
         setStudentsSearchStatus('Starting live LinkedIn search...');
         if (imported.length > 0) renderStudentsGrid(state.students); else showSearching(0, 0);
 
-        const startPage = getStudentsNextPage(by);
         const depthPages = parseInt(document.getElementById('filter-student-depth')?.value || '6', 10) || 6;
         // Stop early (and stop paying) once this many verified matches have been found.
         const targetMatches = depthPages <= 3 ? 8 : (depthPages <= 6 ? 15 : 30);
         const WAVE = 3;   // one-page runs started in parallel per step
         const sleep = (ms) => new Promise(r => setTimeout(r, ms));
         const costByRun = {};
-        let nextPage = startPage;
         let pagesUsed = 0;
         let stopMessage = '';
         const startedAt = Date.now();
@@ -1500,14 +1473,16 @@ async function loadStudents(runLive = false) {
         // decides whether to continue (more pages allowed and target matches not yet reached).
         while (pagesUsed < depthPages && matches.length < targetMatches && timeLeft()) {
             const waveSize = Math.min(WAVE, depthPages - pagesUsed);
-            const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, start_page: nextPage, pages: waveSize }) });
+            // start_page is decided server-side from the TEAM's shared cursor (sourcing_store),
+            // not sent from here, so two recruiters searching at once still get non-overlapping pages.
+            const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, pages: waveSize }) });
             if (startRes.status === 401) { window.location.href = '/login'; return; }
             const start = await startRes.json().catch(() => ({}));
             if (!startRes.ok) { stopMessage = start.error || 'Could not start the LinkedIn search.'; break; }
             const runs = (start.runs || []).map(r => ({ ...r, offset: 0, done: false, failures: 0 }));
             pagesUsed += runs.length;
-            nextPage = start.next_start_page || (nextPage + runs.length);
             if (start.warning) stopMessage = start.warning;
+            if (runs.length === 0) break;
 
             while (runs.some(r => !r.done) && timeLeft()) {
                 await sleep(4000);
@@ -1550,14 +1525,12 @@ async function loadStudents(runLive = false) {
             return;
         }
 
-        // Next search continues from the following pages of LinkedIn results.
-        setStudentsNextPage(by, nextPage);
-        saveStudentsFound(by);
-
+        // Every verified match was already saved to the shared pool by the server as it
+        // was found (see search-poll), so nothing needs to be persisted from here.
         const skipText = summarizeStudentSkips(skipped);
         // Apify finalizes a run's cost slightly after it ends, so only show it when it is a real figure.
         const costText = (cost !== null && Number(cost) > 0) ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
-        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} today). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.${stopMessage ? ' <span style="color:#b45309;">Note: ' + escapeHtml(stopMessage) + '</span>' : ''}`);
+        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} across your team). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.${stopMessage ? ' <span style="color:#b45309;">Note: ' + escapeHtml(stopMessage) + '</span>' : ''}`);
         if (found.length === 0) {
             studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Click "Search LinkedIn" again to scan the next pages of results (each search moves on to new profiles).`;
             renderStudentsGrid(state.students);
@@ -1569,7 +1542,6 @@ async function loadStudents(runLive = false) {
         renderStudentsGrid(state.students);
     } finally {
         studentsLiveSearchRunning = false;
-        saveStudentsFound(by);
         if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
     }
 }

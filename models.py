@@ -243,7 +243,60 @@ def init_db():
     );
     """)
 
+    # 6. Sourcing: verified matches found by ANY recruiter, shared by the whole team so
+    # nobody pays to re-scan a search someone else already ran (see sourcing_store.py).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sourced_candidates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        search_year TEXT NOT NULL DEFAULT '',
+        profile_url TEXT NOT NULL,
+        name TEXT,
+        headline TEXT,
+        bachelor_year TEXT,
+        bachelor_degree TEXT,
+        bachelor_college TEXT,
+        master_degree TEXT,
+        master_university TEXT,
+        master_year TEXT,
+        location TEXT,
+        status_tag TEXT,
+        settlement_badge TEXT,
+        settlement_sub TEXT,
+        quality TEXT,
+        degree TEXT,
+        found_by_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # 7. Sourcing: one search cursor per (source, year) shared by the whole team - the
+    # next click continues from wherever the LAST recruiter's search left off, instead of
+    # every recruiter re-scanning from page 1.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sourcing_cursor (
+        source TEXT NOT NULL,
+        search_year TEXT NOT NULL DEFAULT '',
+        next_page INTEGER DEFAULT 1,
+        scroll_token TEXT,
+        mode TEXT,
+        exhausted INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (source, search_year)
+    );
+    """)
+
     conn.commit()
+
+    # sourced_candidates needs one profile per source at most - added after the CREATE (same
+    # statement works on both SQLite and Postgres) so it applies to databases that already
+    # had the table before this constraint existed.
+    try:
+        cursor.execute("""CREATE UNIQUE INDEX IF NOT EXISTS ux_sourced_candidates_source_url
+                          ON sourced_candidates (source, profile_url)""")
+        conn.commit()
+    except Exception as ex:
+        print("[WARN] sourced_candidates unique index:", ex)
 
     # Apply schema migrations for missing columns in existing databases
     migrate_db(conn)

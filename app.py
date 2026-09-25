@@ -17,6 +17,7 @@ import models
 import resume_bot
 import apify_service
 import linkedin_sourcing
+import sourcing_store
 import gmail_multi_manager
 import us_job_scrapers
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
@@ -1167,26 +1168,53 @@ def api_search_students():
 _APIFY_ID_RE = re.compile(r"^[A-Za-z0-9]{8,40}$")
 
 
+@app.route("/api/students/sourced-pool", methods=["GET"])
+def api_students_sourced_pool():
+    """Every verified match ANY recruiter has already found for this (source, year) -
+    read from the shared database, costs nothing. The Sourcing tab calls this first so
+    the whole team sees each other's results instantly instead of re-paying to re-find them."""
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+    source = (request.args.get("source") or "").strip()
+    if source not in ("pdl", "apify"):
+        return jsonify({"error": "source must be 'pdl' or 'apify'"}), 400
+    bachelor_year = _parse_bachelor_year({"bachelor_year": request.args.get("bachelor_year")})
+    matches = sourcing_store.get_cached_matches(source, bachelor_year)
+    cursor = sourcing_store.get_cursor(source, bachelor_year)
+    return jsonify({"matches": matches, "exhausted": cursor["exhausted"]})
+
+
 @app.route("/api/students/search-start", methods=["POST", "OPTIONS"])
 def api_students_search_start():
     """Start a live LinkedIn search (costs Apify credits, capped per search and
     per day). Returns the Apify run/dataset ids; the client then polls
-    /api/students/search-poll. Login required - this spends real money."""
+    /api/students/search-poll. Login required - this spends real money.
+
+    start_page comes from the TEAM'S shared cursor, not the browser: once one
+    recruiter has scanned pages 1-5 for a year, the next recruiter's search (on
+    any device) continues at page 6 instead of re-paying to re-scan 1-5."""
     if request.method == "OPTIONS":
         return make_response("", 200)
-    if not current_user():
+    user = current_user()
+    if not user:
         return jsonify({"error": "Login required"}), 401
 
     data = request.get_json(silent=True) or {}
     bachelor_year = _parse_bachelor_year(data)
+    cursor = sourcing_store.get_cursor("apify", bachelor_year)
+    start_page = cursor["next_page"]
+    pages = data.get("pages") or 1
     result = linkedin_sourcing.start_search(
         bachelor_year,
-        pages=data.get("pages") or 1,   # number of parallel one-page runs to start (max 5)
+        pages=pages,   # number of parallel one-page runs to start (max 5)
         location=data.get("location") or "United States",
-        start_page=data.get("start_page") or 1,
+        start_page=start_page,
     )
     if result.get("error"):
         return jsonify({"error": result["error"]}), result.get("code", 500)
+    # Reserve this page range immediately so a second recruiter clicking Search in the
+    # same moment gets the NEXT range, not an overlapping (double-paid) one.
+    sourcing_store.save_cursor("apify", bachelor_year, next_page=result["next_start_page"])
     result["bachelor_year"] = bachelor_year
     return jsonify(result)
 
@@ -1197,7 +1225,8 @@ def api_students_search_poll():
     scanned profiles that pass the strict India-Bachelor's + US-Master's check."""
     if request.method == "OPTIONS":
         return make_response("", 200)
-    if not current_user():
+    user = current_user()
+    if not user:
         return jsonify({"error": "Login required"}), 401
 
     data = request.get_json(silent=True) or {}
@@ -1211,12 +1240,16 @@ def api_students_search_poll():
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid offset"}), 400
 
+    bachelor_year = _parse_bachelor_year(data)
     result = linkedin_sourcing.poll_search(
-        run_id, dataset_id, _parse_bachelor_year(data), offset, matched_so_far,
+        run_id, dataset_id, bachelor_year, offset, matched_so_far,
         target=data.get("target") or linkedin_sourcing.TARGET_MATCHES,
     )
     if result.get("error"):
         return jsonify({"error": result["error"]}), result.get("code", 500)
+    # Every recruiter's find goes straight into the shared pool - the next person who
+    # searches this year sees it for free instead of Apify re-scanning the same profile.
+    sourcing_store.save_matches("apify", bachelor_year, result.get("new_matches") or [], user["id"])
     return jsonify(result)
 
 
@@ -1225,18 +1258,38 @@ def api_students_pdl_search():
     """Search People Data Labs (free tier: 100 records/month; each RETURNED record
     costs 1 credit). Synchronous - one quick call returns already-verified
     India-Bachelor's + US-Master's matches. Login is enforced by the
-    /api/students/ before_request guard."""
+    /api/students/ before_request guard.
+
+    The scroll cursor is the TEAM'S shared one (sourcing_store), not the caller's
+    browser: once one recruiter has paged through some records for a year, the
+    next recruiter's search continues from there instead of re-paying to fetch
+    the same records again. If the team already exhausted this search, no PDL
+    call is made at all."""
     if request.method == "OPTIONS":
         return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
     data = request.get_json(silent=True) or {}
+    bachelor_year = _parse_bachelor_year(data)
+    cursor = sourcing_store.get_cursor("pdl", bachelor_year)
+    if cursor["exhausted"]:
+        return jsonify({"matches": [], "records_used": 0, "scanned": 0, "skipped": {}, "skipped_examples": [],
+                        "total_matching": None, "next_scroll_token": None, "exhausted": True,
+                        "mode": cursor["mode"] or "strict", "mode_label": "already fully searched by your team", "tried": []})
     result = linkedin_sourcing.pdl_search(
-        _parse_bachelor_year(data),
+        bachelor_year,
         size=data.get("size") or 25,
-        scroll_token=(data.get("scroll_token") or None),
-        mode=(data.get("mode") or None),
+        scroll_token=cursor["scroll_token"],
+        mode=cursor["mode"],
     )
     if result.get("error"):
         return jsonify({"error": result["error"], "tried": result.get("tried") or []}), result.get("code", 500)
+    # Every recruiter's find goes straight into the shared pool, and the cursor moves
+    # forward for the whole team - the next search (by anyone) picks up from here.
+    sourcing_store.save_matches("pdl", bachelor_year, result.get("matches") or [], user["id"])
+    sourcing_store.save_cursor("pdl", bachelor_year, scroll_token=result.get("next_scroll_token"),
+                                mode=result.get("mode"), exhausted=bool(result.get("exhausted")))
     return jsonify(result)
 
 

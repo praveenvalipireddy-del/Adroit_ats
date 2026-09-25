@@ -22,6 +22,7 @@ refuses to start new runs once the day's spend hits SOURCING_DAILY_BUDGET_USD.
 
 import os
 import re
+import time
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -743,8 +744,12 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
     start = PDL_TIER_NAMES.index(mode) if mode in PDL_TIER_NAMES else 0
     levels = [start] if scroll_token else list(range(start, len(PDL_TIERS)))
 
+    def _post(body):
+        return requests.post(PDL_ENDPOINT, headers={"X-Api-Key": config.PDL_API_KEY.strip(), "Content-Type": "application/json"},
+                             json=body, timeout=60)
+
     tried, rejected = [], []
-    for level in levels:
+    for i, level in enumerate(levels):
         name, label = PDL_TIERS[level]
         body = {
             "query": build_pdl_query(bachelor_year, tier=name),
@@ -754,12 +759,19 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
         }
         if scroll_token:
             body["scroll_token"] = scroll_token
+        # A single click can walk up to 5 tiers back-to-back; PDL's per-key rate limit is
+        # per MINUTE but still trips on a fast burst, so pace successive attempts and give
+        # one short backoff-and-retry before treating it as a real rate-limit failure.
+        if i > 0:
+            time.sleep(0.5)
         try:
-            r = requests.post(PDL_ENDPOINT, headers={"X-Api-Key": config.PDL_API_KEY.strip(), "Content-Type": "application/json"},
-                              json=body, timeout=60)
+            r = _post(body)
+            if r.status_code == 429:
+                time.sleep(2.0)
+                r = _post(body)
         except Exception as ex:
             logger.error(f"PDL request failed: {ex}")
-            return {"error": "Could not reach People Data Labs.", "code": 502}
+            return {"error": "Could not reach People Data Labs.", "code": 502, "tried": tried}
 
         if r.status_code == 404:
             tried.append({"tier": name, "label": label, "result": "no matching records (free)"})
@@ -771,14 +783,15 @@ def pdl_search(bachelor_year: Optional[int], size: int = 25, scroll_token: Optio
             tried.append({"tier": name, "label": label, "result": "query rejected by PDL: " + (msg[:160] or "no reason given")})
             continue
         if r.status_code in (401, 403):
-            return {"error": "People Data Labs rejected the API key. Check PDL_API_KEY.", "code": 502}
+            return {"error": "People Data Labs rejected the API key. Check PDL_API_KEY.", "code": 502, "tried": tried}
         if r.status_code == 402:
-            return {"error": "People Data Labs credits are used up for this month (the free plan includes 100 records a month).", "code": 402}
+            return {"error": "People Data Labs credits are used up for this month (the free plan includes 100 records a month).", "code": 402, "tried": tried}
         if r.status_code == 429:
-            return {"error": "People Data Labs rate limit reached - wait a few seconds and try again.", "code": 429}
+            tried.append({"tier": name, "label": label, "result": "rate limited by PDL"})
+            return {"error": "People Data Labs rate limit reached - wait a few seconds and try again.", "code": 429, "tried": tried}
         if r.status_code != 200:
             logger.error(f"PDL HTTP {r.status_code}: {r.text[:300]}")
-            return {"error": f"People Data Labs returned an error ({r.status_code}). {_pdl_error_message(r)}".strip(), "code": 502}
+            return {"error": f"People Data Labs returned an error ({r.status_code}). {_pdl_error_message(r)}".strip(), "code": 502, "tried": tried}
 
         payload = r.json()
         records = payload.get("data") or []

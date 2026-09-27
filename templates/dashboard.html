@@ -646,6 +646,13 @@
                         <div>
                             <h2>AI Master Resume Optimization Bot</h2>
                             <p>Align candidate resumes with client JDs following the strict ATS Keyword & Domain Optimization Rules. Generates ready-to-submit Word (.docx) resumes with tailored highlights.</p>
+                            <p style="font-size:0.8rem; color:{{ '#059669' if has_gemini else '#b45309' }}; margin-top:4px;">
+                                {% if has_gemini %}
+                                ✨ Real AI rewriting via Google Gemini's free tier is active. If its free daily quota runs out, results fall back to keyword-matching only (each result says which one was used).
+                                {% else %}
+                                ⚠️ No GEMINI_API_KEY configured yet - results use keyword-matching only, not real AI rewriting. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#b45309;">aistudio.google.com/apikey</a> and add it as GEMINI_API_KEY.
+                                {% endif %}
+                            </p>
                         </div>
                     </div>
 
@@ -693,6 +700,7 @@
                             <div>
                                 <h3 id="result-title">Resume Optimization Complete</h3>
                                 <span id="result-domain" class="badge badge-domain">Fintech / Banking</span>
+                                <span id="result-ai-badge" style="margin-left:6px;"></span>
                             </div>
                             <button class="btn btn-success" id="btn-download-optimized-docx">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -1091,7 +1099,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.19.0"></script>
+    <script src="/static/js/app.js?v=5.20.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

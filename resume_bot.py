@@ -1,10 +1,20 @@
 import re
 import os
 import io
+import logging
 import docx
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pypdf
+
+import config
+
+logger = logging.getLogger("resume_bot")
+
+# Free-tier Gemini model for the real AI rewrite (aistudio.google.com/apikey - no card
+# needed). Kept on the "-latest" alias so it keeps pointing at a free-tier-eligible Flash
+# model as Google updates what that alias means, rather than pinning a dated version here.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 # Master domains catalog
 DOMAINS = {
@@ -76,6 +86,56 @@ def extract_skills_from_text(text):
         if re.search(pattern, text):
             found.append(tech)
     return list(dict.fromkeys(found))
+
+def gemini_configured() -> bool:
+    return bool((config.GEMINI_API_KEY or "").strip())
+
+
+def _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills, skills_to_add, domain):
+    """Real AI rewrite via Gemini's free tier. Returns None - never raises - when no key is
+    configured, the free daily quota is used up, or any other error occurs. Callers must
+    fall back to the deterministic rule-based rewrite in that case, so the feature keeps
+    working (just without AI phrasing) instead of breaking once the free quota runs out."""
+    if not gemini_configured():
+        return None
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=config.GEMINI_API_KEY.strip())
+        system_instruction = (
+            "You are an ATS resume optimization expert for US IT staffing. Rewrite the given "
+            "resume so it naturally incorporates the listed keywords where genuinely relevant. "
+            "STRICT RULES: never invent employers, job titles, dates, degrees, or certifications "
+            "that are not already in the original resume. Never change any date, company name, "
+            "or the chronological order of jobs. Keep every real detail of the candidate's "
+            "actual experience - only rephrase bullet points and skills sections and weave in "
+            "relevant keywords/technologies. Return ONLY the rewritten resume text - no "
+            "commentary, no markdown fences, no preamble."
+        )
+        prompt = (
+            f"ORIGINAL RESUME:\n{resume_text}\n\n"
+            f"TARGET JOB DESCRIPTION:\n{jd_text}\n\n"
+            f"Domain: {domain}\n"
+            f"Keywords already present (keep as-is): {', '.join(matched_skills) or 'none'}\n"
+            f"Keywords to naturally weave in, only where truthful: {', '.join(skills_to_add) or 'none'}\n"
+            + (f"Additional instructions from the recruiter: {custom_instructions}\n" if custom_instructions else "")
+        )
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                max_output_tokens=2000,
+                temperature=0.4,
+            ),
+        )
+        text = (response.text or "").strip()
+        return text or None
+    except Exception as ex:
+        logger.warning(f"Gemini AI rewrite unavailable, using rule-based fallback: {ex}")
+        return None
+
 
 def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
     """
@@ -214,12 +274,20 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
 
     updated_resume_text = "\n".join(updated_resume_lines)
 
+    # Real AI rewrite when Gemini is configured and its free tier is available this call;
+    # the deterministic rewrite above is the guaranteed fallback either way, so the result
+    # always has genuine content - it's just less naturally phrased without the AI pass.
+    ai_text = _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills, safe_to_add, jd_domain)
+    ai_powered = ai_text is not None
+    final_resume_text = ai_text if ai_powered else updated_resume_text
+
     return {
         "candidate_name": candidate_name,
         "initial_match_percentage": initial_score,
         "target_match_percentage": target_score,
         "match_decision": decision,
         "enhancement_level": enhancement_level,
+        "ai_powered": ai_powered,
         "domain_detected": jd_domain,
         "mandatory_matched_skills": matched_skills,
         "mandatory_missing_skills": missing_skills,
@@ -236,7 +304,7 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
             "Enhanced recent project bullets with quantifiable architectural action verbs.",
             "Preserved original employment dates, companies, and timeline realism perfectly."
         ],
-        "updated_resume_text": updated_resume_text
+        "updated_resume_text": final_resume_text
     }
 
 def create_docx_resume(resume_text, candidate_name="Candidate"):

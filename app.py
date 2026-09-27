@@ -98,8 +98,8 @@ def login():
 
     error_msg = None
     if request.method == "POST":
-        email = request.form.get("email") or (request.json or {}).get("email", "")
-        password = request.form.get("password") or (request.json or {}).get("password", "")
+        email = request.form.get("email") or (request.get_json(silent=True) or {}).get("email", "")
+        password = request.form.get("password") or (request.get_json(silent=True) or {}).get("password", "")
         email = email.strip()
 
         user = models.authenticate_user(email, password)
@@ -284,7 +284,7 @@ def api_consultants():
         is_admin = ("Admin" in user.get("role", ""))
         assigned_user_id = user["id"]
         if is_admin:
-            req_assigned = (request.form.get("assigned_user_id") if request.form else None) or (request.json or {}).get("assigned_user_id")
+            req_assigned = (request.form.get("assigned_user_id") if request.form else None) or (request.get_json(silent=True) or {}).get("assigned_user_id")
             if req_assigned:
                 try: assigned_user_id = int(req_assigned)
                 except: pass

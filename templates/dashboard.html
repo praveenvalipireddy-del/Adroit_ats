@@ -1078,11 +1078,15 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.14.2"></script>
+    <script src="/static/js/app.js?v=5.15.0"></script>
 
-    <!-- Recruiter Management Inline Fallback -->
+    <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
+         feedback and no page reloads. These only fire if app.js somehow failed to load -
+         they used to be unconditional and silently WON (loaded after app.js, so they always
+         overwrote it), meaning every recruiter/reassign action ran this cruder alert()/reload()
+         version instead of the tested one in app.js. Guard each with "|| " so app.js wins. -->
     <script>
-    window.openAddRecruiterModal = function() {
+    window.openAddRecruiterModal = window.openAddRecruiterModal || function() {
         var modal = document.getElementById('modal-add-recruiter');
         if (modal) {
             modal.style.display = 'flex';
@@ -1090,11 +1094,11 @@
             if (nameInp) nameInp.focus();
         }
     };
-    window.closeAddRecruiterModal = function() {
+    window.closeAddRecruiterModal = window.closeAddRecruiterModal || function() {
         var modal = document.getElementById('modal-add-recruiter');
         if (modal) modal.style.display = 'none';
     };
-    window.submitAddRecruiter = async function(e) {
+    window.submitAddRecruiter = window.submitAddRecruiter || async function(e) {
         e.preventDefault();
         var name = (document.getElementById('rec-name') || {}).value || '';
         var email = (document.getElementById('rec-email') || {}).value || '';
@@ -1126,7 +1130,7 @@
             alert('Error creating recruiter: ' + err.message);
         }
     };
-    window.onResetRecruiterPassword = async function(recId, recName) {
+    window.onResetRecruiterPassword = window.onResetRecruiterPassword || async function(recId, recName) {
         var newPass = prompt('Enter new password for ' + recName + ':');
         if (!newPass) return;
         try {
@@ -1145,7 +1149,7 @@
             alert('Error: ' + err.message);
         }
     };
-    window.onDeleteRecruiter = async function(recId, recName) {
+    window.onDeleteRecruiter = window.onDeleteRecruiter || async function(recId, recName) {
         if (!confirm('Are you sure you want to delete ' + recName + '? All their consultants will be reassigned to Admin.')) return;
         try {
             var res = await fetch('/api/admin/recruiters/' + recId, {
@@ -1163,7 +1167,7 @@
             alert('Error: ' + err.message);
         }
     };
-    window.openReassignModal = function(candId, candName) {
+    window.openReassignModal = window.openReassignModal || function(candId, candName) {
         var modal = document.getElementById('modal-reassign-consultant');
         var idInp = document.getElementById('reassign-cand-id');
         var nameEl = document.getElementById('reassign-cand-name');
@@ -1173,11 +1177,11 @@
             modal.style.display = 'flex';
         }
     };
-    window.closeReassignModal = function() {
+    window.closeReassignModal = window.closeReassignModal || function() {
         var modal = document.getElementById('modal-reassign-consultant');
         if (modal) modal.style.display = 'none';
     };
-    window.submitReassign = async function(e) {
+    window.submitReassign = window.submitReassign || async function(e) {
         e.preventDefault();
         var candId = (document.getElementById('reassign-cand-id') || {}).value;
         var targetId = (document.getElementById('reassign-target-user-id') || {}).value;

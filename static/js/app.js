@@ -421,6 +421,27 @@ function closeConsultantModal() {
     if (modal) modal.style.display = 'none';
 }
 
+async function deleteConsultant(candId, candName) {
+    if (!confirm(`Are you sure you want to delete "${candName}"?\n\nThis removes their profile, resume, and pipeline history. This cannot be undone.`)) {
+        return;
+    }
+    try {
+        const res = await fetch(`/api/consultants/${candId}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(`${candName} deleted.`, 'success');
+            await fetchConsultants();
+        } else {
+            showToast(data.error || 'Failed to delete consultant.', 'error');
+        }
+    } catch (err) {
+        showToast('Error deleting consultant: ' + err.message, 'error');
+    }
+}
+
 function openUploadResumeModal(candId, candName) {
     document.getElementById('upload-candidate-id').value = candId;
     document.getElementById('upload-candidate-name-label').innerText = `Uploading resume for ${candName}`;
@@ -710,6 +731,21 @@ function renderJobsTable(jobs) {
             const recruiterEmail = emailInput ? emailInput.value.trim() : '';
 
             createJobDraft(jobId, candId, recruiterEmail, btn);
+        });
+    });
+
+    // Attach AI Outreach Copilot listeners (personalize the pitch for this job+candidate)
+    tbody.querySelectorAll('.btn-copilot-job').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const jobId = parseInt(btn.getAttribute('data-job-id'));
+            const row = btn.closest('tr');
+            const candSelect = row.querySelector('.job-consultant-select');
+            const candId = candSelect ? parseInt(candSelect.value) : state.activeConsultantId;
+            if (!candId) {
+                showToast('Please select a consultant first', 'warning');
+                return;
+            }
+            openAiCopilotModal(candId, jobId);
         });
     });
 }
@@ -2365,9 +2401,9 @@ function renderConsultantsTable() {
                         📄 .DOCX Ready
                     </span>
                 ` : `
-                    <span style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #fffbeb; color: #b45309; border: 1px solid #fde68a;">
-                        ⚠️ No Resume
-                    </span>
+                    <button class="btn btn-xs btn-upload-cand-resume" data-id="${c.id}" data-name="${escapeHtml(c.name)}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #fffbeb; color: #b45309; border: 1px solid #fde68a; cursor:pointer;">
+                        ⚠️ Upload Resume
+                    </button>
                 `}
             </td>
             <td style="padding: 14px 18px;">
@@ -2426,6 +2462,14 @@ function renderConsultantsTable() {
             const name = btn.getAttribute('data-name');
             const email = btn.getAttribute('data-email');
             openAppPasswordModal(candId, name, email);
+        });
+    });
+
+    tbody.querySelectorAll('.btn-upload-cand-resume').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const name = btn.getAttribute('data-name');
+            openUploadResumeModal(candId, name);
         });
     });
 

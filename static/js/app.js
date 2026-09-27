@@ -302,7 +302,7 @@ function renderConsultantsGrid() {
                         `<span style="color: #34d399; font-weight: 600;">✓ Connected (${escapeHtml(c.gmail_account || 'Active')})</span>` : 
                         `<div>
                             <button class="btn btn-success btn-xs btn-open-app-pass" data-id="${c.id}" data-name="${escapeHtml(c.name)}" data-email="${escapeHtml(c.email || '')}">🔑 App Password</button>
-                            <a href="/api/consultants/${c.id}/connect-gmail" class="btn btn-outline-primary btn-xs" style="margin-left:4px;">OAuth</a>
+                            ${window.HAS_GOOGLE_OAUTH ? `<a href="/api/consultants/${c.id}/connect-gmail" class="btn btn-outline-primary btn-xs" style="margin-left:4px;">OAuth</a>` : ''}
                          </div>`
                     }
                 </div>
@@ -2376,9 +2376,15 @@ function renderConsultantsTable() {
                         <span style="width: 7px; height: 7px; border-radius: 50%; background: #059669;"></span> Connected
                     </span>
                 ` : `
-                    <a href="/api/consultants/${c.id}/connect-gmail" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; text-decoration: none;">
-                        Connect Gmail
-                    </a>
+                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                        <button class="btn btn-xs btn-open-app-pass" data-id="${c.id}" data-name="${escapeHtml(c.name)}" data-email="${escapeHtml(c.email || '')}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; cursor:pointer;">
+                            🔑 App Password
+                        </button>
+                        ${window.HAS_GOOGLE_OAUTH ? `
+                        <a href="/api/consultants/${c.id}/connect-gmail" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; text-decoration: none;">
+                            OAuth
+                        </a>` : ''}
+                    </div>
                 `}
             </td>
             <td style="padding: 14px 18px; text-align: right;">
@@ -2411,6 +2417,15 @@ function renderConsultantsTable() {
             const candId = parseInt(btn.getAttribute('data-id'));
             const candName = btn.getAttribute('data-name');
             deleteConsultant(candId, candName);
+        });
+    });
+
+    tbody.querySelectorAll('.btn-open-app-pass').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            const name = btn.getAttribute('data-name');
+            const email = btn.getAttribute('data-email');
+            openAppPasswordModal(candId, name, email);
         });
     });
 

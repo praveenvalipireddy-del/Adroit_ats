@@ -182,7 +182,8 @@ def dashboard():
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN),
-            has_pdl=linkedin_sourcing.pdl_configured()
+            has_pdl=linkedin_sourcing.pdl_configured(),
+            has_google_oauth=gmail_multi_manager.oauth_configured()
         )
     except Exception as e:
         logger.warning(f"Using embedded template fallback: {e}")
@@ -195,7 +196,8 @@ def dashboard():
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN),
-            has_pdl=linkedin_sourcing.pdl_configured()
+            has_pdl=linkedin_sourcing.pdl_configured(),
+            has_google_oauth=gmail_multi_manager.oauth_configured()
         )
 
 # --- Stats & Activity API ---

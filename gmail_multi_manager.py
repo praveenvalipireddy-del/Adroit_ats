@@ -25,6 +25,13 @@ GMAIL_SCOPES = [
     "https://mail.google.com/"
 ]
 
+
+def oauth_configured() -> bool:
+    """Whether the Google OAuth 'Connect Gmail' button can actually work on this
+    server. Used to hide that button (and show only the always-available App
+    Password option) instead of letting a recruiter click into a guaranteed error."""
+    return OAUTH_CREDS_FILE.exists()
+
 def verify_gmail_app_password(gmail_address: str, app_password: str) -> Tuple[bool, str]:
     """Test login to Gmail via IMAP with App Password."""
     clean_pass = app_password.replace(" ", "").strip()

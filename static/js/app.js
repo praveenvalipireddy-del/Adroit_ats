@@ -1050,14 +1050,20 @@ function initResumeBot() {
                     return;
                 }
 
-                // Populate results
-                state.lastOptimizedResumeText = data.optimized_resume_text || data.optimized_summary || '';
+                // Populate results - field names must match resume_bot.optimize_resume_for_jd()'s
+                // actual return dict exactly (initial_match_percentage, target_match_percentage,
+                // domain_detected, mandatory_matched_skills, skills_added.*, updated_resume_text).
+                // These previously didn't match at all, so every number/skill shown was always a
+                // hardcoded fallback regardless of the real resume/JD - and Download always failed
+                // because lastOptimizedResumeText was always empty.
+                state.lastOptimizedResumeText = data.updated_resume_text || '';
                 const selectedCand = state.consultants.find(c => c.id === candId);
-                state.lastOptimizedCandidateName = selectedCand ? selectedCand.name : 'Consultant';
+                state.lastOptimizedCandidateName = selectedCand ? selectedCand.name : (data.candidate_name || 'Consultant');
 
                 const resultsCard = document.getElementById('resumebot-results-card');
                 if (resultsCard) resultsCard.style.display = 'block';
 
+                const resultTitle = document.getElementById('result-title');
                 const scoreInitial = document.getElementById('score-initial');
                 const scoreTarget = document.getElementById('score-target');
                 const scoreBar = document.getElementById('score-progress-bar');
@@ -1066,24 +1072,29 @@ function initResumeBot() {
                 const domainBadge = document.getElementById('result-domain');
                 const previewText = document.getElementById('result-preview-text');
 
-                if (scoreInitial) scoreInitial.innerText = `${data.initial_score || 55}%`;
-                if (scoreTarget) scoreTarget.innerText = `${data.target_score || 95}%`;
-                if (scoreBar) scoreBar.style.width = `${data.target_score || 95}%`;
+                if (resultTitle) resultTitle.innerText = data.match_decision || 'Resume Optimization Complete';
+                if (scoreInitial) scoreInitial.innerText = `${data.initial_match_percentage ?? '?'}%`;
+                if (scoreTarget) scoreTarget.innerText = `${data.target_match_percentage ?? '?'}%`;
+                if (scoreBar) scoreBar.style.width = `${data.target_match_percentage ?? 0}%`;
 
-                if (domainBadge) domainBadge.innerText = `Domain: ${data.domain || 'US Enterprise IT'}`;
+                if (domainBadge) domainBadge.innerText = `Domain: ${data.domain_detected || 'Not detected'}`;
 
                 if (matchedSkills) {
-                    const matched = data.matched_skills || ['Cloud Architecture', 'REST APIs', 'CI/CD'];
-                    matchedSkills.innerHTML = matched.map(s => `<span class="skill-tag green">✓ ${escapeHtml(s)}</span>`).join(' ');
+                    const matched = data.mandatory_matched_skills || [];
+                    matchedSkills.innerHTML = matched.length
+                        ? matched.map(s => `<span class="skill-tag green">✓ ${escapeHtml(s)}</span>`).join(' ')
+                        : `<span style="color:#94a3b8; font-size:0.85rem;">No JD keywords already present in this resume.</span>`;
                 }
 
                 if (addedSkills) {
-                    const added = data.added_skills || ['High-Throughput Systems', 'Microservices', 'Kubernetes'];
-                    addedSkills.innerHTML = added.map(s => `<span class="skill-tag blue">+ ${escapeHtml(s)}</span>`).join(' ');
+                    const added = (data.skills_added && data.skills_added.technical_skills) || [];
+                    addedSkills.innerHTML = added.length
+                        ? added.map(s => `<span class="skill-tag blue">+ ${escapeHtml(s)}</span>`).join(' ')
+                        : `<span style="color:#94a3b8; font-size:0.85rem;">No missing keywords needed adding.</span>`;
                 }
 
                 if (previewText) {
-                    previewText.innerText = data.optimized_summary || data.optimized_resume_text || 'Optimized resume content ready.';
+                    previewText.innerText = data.updated_resume_text || 'Optimized resume content ready.';
                 }
 
                 showToast('✨ Resume successfully optimized for ATS & keywords!', 'success');

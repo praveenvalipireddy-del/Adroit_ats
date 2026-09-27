@@ -2408,7 +2408,7 @@ function renderConsultantsTable() {
         btn.addEventListener('click', () => {
             const candId = parseInt(btn.getAttribute('data-id'));
             const c = state.consultants.find(item => item.id === candId);
-            if (c) openEditConsultantModal(c);
+            if (c) openConsultantModal(c);
         });
     });
 

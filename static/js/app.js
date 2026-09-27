@@ -2376,7 +2376,7 @@ function renderConsultantsTable() {
                         <span style="width: 7px; height: 7px; border-radius: 50%; background: #059669;"></span> Connected
                     </span>
                 ` : `
-                    <a href="/auth/gmail/login?candidate_id=${c.id}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; text-decoration: none;">
+                    <a href="/api/consultants/${c.id}/connect-gmail" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; text-decoration: none;">
                         Connect Gmail
                     </a>
                 `}

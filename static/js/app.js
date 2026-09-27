@@ -65,6 +65,7 @@ const tabAliasMap = {
     'students': 'students',
     'reporting': 'drafts',
     'drafts': 'drafts',
+    'resumebot': 'resumebot',
     'settings': 'team',
     'team': 'team',
     'resumebot': 'resumebot'

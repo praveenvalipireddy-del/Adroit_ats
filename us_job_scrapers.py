@@ -112,7 +112,8 @@ def scrape_dice_us(keyword: str = "Java", location: str = "United States", limit
                     "description": f"Dice US Contract Requisition: {title} at {company} ({loc}). Pay Rate: {salary}",
                     "matched_skills": keyword,
                     "match_score": 96 - (len(jobs) * 2),
-                    "is_24h": 1
+                    "is_24h": 1,
+                    "country": "United States"
                 })
 
                 if len(jobs) >= limit:
@@ -174,7 +175,8 @@ def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United Stat
                     "description": f"Posted {posted_time} on LinkedIn: Active Contract requisition for {title} at {company} ({loc}). Pay Rate: {salary}",
                     "matched_skills": keyword,
                     "match_score": 98 - (idx * 2),
-                    "is_24h": 1
+                    "is_24h": 1,
+                    "country": "United States"
                 })
     except Exception as e:
         print(f"[-] LinkedIn US scraping error: {e}")

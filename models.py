@@ -345,7 +345,8 @@ def migrate_db(conn):
         "gmail_account": "TEXT",
         "gmail_token_path": "TEXT",
         "gmail_app_password": "TEXT",
-        "assigned_user_id": "INTEGER DEFAULT 1"
+        "assigned_user_id": "INTEGER DEFAULT 1",
+        "country": "TEXT DEFAULT 'United States'"
     }
     for col, c_type in candidate_new_cols.items():
         if col.lower() not in c_cols:
@@ -362,7 +363,8 @@ def migrate_db(conn):
         "recruiter_name": "TEXT",
         "matched_skills": "TEXT",
         "is_24h": "INTEGER DEFAULT 1",
-        "scraped_at": "TEXT"
+        "scraped_at": "TEXT",
+        "country": "TEXT DEFAULT 'United States'"
     }
     for col, c_type in job_new_cols.items():
         if col.lower() not in j_cols:
@@ -1024,7 +1026,7 @@ def get_candidate_by_id(candidate_id, user_id=None, is_admin=False):
     conn.close()
     return dict(row) if row else None
 
-def create_candidate(name, email, phone="", title="Technical Consultant", primary_skills="", experience_years=5, target_rate="$90/hr (C2C)", visa_status="C2C Eligible", status="Available", location="United States (Remote)", resume_filename=None, resume_path=None, resume_text=None, resume_summary="", gmail_account=None, gmail_token_path=None, assigned_user_id=1):
+def create_candidate(name, email, phone="", title="Technical Consultant", primary_skills="", experience_years=5, target_rate="$90/hr (C2C)", visa_status="C2C Eligible", status="Available", location="United States (Remote)", country="United States", resume_filename=None, resume_path=None, resume_text=None, resume_summary="", gmail_account=None, gmail_token_path=None, assigned_user_id=1):
     if isinstance(primary_skills, (list, tuple, set)):
         primary_skills = ", ".join(str(s) for s in primary_skills)
     else:
@@ -1033,16 +1035,16 @@ def create_candidate(name, email, phone="", title="Technical Consultant", primar
     cursor = conn.cursor()
     cursor.execute("""
     INSERT INTO candidates (
-        name, email, phone, title, primary_skills, experience_years, 
-        target_rate, visa_status, status, location, 
-        resume_filename, resume_path, resume_text, resume_summary, 
+        name, email, phone, title, primary_skills, experience_years,
+        target_rate, visa_status, status, location, country,
+        resume_filename, resume_path, resume_text, resume_summary,
         gmail_account, gmail_token_path, assigned_user_id
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        name, email, phone, title, primary_skills, experience_years, 
-        target_rate, visa_status, status, location, 
-        resume_filename, resume_path, resume_text, resume_summary, 
+        name, email, phone, title, primary_skills, experience_years,
+        target_rate, visa_status, status, location, country or "United States",
+        resume_filename, resume_path, resume_text, resume_summary,
         gmail_account or email, gmail_token_path, assigned_user_id or 1
     ))
     conn.commit()
@@ -1076,7 +1078,7 @@ def delete_candidate(candidate_id, user_id=None, is_admin=False):
     conn.commit()
     conn.close()
 
-def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False):
+def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -1097,6 +1099,14 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
         src = (j.get("source") or "").lower()
         jtype = (j.get("job_type") or "").lower()
         skills = (j.get("matched_skills") or "").lower()
+
+        # 0. Country / market filter - jobs scraped without an explicit country (older rows,
+        # before this field existed) default to United States, matching what those scrapers
+        # actually source (Dice/LinkedIn US).
+        if country and country != "All":
+            j_country = (j.get("country") or "United States")
+            if j_country.lower() != country.lower():
+                continue
 
         # 1. Source filter (matches 'Dice' for 'Dice.com', 'LinkedIn' for 'LinkedIn (Live 24h)', etc.)
         if source and source != "All" and source_clean:
@@ -1200,6 +1210,7 @@ def save_or_update_scraped_job(job_data):
     description = job_data.get("description", "")
     matched_skills = job_data.get("matched_skills", "")
     match_score = job_data.get("match_score", 90)
+    country = job_data.get("country", "United States")
 
     # Check if this job exists by URL or title+company
     existing = None
@@ -1222,15 +1233,15 @@ def save_or_update_scraped_job(job_data):
     else:
         cursor.execute("""
         INSERT INTO jobs (
-            title, company, location, job_type, salary, 
-            source, url, recruiter_email, recruiter_phone, recruiter_name, 
-            description, matched_skills, match_score, status, is_24h
+            title, company, location, job_type, salary,
+            source, url, recruiter_email, recruiter_phone, recruiter_name,
+            description, matched_skills, match_score, country, status, is_24h
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', 1)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', 1)
         """, (
-            title, company, location, job_type, salary, 
-            source, url, recruiter_email, recruiter_phone, recruiter_name, 
-            description, matched_skills, match_score
+            title, company, location, job_type, salary,
+            source, url, recruiter_email, recruiter_phone, recruiter_name,
+            description, matched_skills, match_score, country
         ))
         conn.commit()
         job_id = cursor.lastrowid

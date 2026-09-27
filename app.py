@@ -20,6 +20,7 @@ import linkedin_sourcing
 import sourcing_store
 import gmail_multi_manager
 import us_job_scrapers
+import india_job_scrapers
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
 logging.basicConfig(level=logging.INFO)
@@ -241,6 +242,7 @@ def api_consultants():
             rate = request.form.get("rate", "$90/hr (C2C)").strip()
             visa = request.form.get("visa_status", "C2C Eligible").strip()
             location = request.form.get("location", "United States (Remote)").strip()
+            country = request.form.get("country", "United States").strip()
             summary = request.form.get("summary", "").strip()
 
             resume_filename = None
@@ -273,6 +275,7 @@ def api_consultants():
             rate = data.get("rate", "$90/hr (C2C)").strip()
             visa = data.get("visa_status", "C2C Eligible").strip()
             location = data.get("location", "United States (Remote)").strip()
+            country = data.get("country", "United States").strip()
             summary = data.get("summary", "").strip()
             resume_filename = data.get("resume_filename")
             resume_path = data.get("resume_path")
@@ -300,6 +303,7 @@ def api_consultants():
             visa_status=visa,
             status="Available",
             location=location,
+            country=country,
             resume_filename=resume_filename,
             resume_path=resume_path,
             resume_text=resume_text,
@@ -363,7 +367,7 @@ def api_consultant_detail(candidate_id):
     if request.method == "PUT":
         data = request.json or {}
         update_fields = {}
-        for key in ["name", "email", "phone", "title", "primary_skills", "experience_years", "target_rate", "visa_status", "status", "location", "resume_summary"]:
+        for key in ["name", "email", "phone", "title", "primary_skills", "experience_years", "target_rate", "visa_status", "status", "location", "country", "resume_summary"]:
             if key in data:
                 update_fields[key] = data[key]
         models.update_candidate(candidate_id, **update_fields)
@@ -523,6 +527,7 @@ def api_jobs_search():
     contract_only = data.get("contract_only", False)
     is_24h_only = data.get("is_24h_only", False)
     live_scrape = data.get("live_scrape", False)
+    country = (data.get("country") or "United States").strip()
 
     results = models.get_jobs(
         query=query if query else None,
@@ -530,24 +535,31 @@ def api_jobs_search():
         source=source if source != "All" else None,
         job_type=job_type if job_type != "All" else None,
         contract_only=contract_only,
-        is_24h_only=is_24h_only
+        is_24h_only=is_24h_only,
+        country=country
     )
 
-    # If 0 results or live_scrape requested, trigger live US scrape automatically!
+    # If 0 results or live_scrape requested, trigger a live scrape of the selected market.
     if (len(results) == 0 or live_scrape) and query:
         try:
-            scrape_res = us_job_scrapers.run_multi_source_us_scrape(
-                keywords=[query],
-                location=location or "United States",
-                contract_only=True,
-                save_to_db=True
-            )
+            if country.lower() == "india":
+                scrape_res = india_job_scrapers.run_multi_source_india_scrape(
+                    keywords=[query], location=location or "India", save_to_db=True
+                )
+            else:
+                scrape_res = us_job_scrapers.run_multi_source_us_scrape(
+                    keywords=[query],
+                    location=location or "United States",
+                    contract_only=True,
+                    save_to_db=True
+                )
             results = models.get_jobs(
                 query=query,
                 location=location if location and location.lower() != "united states" else None,
                 source=source if source != "All" else None,
                 job_type=job_type if job_type != "All" else None,
-                contract_only=False
+                contract_only=False,
+                country=country
             )
             if not results and scrape_res.get("jobs"):
                 results = scrape_res["jobs"]
@@ -590,7 +602,7 @@ def api_trigger_us_scrape():
         "Scraped 24h US Jobs",
         "Scraper",
         0,
-        f"Scraped {scrape_res.get('count', 0)} US tech contract roles across LinkedIn, Dice, ZipRecruiter"
+        f"Scraped {scrape_res.get('count', 0)} US tech contract roles from Dice and LinkedIn"
     )
 
     return jsonify({
@@ -598,6 +610,47 @@ def api_trigger_us_scrape():
         "count": scrape_res.get("count", 0),
         "saved_to_db": scrape_res.get("saved_to_db", 0),
         "message": f"Successfully scraped {scrape_res.get('count', 0)} fresh US contract jobs."
+    })
+
+@app.route("/api/jobs/scrape-india", methods=["POST", "OPTIONS"])
+def api_trigger_india_scrape():
+    """Scrapes real live India job postings (Naukri, Foundit/Monster India, LinkedIn) via
+    Apify actors - each is pay-per-result (roughly $0.001/job), and an empty search costs
+    nothing. Requires APIFY_API_TOKEN on the server, same as the LinkedIn Sourcing feature."""
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if not (config.APIFY_API_TOKEN or "").strip():
+        return jsonify({"error": "APIFY_API_TOKEN is not configured on the server. India sourcing (Naukri, Foundit) needs it."}), 503
+
+    data = request.json or {}
+    keywords = data.get("keywords")
+    location = data.get("location", "India")
+
+    scrape_res = india_job_scrapers.run_multi_source_india_scrape(
+        keywords=keywords,
+        location=location,
+        save_to_db=True
+    )
+
+    models.log_activity(
+        user["id"],
+        user["name"],
+        "Scraped India Jobs",
+        "Scraper",
+        0,
+        f"Scraped {scrape_res.get('count', 0)} India roles from Naukri, Foundit, and LinkedIn"
+    )
+
+    return jsonify({
+        "success": True,
+        "count": scrape_res.get("count", 0),
+        "saved_to_db": scrape_res.get("saved_to_db", 0),
+        "message": f"Successfully scraped {scrape_res.get('count', 0)} fresh India jobs."
     })
 
 # --- In-Table Quick Email & Contact Update API ---

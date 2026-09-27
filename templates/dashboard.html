@@ -200,8 +200,8 @@
                 <div class="tab-pane" id="tab-jobs">
                     <div class="section-header">
                         <div>
-                            <h2>Live 24-Hour USA IT Jobs & 1-Click Outreach</h2>
-                            <p>Scraped fresh C2C contract requisitions across LinkedIn US, Dice.com, Indeed, ZipRecruiter & CareerBuilder. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.</p>
+                            <h2>Live 24-Hour IT Jobs & 1-Click Outreach</h2>
+                            <p id="jobs-tab-source-desc">Scraped fresh C2C contract requisitions from LinkedIn US and Dice.com. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.</p>
                         </div>
                         <div class="stats-pills">
                             <span class="pill"><strong id="stat-total-jobs">{{ stats.total_jobs }}</strong> Total Jobs</span>
@@ -214,22 +214,26 @@
                     <div class="filter-card">
                         <div class="filter-row">
                             <div class="filter-group">
+                                <label>Job Market</label>
+                                <select id="filter-country">
+                                    <option value="United States">🇺🇸 United States (LinkedIn, Dice)</option>
+                                    <option value="India">🇮🇳 India (Naukri, Foundit, LinkedIn)</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
                                 <label>Search Role / Skills</label>
                                 <input type="text" id="filter-query" placeholder="Search 24h jobs (e.g. AI, Java, DevOps, Data, Cloud...)" value="">
                             </div>
                             <div class="filter-group">
-                                <label>US Location</label>
+                                <label id="filter-location-label">US Location</label>
                                 <input type="text" id="filter-location" placeholder="United States, Dallas TX, Remote..." value="United States">
                             </div>
                             <div class="filter-group">
                                 <label>Portal Source</label>
                                 <select id="filter-source">
-                                    <option value="All">All US Portals (LinkedIn, Dice, Indeed, Zip, CB)</option>
+                                    <option value="All">All US Portals (LinkedIn, Dice)</option>
                                     <option value="LinkedIn">LinkedIn (Live 24h)</option>
                                     <option value="Dice">Dice.com</option>
-                                    <option value="Indeed">Indeed USA</option>
-                                    <option value="ZipRecruiter">ZipRecruiter</option>
-                                    <option value="CareerBuilder">CareerBuilder</option>
                                 </select>
                             </div>
                             <div class="filter-group filter-actions">
@@ -851,6 +855,17 @@
                             <input type="text" id="c-rate" name="rate" class="form-control" value="$90/hr (C2C)" placeholder="$90/hr (C2C)">
                         </div>
                         <div class="form-group">
+                            <label>Country *</label>
+                            <select id="c-country" name="country" class="form-control" required>
+                                <option value="" disabled selected>-- Select country --</option>
+                                <option value="United States">United States</option>
+                                <option value="India">India</option>
+                            </select>
+                            <small class="form-hint">Decides which job market (US or India postings) this consultant is matched against.</small>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
                             <label>Visa Status *</label>
                             <select id="c-visa" name="visa_status" class="form-control" required>
                                 <option value="" disabled selected>-- Select visa / work authorization --</option>
@@ -859,13 +874,12 @@
                                 <option value="H1B (Transfer/C2C)">H1B (Transfer/C2C)</option>
                                 <option value="OPT/CPT">OPT/CPT</option>
                                 <option value="C2C Eligible">C2C Eligible</option>
-                                <option value="Outside USA - Sponsorship Required">Outside USA - Sponsorship Required</option>
                             </select>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Location / Relocation *</label>
-                        <input type="text" id="c-location" name="location" class="form-control" required placeholder="e.g. Dallas, TX (Hybrid/Remote), or Remote">
+                        <div class="form-group">
+                            <label>Location / Relocation *</label>
+                            <input type="text" id="c-location" name="location" class="form-control" required placeholder="e.g. Dallas, TX (Hybrid/Remote), or Hyderabad, India">
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Upload Consultant Resume (.docx / .pdf)</label>
@@ -1078,7 +1092,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.15.0"></script>
+    <script src="/static/js/app.js?v=5.16.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

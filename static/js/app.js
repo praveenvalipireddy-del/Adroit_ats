@@ -407,6 +407,7 @@ function openConsultantModal(cand = null) {
         document.getElementById('c-rate').value = cand.target_rate || '$90/hr (C2C)';
         document.getElementById('c-visa').value = cand.visa_status || 'C2C Eligible';
         document.getElementById('c-location').value = cand.location || 'United States';
+        document.getElementById('c-country').value = cand.country || 'United States';
         document.getElementById('c-summary').value = cand.summary || '';
     } else {
         if (title) title.innerText = 'Add New US Bench Consultant';
@@ -491,19 +492,59 @@ function closePasteDraftModal() {
 // =========================================================================
 // 3. Live 24-Hour USA IT Jobs & 1-Click Outreach Table
 // =========================================================================
+// Market = which country's job boards this tab is pointed at. Each consultant is matched
+// only to their own market's jobs (set via browseJobsForCandidate); manual browsing can
+// switch it with the Job Market dropdown.
+function syncJobsMarketUi() {
+    const country = document.getElementById('filter-country')?.value || 'United States';
+    const isIndia = country === 'India';
+    const locLabel = document.getElementById('filter-location-label');
+    const locInput = document.getElementById('filter-location');
+    const sourceSelect = document.getElementById('filter-source');
+    const descEl = document.getElementById('jobs-tab-source-desc');
+
+    if (locLabel) locLabel.innerText = isIndia ? 'India Location' : 'US Location';
+    if (locInput) {
+        locInput.placeholder = isIndia ? 'India, Bangalore, Hyderabad, Remote...' : 'United States, Dallas TX, Remote...';
+        if (!locInput.value || locInput.value === 'United States' || locInput.value === 'India') {
+            locInput.value = country;
+        }
+    }
+    if (sourceSelect) {
+        sourceSelect.innerHTML = isIndia
+            ? `<option value="All">All India Portals (Naukri, Foundit, LinkedIn)</option>
+               <option value="Naukri">Naukri.com</option>
+               <option value="Foundit">Foundit / Monster India</option>
+               <option value="LinkedIn">LinkedIn (Live)</option>`
+            : `<option value="All">All US Portals (LinkedIn, Dice)</option>
+               <option value="LinkedIn">LinkedIn (Live 24h)</option>
+               <option value="Dice">Dice.com</option>`;
+    }
+    if (descEl) {
+        descEl.innerText = isIndia
+            ? 'Scraped fresh requisitions from Naukri, Foundit (Monster India), and LinkedIn India. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.'
+            : 'Scraped fresh C2C contract requisitions from LinkedIn US and Dice.com. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.';
+    }
+}
+
 function initJobsTable() {
     const btnSearch = document.getElementById('btn-search-jobs');
     const btnLiveScrape = document.getElementById('btn-live-scrape-trigger');
     const queryInput = document.getElementById('filter-query');
     const locInput = document.getElementById('filter-location');
     const sourceSelect = document.getElementById('filter-source');
+    const countrySelect = document.getElementById('filter-country');
+
+    if (countrySelect) {
+        countrySelect.addEventListener('change', () => { syncJobsMarketUi(); searchJobs(false); });
+    }
 
     if (btnSearch) {
         btnSearch.addEventListener('click', () => searchJobs(false));
     }
 
     if (btnLiveScrape) {
-        btnLiveScrape.addEventListener('click', () => triggerUsScrape());
+        btnLiveScrape.addEventListener('click', () => triggerJobScrape());
     }
 
     if (queryInput) {
@@ -563,7 +604,8 @@ async function searchJobs(liveScrape = false) {
     const tbody = document.getElementById('jobs-table-body');
     const countLabel = document.getElementById('jobs-table-count');
     const query = document.getElementById('filter-query')?.value?.trim() || '';
-    const location = document.getElementById('filter-location')?.value?.trim() || 'United States';
+    const country = document.getElementById('filter-country')?.value || 'United States';
+    const location = document.getElementById('filter-location')?.value?.trim() || country;
     const source = document.getElementById('filter-source')?.value || 'All';
 
     if (tbody) {
@@ -571,7 +613,7 @@ async function searchJobs(liveScrape = false) {
             <tr>
                 <td colspan="6" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
                     <div class="spinner" style="display:inline-block; margin-right:8px;"></div>
-                    ${liveScrape ? 'Scraping fresh 24h US contract jobs across portals...' : 'Searching US job requisitions...'}
+                    ${liveScrape ? `Scraping fresh 24h ${country} contract jobs across portals...` : `Searching ${country} job requisitions...`}
                 </td>
             </tr>`;
     }
@@ -584,6 +626,7 @@ async function searchJobs(liveScrape = false) {
                 query: query,
                 location: location,
                 source: source,
+                country: country,
                 contract_only: true,
                 is_24h_only: true,
                 live_scrape: liveScrape
@@ -594,7 +637,7 @@ async function searchJobs(liveScrape = false) {
         state.jobs = Array.isArray(data) ? data : (data.jobs || data.results || []);
 
         if (countLabel) {
-            countLabel.innerText = `Showing ${state.jobs.length} Fresh US Requisitions`;
+            countLabel.innerText = `Showing ${state.jobs.length} Fresh ${country} Requisitions`;
         }
 
         renderJobsTable(state.jobs);
@@ -607,7 +650,7 @@ async function searchJobs(liveScrape = false) {
 }
 
 async function triggerUsScrape() {
-    showToast('🚀 Running Live 24h US Requisition Scraper (LinkedIn, Dice, Indeed, ZipRecruiter)...', 'info', 6000);
+    showToast('🚀 Running Live 24h US Requisition Scraper (Dice, LinkedIn)...', 'info', 6000);
     const query = document.getElementById('filter-query')?.value?.trim() || 'Software Engineer';
     const location = document.getElementById('filter-location')?.value?.trim() || 'United States';
 
@@ -631,6 +674,41 @@ async function triggerUsScrape() {
         }
     } catch (err) {
         showToast('Error during live scrape: ' + err.message, 'error');
+        searchJobs(false);
+    }
+}
+
+// Respects the Jobs tab's Job Market toggle - India scrapes Naukri/Foundit/LinkedIn,
+// anything else scrapes the existing US sources unchanged.
+async function triggerJobScrape() {
+    const country = document.getElementById('filter-country')?.value || 'United States';
+    if (country === 'India') {
+        await triggerIndiaScrape();
+    } else {
+        await triggerUsScrape();
+    }
+}
+
+async function triggerIndiaScrape() {
+    showToast('🚀 Running Live India Requisition Scraper (Naukri, Foundit, LinkedIn)...', 'info', 6000);
+    const query = document.getElementById('filter-query')?.value?.trim() || 'Software Engineer';
+    const location = document.getElementById('filter-location')?.value?.trim() || 'India';
+
+    try {
+        const res = await fetch('/api/jobs/scrape-india', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keywords: [query], location: location })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.success) {
+            showToast(`✅ Scraped & saved ${data.count || 0} fresh India requisitions!`, 'success');
+        } else {
+            showToast(data.error || data.message || 'India scrape did not return results.', data.error ? 'error' : 'info');
+        }
+    } catch (err) {
+        showToast('Error during live India scrape: ' + err.message, 'error');
+    } finally {
         searchJobs(false);
     }
 }
@@ -1094,6 +1172,7 @@ function initModals() {
                         target_rate: document.getElementById('c-rate').value.trim(),
                         visa_status: document.getElementById('c-visa').value.trim(),
                         location: document.getElementById('c-location').value.trim(),
+                        country: document.getElementById('c-country').value.trim(),
                         summary: document.getElementById('c-summary').value.trim()
                     };
 
@@ -2376,6 +2455,7 @@ function renderConsultantsTable() {
                 ${c.experience_years || 5}+ Yrs
             </td>
             <td style="padding: 14px 18px; color: #64748b; font-size: 0.85rem;">
+                <span title="${(c.country || 'United States') === 'India' ? 'India market' : 'US market'}">${(c.country || 'United States') === 'India' ? '🇮🇳' : '🇺🇸'}</span>
                 ${escapeHtml(c.location || 'United States')}
             </td>
             <td style="padding: 14px 18px;">
@@ -2386,7 +2466,7 @@ function renderConsultantsTable() {
             <td style="padding: 14px 18px;">
                 <div style="display: flex; flex-direction: column; gap: 6px;">
                     <button
-                        onclick="browseJobsForCandidate(${c.id}, '${escapeHtml(c.title || '').replace(/'/g, '')}')"
+                        onclick="browseJobsForCandidate(${c.id}, '${escapeHtml(c.title || '').replace(/'/g, '')}', '${escapeHtml(c.country || 'United States').replace(/'/g, '')}')"
                         style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.15s ease;"
                         onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'"
                         title="Find matching 24h jobs for this candidate">
@@ -2768,7 +2848,7 @@ async function submitCopilotDraftToGmail() {
 // =========================================================================
 // Candidate -> Jobs: Browse matching live jobs for a specific candidate
 // =========================================================================
-async function browseJobsForCandidate(candidateId, candidateTitle) {
+async function browseJobsForCandidate(candidateId, candidateTitle, candidateCountry) {
     // 1. Switch to the Jobs tab first
     switchTab('jobs');
 
@@ -2788,9 +2868,16 @@ async function browseJobsForCandidate(candidateId, candidateTitle) {
             queryInput.value = coreTitle || candidateTitle;
         }
 
-        // Reset location to United States so we get results
+        // Match this candidate to THEIR OWN market: a consultant based in India gets India
+        // job postings (Naukri/Foundit/LinkedIn), a US-based consultant gets US postings.
+        const countrySelect = document.getElementById('filter-country');
+        const country = candidateCountry === 'India' ? 'India' : 'United States';
+        if (countrySelect) countrySelect.value = country;
+        syncJobsMarketUi();
+
+        // Reset location to the candidate's country so we get results
         const locInput = document.getElementById('filter-location');
-        if (locInput && !locInput.value.trim()) locInput.value = 'United States';
+        if (locInput && !locInput.value.trim()) locInput.value = country;
 
         // Trigger the job search
         await searchJobs(false);

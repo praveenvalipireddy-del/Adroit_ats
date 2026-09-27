@@ -387,6 +387,39 @@ function renderConsultantsGrid() {
     });
 }
 
+// Real, distinct option sets: a US-based consultant's work-authorization categories don't
+// apply to someone still in India (they have no US visa process to describe yet), and vice
+// versa. Never falls back to a shared default - each market gets only what's true for it.
+const US_VISA_OPTIONS = ["US Citizen", "Green Card (C2C)", "H1B (Transfer/C2C)", "OPT/CPT", "C2C Eligible"];
+const INDIA_VISA_OPTIONS = ["Open to US Relocation (H1B/L1 Sponsorship Needed)", "Not Seeking US Relocation (India-Based Roles Only)", "Has a Valid US Visa Already (specify in summary)"];
+
+function syncVisaOptionsForCountry(currentValue = '') {
+    const countrySelect = document.getElementById('c-country');
+    const visaSelect = document.getElementById('c-visa');
+    const visaLabel = document.getElementById('c-visa-label');
+    if (!visaSelect) return;
+    const country = countrySelect ? countrySelect.value : '';
+
+    if (!country) {
+        visaSelect.innerHTML = `<option value="" disabled selected>-- Select country first --</option>`;
+        if (visaLabel) visaLabel.innerText = 'Visa Status *';
+        return;
+    }
+
+    const options = country === 'India' ? INDIA_VISA_OPTIONS : US_VISA_OPTIONS;
+    if (visaLabel) visaLabel.innerText = country === 'India' ? 'Relocation / Sponsorship Status *' : 'Visa Status *';
+
+    let html = `<option value="" disabled ${!currentValue ? 'selected' : ''}>-- Select ${country === 'India' ? 'relocation status' : 'visa / work authorization'} --</option>`;
+    html += options.map(o => `<option value="${escapeHtml(o)}" ${o === currentValue ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('');
+    // A saved value from before this consultant's Country was last changed (or from the old
+    // removed "Outside USA" option) won't match either list - keep it as its own option
+    // instead of silently discarding real, already-entered data.
+    if (currentValue && !options.includes(currentValue)) {
+        html += `<option value="${escapeHtml(currentValue)}" selected>${escapeHtml(currentValue)} (previously saved)</option>`;
+    }
+    visaSelect.innerHTML = html;
+}
+
 function openConsultantModal(cand = null) {
     const modal = document.getElementById('modal-consultant');
     const form = document.getElementById('form-consultant');
@@ -405,13 +438,14 @@ function openConsultantModal(cand = null) {
         document.getElementById('c-skills').value = cand.primary_skills || '';
         document.getElementById('c-exp').value = cand.experience_years || 5;
         document.getElementById('c-rate').value = cand.target_rate || '$90/hr (C2C)';
-        document.getElementById('c-visa').value = cand.visa_status || 'C2C Eligible';
         document.getElementById('c-location').value = cand.location || 'United States';
         document.getElementById('c-country').value = cand.country || 'United States';
+        syncVisaOptionsForCountry(cand.visa_status || '');
         document.getElementById('c-summary').value = cand.summary || '';
     } else {
         if (title) title.innerText = 'Add New US Bench Consultant';
         if (editIdInput) editIdInput.value = '';
+        syncVisaOptionsForCountry('');
     }
 
     if (modal) modal.style.display = 'flex';
@@ -1111,6 +1145,15 @@ function initModals() {
     const btnCancelCand = document.getElementById('btn-cancel-consultant');
     if (btnCloseCand) btnCloseCand.addEventListener('click', closeConsultantModal);
     if (btnCancelCand) btnCancelCand.addEventListener('click', closeConsultantModal);
+
+    // Visa Status options depend on Country: a US-based consultant's real work-authorization
+    // categories don't apply to someone still in India who hasn't started any US visa
+    // process - showing them anyway would force a misleading answer, same problem as the
+    // old "Outside USA" catch-all this replaced.
+    const countrySelect = document.getElementById('c-country');
+    if (countrySelect) {
+        countrySelect.addEventListener('change', () => syncVisaOptionsForCountry());
+    }
 
     // 2. Upload Resume Modal Close / Cancel
     const btnCloseUpload = document.getElementById('btn-close-upload-modal');

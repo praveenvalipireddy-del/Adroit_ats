@@ -866,14 +866,9 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Visa Status *</label>
+                            <label id="c-visa-label">Visa Status *</label>
                             <select id="c-visa" name="visa_status" class="form-control" required>
-                                <option value="" disabled selected>-- Select visa / work authorization --</option>
-                                <option value="US Citizen">US Citizen</option>
-                                <option value="Green Card (C2C)">Green Card (C2C)</option>
-                                <option value="H1B (Transfer/C2C)">H1B (Transfer/C2C)</option>
-                                <option value="OPT/CPT">OPT/CPT</option>
-                                <option value="C2C Eligible">C2C Eligible</option>
+                                <option value="" disabled selected>-- Select country first --</option>
                             </select>
                         </div>
                         <div class="form-group">
@@ -1092,7 +1087,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.16.0"></script>
+    <script src="/static/js/app.js?v=5.17.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

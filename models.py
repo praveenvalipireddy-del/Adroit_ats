@@ -286,6 +286,21 @@ def init_db():
     );
     """)
 
+    # 8. The consultant's ORIGINAL resume file. Kept in the database (not only on disk) because
+    # Render's disk is wiped on every deploy, and the Resume Optimizer needs the original .docx
+    # to edit it in place without losing its formatting. Separate table so `SELECT c.*` on
+    # candidates never drags file bytes into list/JSON responses.
+    blob_type = "BYTEA" if is_postgres(conn) else "BLOB"
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS resume_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        candidate_id INTEGER UNIQUE NOT NULL,
+        filename TEXT,
+        data {blob_type},
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
     conn.commit()
 
     # sourced_candidates needs one profile per source at most - added after the CREATE (same
@@ -1075,8 +1090,38 @@ def delete_candidate(candidate_id, user_id=None, is_admin=False):
         cursor.execute("DELETE FROM candidates WHERE id = ? AND assigned_user_id = ?", (candidate_id, user_id))
     else:
         cursor.execute("DELETE FROM candidates WHERE id = ?", (candidate_id,))
+    # Drop the stored resume file only if the candidate row really went away (the user may not
+    # have been allowed to delete it).
+    cursor.execute("DELETE FROM resume_files WHERE candidate_id NOT IN (SELECT id FROM candidates)")
     conn.commit()
     conn.close()
+
+
+def save_resume_file(candidate_id, filename, data):
+    """Stores (or replaces) the original uploaded resume file for a consultant."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM resume_files WHERE candidate_id = ?", (candidate_id,))
+    if cursor.fetchone():
+        cursor.execute("UPDATE resume_files SET filename = ?, data = ?, updated_at = CURRENT_TIMESTAMP WHERE candidate_id = ?",
+                       (filename, bytes(data), candidate_id))
+    else:
+        cursor.execute("INSERT INTO resume_files (candidate_id, filename, data) VALUES (?, ?, ?)",
+                       (candidate_id, filename, bytes(data)))
+    conn.commit()
+    conn.close()
+
+
+def get_resume_file(candidate_id):
+    """{'filename', 'data'} for the consultant's stored original resume file, or None."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT filename, data FROM resume_files WHERE candidate_id = ?", (candidate_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row or row["data"] is None:
+        return None
+    return {"filename": row["filename"], "data": bytes(row["data"])}
 
 def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None):
     conn = get_db_connection()

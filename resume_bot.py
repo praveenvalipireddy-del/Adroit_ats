@@ -1,6 +1,7 @@
 import re
 import os
 import io
+import base64
 import json
 import time
 import logging
@@ -10,6 +11,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pypdf
 
 import config
+import docx_editor
 
 logger = logging.getLogger("resume_bot")
 
@@ -47,12 +49,9 @@ def extract_text_from_file_bytes(file_bytes, filename, strict=False):
     text = ""
     try:
         if name.endswith(".docx"):
-            doc = docx.Document(io.BytesIO(file_bytes))
-            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-            for table in doc.tables:
-                for row in table.rows:
-                    paragraphs.append(" | ".join([c.text.strip() for c in row.cells if c.text.strip()]))
-            text = "\n\n".join(paragraphs)
+            # Same paragraph order (tables included, where they sit on the page) that the
+            # in-place editor shows the AI, so the text box matches what gets optimized.
+            text = docx_editor.extract_text(file_bytes)
         elif name.endswith(".pdf"):
             reader = pypdf.PdfReader(io.BytesIO(file_bytes))
             pages_text = []
@@ -137,9 +136,9 @@ def load_master_prompt() -> str:
         return ""
 
 
-_APP_OUTPUT_CONTRACT = """=== HOW THIS APP READS YOUR ANSWER (this replaces the 'FINAL OUTPUT FORMAT' and 'OUTPUT' wording above) ===
-One decision rule is missing from the MATCH-BASED DECISION RULES above: BELOW 60% MATCH -> Reject. Do not optimize; return the original resume text unchanged in updated_resume_text.
-
+_CONTRACT_TEMPLATE = """=== HOW THIS APP READS YOUR ANSWER (this replaces the 'FINAL OUTPUT FORMAT' and 'OUTPUT' wording above) ===
+One decision rule is missing from the MATCH-BASED DECISION RULES above: BELOW 60% MATCH -> Reject. Do not optimize; @@REJECT@@
+@@EDIT_RULES@@
 Respond with ONE JSON object and nothing else - no markdown fences, no commentary before or after - using exactly these keys:
 {
   "initial_match_percentage": <integer 0-100, realistic and NOT inflated>,
@@ -156,9 +155,39 @@ Respond with ONE JSON object and nothing else - no markdown fences, no commentar
   "skills_added": {"summary": ["..."], "technical_skills": ["..."], "projects": ["..."], "environment": ["..."]},
   "ats_optimization_notes": ["Keywords optimized: ...", "Domain alignment improvements: ...", "Recent project enhancements: ..."],
   "target_match_percentage": <integer 0-100>,
-  "updated_resume_text": "<the COMPLETE updated resume as plain text, same section order and bullet structure as the original; the unchanged original if rejected>"
+  @@LAST_KEY@@
 }
 match_breakdown must add up to initial_match_percentage. Never change or drop any date, never change total years of experience, and never state a new number of years for any technology."""
+
+_TEXT_LAST_KEY = ('"updated_resume_text": "<the COMPLETE updated resume as plain text, same section order and bullet '
+                  'structure as the original; the unchanged original if rejected>"')
+
+# Used when the resume is an uploaded .docx: the app edits that ORIGINAL file in place (so its
+# fonts, layout, tables and bullets are preserved exactly), which means the model must describe
+# changes to numbered paragraphs instead of returning a rewritten resume.
+_EDIT_RULES = """
+The resume below is given as the NUMBERED PARAGRAPHS of the candidate's ORIGINAL Word file, for example "[12] (bullet) Built batch pipelines". This app edits that original file in place so its formatting is preserved exactly. So do NOT return the resume text - return only your changes, as a list called "edits". Two kinds of edit exist:
+  {"op": "replace", "paragraph": <number>, "new_text": "<the COMPLETE new text of that one paragraph>"}
+  {"op": "insert_after", "paragraph": <number>, "new_text": "<the text of ONE new paragraph>"}   (a new line copies the formatting of the paragraph it follows, so a new bullet goes right after an existing bullet)
+Rules for edits:
+- Change as little as possible. For "replace", keep the original wording and only add or adjust what the job description needs (for example append items to a skills or Environment line, or work a keyword into a summary sentence or project bullet).
+- Never edit, or insert after, a paragraph tagged "heading/title line" or "locked". Never edit dates, employers, clients, job titles, education or contact details.
+- Put new bullets only in the section where they belong (for example after an existing bullet of the MOST RECENT project), and never invent experience the candidate does not have.
+- No more than 25 edits. If no change is warranted (below 60%, or already above 90%), return "edits": [].
+"""
+
+
+def _build_output_contract(edit_mode: bool) -> str:
+    return (_CONTRACT_TEMPLATE
+            .replace("@@REJECT@@", 'return "edits": [] and change nothing.' if edit_mode
+                     else "return the original resume text unchanged in updated_resume_text.")
+            .replace("@@EDIT_RULES@@", _EDIT_RULES if edit_mode else "")
+            .replace("@@LAST_KEY@@", '"edits": [ {"op": "replace", "paragraph": 12, "new_text": "..."}, {"op": "insert_after", "paragraph": 20, "new_text": "..."} ]'
+                     if edit_mode else _TEXT_LAST_KEY))
+
+
+_APP_OUTPUT_CONTRACT = _build_output_contract(False)
+_APP_EDIT_CONTRACT = _build_output_contract(True)
 
 _BREAKDOWN_CAPS = {
     "mandatory_skills": 40, "recent_project_relevance": 25, "domain_experience": 15,
@@ -247,9 +276,34 @@ def _num(value):
         return None
 
 
-def _normalize_ai_result(data: dict, resume_text: str):
+def _apply_docx_edits(data: dict, resume_text: str, docx_bytes: bytes, level: str):
+    """Applies Gemini's per-paragraph edits to the ORIGINAL .docx. Returns (updated_text,
+    new_docx_bytes, changes, skipped, problem); `problem` is '' on success, otherwise why nothing
+    was applied."""
+    edits = data.get("edits")
+    if not isinstance(edits, list) or not edits:
+        if level == "None":
+            return resume_text, None, [], [], "the match is already above 90%, so per your master prompt no major changes are needed"
+        return resume_text, None, [], [], "the AI did not propose any changes"
+    try:
+        new_docx, changes, skipped = docx_editor.apply_edits(docx_bytes, edits)
+    except Exception as ex:
+        logger.warning(f"Applying docx edits failed: {ex}")
+        return resume_text, None, [], [], "the edits could not be applied to your Word file"
+    if not changes:
+        return resume_text, None, [], skipped, "none of the proposed edits passed the safety checks (see below)"
+    updated = docx_editor.extract_text(new_docx)
+    problem = check_resume_safety(resume_text, updated)
+    if problem:
+        return resume_text, None, [], skipped, problem
+    return updated, new_docx, changes, skipped, ""
+
+
+def _normalize_ai_result(data: dict, resume_text: str, docx_bytes: bytes = None):
     """Turns Gemini's JSON into the app's response shape, applying the master prompt's rules
-    in code. Returns (result, reason); result is None only if the answer is unusable."""
+    in code. Returns (result, reason); result is None only if the answer is unusable. With
+    `docx_bytes` the model's edits are applied to that original file (formatting preserved)
+    instead of taking a rewritten resume from the model."""
     breakdown_raw = data.get("match_breakdown") if isinstance(data.get("match_breakdown"), dict) else {}
     parts = {}
     for key, cap in _BREAKDOWN_CAPS.items():
@@ -278,12 +332,21 @@ def _normalize_ai_result(data: dict, resume_text: str):
     }
     empty_added = {"summary": [], "technical_skills": [], "recent_projects": [], "environment": []}
 
-    updated = str(data.get("updated_resume_text") or "").strip()
     optimized, not_optimized_reason = False, ""
+    new_docx, changes, skipped_edits = None, [], []
+    updated = str(data.get("updated_resume_text") or "").strip()
     if initial < 60:
         updated, skills_added = resume_text, empty_added
         not_optimized_reason = ("The match is below 60%, so per your master prompt this profile is rejected "
                                 "and the resume was left unchanged.")
+    elif docx_bytes is not None:
+        updated, new_docx, changes, skipped_edits, problem = _apply_docx_edits(data, resume_text, docx_bytes, level)
+        if problem:
+            skills_added = empty_added
+            not_optimized_reason = (f"Your resume was left unchanged: {problem}." if level == "None"
+                                    else f"Your resume was left unchanged because {problem}. Click Optimize again to retry.")
+        else:
+            optimized = True
     else:
         problem = "Gemini did not return an updated resume" if not updated else check_resume_safety(resume_text, updated)
         if problem:
@@ -315,13 +378,19 @@ def _normalize_ai_result(data: dict, resume_text: str):
         "skills_added": skills_added,
         "ats_optimization_notes": _as_list(data.get("ats_optimization_notes")),
         "updated_resume_text": updated,
+        "format_preserved": new_docx is not None,
+        "docx_base64": base64.b64encode(new_docx).decode("ascii") if new_docx is not None else "",
+        "changes": changes,
+        "skipped_edits": skipped_edits,
     }, ""
 
 
-def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str):
+def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_bytes: bytes = None):
     """Runs the master prompt through Gemini. Returns (result, reason): result is the app's
     response dict, or None - never an exception - when AI is unavailable, with `reason` saying
-    why (no key, free quota used up, malformed answer, ...)."""
+    why (no key, free quota used up, malformed answer, ...). With `docx_bytes` the resume is
+    shown to the model as numbered paragraphs and its answer is a list of edits that are applied
+    to that original file."""
     if not gemini_configured():
         return None, "no GEMINI_API_KEY is configured on the server"
     master = load_master_prompt()
@@ -331,14 +400,19 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str):
         from google import genai
         from google.genai import types
 
+        if docx_bytes is not None:
+            _, paragraphs = docx_editor.load_paragraphs(docx_bytes)
+            resume_block = docx_editor.numbered_listing(paragraphs)
+        else:
+            resume_block = resume_text
         client = genai.Client(api_key=config.GEMINI_API_KEY.strip(), http_options=types.HttpOptions(timeout=90000))
         prompt = (
             f"JOB DESCRIPTION:\n{jd_text}\n\n"
-            f"RESUME:\n{resume_text}\n\n"
+            f"RESUME:\n{resume_block}\n\n"
             f"OPTIONAL INSTRUCTIONS:\n{custom_instructions or 'None'}\n"
         )
         gen_config = types.GenerateContentConfig(
-            system_instruction=master + "\n\n" + _APP_OUTPUT_CONTRACT,
+            system_instruction=master + "\n\n" + (_APP_EDIT_CONTRACT if docx_bytes is not None else _APP_OUTPUT_CONTRACT),
             response_mime_type="application/json",
             max_output_tokens=16384,
             temperature=0.3,
@@ -364,7 +438,7 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str):
     data = _parse_json_object(raw_text)
     if data is None:
         return None, "Gemini's answer was not valid JSON (it may have been cut off) - try again"
-    return _normalize_ai_result(data, resume_text)
+    return _normalize_ai_result(data, resume_text, docx_bytes)
 
 
 def _cert_edu_points(text: str) -> int:
@@ -431,22 +505,36 @@ def _keyword_analysis(resume_text: str, jd_text: str, ai_reason: str):
     }
 
 
-def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
+def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_bytes=None):
     """Master Resume Optimization & JD Alignment (see MASTER_RESUME_PROMPT.md).
 
     With Gemini available, the master prompt drives the full analysis + rewrite; the match band
     is applied in code and mechanically checkable safety rules (dates, years of experience) are
     enforced on the result. Without Gemini it returns the keyword analysis only and leaves the
-    resume unchanged."""
-    resume_text = (resume_text or "").strip()
+    resume unchanged.
+
+    `docx_bytes` (the original Word file) switches to in-place editing: the result then carries
+    `docx_base64`, that same file with only the AI's targeted edits applied, so the original
+    formatting is preserved. If the file can't be read, it falls back to the plain-text path."""
     jd_text = (jd_text or "").strip()
+    if docx_bytes is not None:
+        try:
+            resume_text = docx_editor.extract_text(docx_bytes)
+        except Exception as ex:
+            logger.warning(f"Could not read the original .docx, using text instead: {ex}")
+            docx_bytes = None
+    resume_text = (resume_text or "").strip()
     if not resume_text or not jd_text:
         return {"error": "Both resume and job description are required."}
 
-    result, reason = _ai_optimize(resume_text, jd_text, (custom_instructions or "").strip())
-    if result is not None:
-        return result
-    return _keyword_analysis(resume_text, jd_text, reason)
+    result, reason = _ai_optimize(resume_text, jd_text, (custom_instructions or "").strip(), docx_bytes)
+    if result is None:
+        result = _keyword_analysis(resume_text, jd_text, reason)
+    result.setdefault("format_preserved", False)
+    result.setdefault("docx_base64", "")
+    result.setdefault("changes", [])
+    result.setdefault("skipped_edits", [])
+    return result
 
 def create_docx_resume(resume_text, candidate_name="Candidate"):
     """Generates a clean, professionally formatted Microsoft Word (.docx) document."""

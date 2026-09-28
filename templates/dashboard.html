@@ -668,7 +668,7 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label>Or Upload a Different .docx / .pdf / .txt Resume</label>
+                                <label>Or Upload a Different .docx / .pdf / .txt Resume <span style="font-weight:400; text-transform:none; color:#64748b;">(a .docx keeps its exact original formatting)</span></label>
                                 <input type="file" id="resumebot-file-input" accept=".docx,.pdf,.txt" class="form-control">
                                 <div id="resumebot-source-note" style="font-size:0.8rem; margin-top:6px; color:#64748b;"></div>
                             </div>
@@ -710,6 +710,7 @@
                         </div>
 
                         <div id="result-not-optimized" style="display:none; margin:12px 0; padding:12px 14px; border-radius:8px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; font-size:0.88rem;"></div>
+                        <div id="result-format-note" style="display:none; margin:12px 0; padding:10px 14px; border-radius:8px; font-size:0.85rem;"></div>
 
                         <div class="match-score-bar-wrap">
                             <div class="score-labels">
@@ -744,6 +745,11 @@
                         <div class="skill-box" style="margin-top:12px;">
                             <h4>📝 ATS Optimization Notes</h4>
                             <ul id="result-ats-notes" style="margin:6px 0 0 18px; font-size:0.85rem; color:#334155;"></ul>
+                        </div>
+
+                        <div class="skill-box" id="result-changes-box" style="margin-top:12px; display:none;">
+                            <h4>✏️ Exactly What Changed in Your Resume</h4>
+                            <div id="result-changes" style="font-size:0.85rem; color:#334155;"></div>
                         </div>
 
                         <div class="form-group" style="margin-top: 16px;">
@@ -1116,7 +1122,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.21.0"></script>
+    <script src="/static/js/app.js?v=5.22.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

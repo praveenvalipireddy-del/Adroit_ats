@@ -5,6 +5,8 @@ venv/
 .vscode/
 
 data/tokens/
+# resumes uploaded by recruiters/consultants at runtime are personal data - never commit new ones
+data/resumes/
 oauth_credentials.json
 token_*.json
 *.db

@@ -250,6 +250,7 @@ def api_consultants():
             resume_filename = None
             resume_path = None
             resume_text = None
+            resume_raw = None
 
             if "resume_file" in request.files:
                 file = request.files["resume_file"]
@@ -263,10 +264,12 @@ def api_consultants():
                     # Extract text for ATS analysis
                     try:
                         with open(dest_path, "rb") as rf:
-                            resume_text = resume_bot.extract_text_from_file_bytes(rf.read(), filename)
+                            resume_raw = rf.read()
+                        resume_text = resume_bot.extract_text_from_file_bytes(resume_raw, filename)
                     except Exception as e:
                         logger.error(f"Error extracting resume text: {e}")
         else:
+            resume_raw = None
             data = request.json or {}
             name = data.get("name", "").strip()
             email = data.get("email", "").strip()
@@ -313,6 +316,11 @@ def api_consultants():
             gmail_account=email,
             assigned_user_id=assigned_user_id
         )
+        if resume_raw and resume_filename:
+            try:
+                models.save_resume_file(cand_id, resume_filename, resume_raw)
+            except Exception as e:
+                logger.error(f"Could not store the original resume file for consultant {cand_id}: {e}")
 
         models.log_activity(
             user["id"],
@@ -399,7 +407,10 @@ def api_consultant_upload_resume(candidate_id):
     resume_text = ""
     try:
         with open(dest_path, "rb") as rf:
-            resume_text = resume_bot.extract_text_from_file_bytes(rf.read(), filename)
+            resume_raw = rf.read()
+        resume_text = resume_bot.extract_text_from_file_bytes(resume_raw, filename)
+        # Keep the original file itself in the database so the optimizer can edit it in place.
+        models.save_resume_file(candidate_id, filename, resume_raw)
     except Exception as e:
         logger.error(f"Error extracting text from uploaded resume: {e}")
 
@@ -1071,36 +1082,87 @@ def api_resume_bot_optimize():
     if not user:
         return jsonify({"error": "Login required"}), 401
 
-    data = request.get_json(silent=True) or {}
-    resume_text = (data.get("resume_text") or "").strip()
-    jd_text = (data.get("jd_text") or "").strip()
-    custom_instructions = (data.get("custom_instructions") or "").strip()
-    candidate_id = data.get("candidate_id")
+    # Three ways in:
+    #  - multipart with an attached .docx  -> edited IN PLACE (original formatting preserved)
+    #  - JSON + use_stored_file + candidate_id -> the consultant's stored original .docx, same
+    #  - JSON with resume_text (pasted / PDF / txt / edited) -> text path, Word file regenerated
+    docx_bytes = None
+    format_note = ""
+    if request.content_type and "multipart/form-data" in request.content_type:
+        jd_text = (request.form.get("jd_text") or "").strip()
+        custom_instructions = (request.form.get("custom_instructions") or "").strip()
+        resume_text = ""
+        f = request.files.get("resume_file")
+        if not f or not f.filename:
+            return jsonify({"error": "No resume to optimize. Attach a .docx file or paste the resume text first."}), 400
+        if not secure_filename(f.filename).lower().endswith(".docx"):
+            return jsonify({"error": "Editing in the original format needs a .docx file. For other formats paste the text instead."}), 400
+        docx_bytes = f.read()
+        if len(docx_bytes) > 5 * 1024 * 1024:
+            return jsonify({"error": "That file is over 5 MB - attach a smaller resume."}), 413
+    else:
+        data = request.get_json(silent=True) or {}
+        resume_text = (data.get("resume_text") or "").strip()
+        jd_text = (data.get("jd_text") or "").strip()
+        custom_instructions = (data.get("custom_instructions") or "").strip()
+        candidate_id = data.get("candidate_id")
+        use_stored_file = bool(data.get("use_stored_file"))
 
-    # Only when the caller sent no text at all: use the selected consultant's stored resume, and
-    # only one they may see. Never invent a stand-in resume from their name/title/skills - an
-    # optimization of made-up text is worse than an error.
-    if candidate_id and not resume_text:
-        try:
-            cand = models.get_candidate_by_id(int(candidate_id), user_id=user["id"], is_admin=("Admin" in user.get("role", "")))
-        except (TypeError, ValueError):
-            cand = None
-        resume_text = ((cand or {}).get("resume_text") or "").strip()
+        cand = None
+        if candidate_id and (use_stored_file or not resume_text):
+            # Only a consultant this user may see. Never invent a stand-in resume from their
+            # name/title/skills - an optimization of made-up text is worse than an error.
+            try:
+                cand = models.get_candidate_by_id(int(candidate_id), user_id=user["id"], is_admin=("Admin" in user.get("role", "")))
+            except (TypeError, ValueError):
+                cand = None
+        if cand and use_stored_file:
+            docx_bytes = _stored_docx_bytes(cand)
+            if docx_bytes is None:
+                format_note = ("This consultant's original Word file is no longer stored (or was uploaded as a PDF/text file), so a clean "
+                               "Word file was built from the resume text. Attach the original .docx to keep its exact formatting.")
+        if cand and not resume_text:
+            resume_text = (cand.get("resume_text") or "").strip()
 
-    if not resume_text:
-        return jsonify({"error": "No resume to optimize. Attach a .docx / .pdf / .txt file or paste the resume text first."}), 400
+        if not resume_text and docx_bytes is None:
+            return jsonify({"error": "No resume to optimize. Attach a .docx / .pdf / .txt file or paste the resume text first."}), 400
+
     if not jd_text:
         return jsonify({"error": "Paste the client's Job Description (JD) first."}), 400
 
     result = resume_bot.optimize_resume_for_jd(
         resume_text=resume_text,
         jd_text=jd_text,
-        custom_instructions=custom_instructions
+        custom_instructions=custom_instructions,
+        docx_bytes=docx_bytes,
     )
     if result.get("error"):
         return jsonify(result), 400
 
+    if docx_bytes is None and not format_note:
+        format_note = ("Original formatting is only kept when the resume is a .docx file (attached or stored). This download is a clean "
+                       "Word file built from the resume text.")
+    result["format_note"] = "" if result.get("format_preserved") else format_note
     return jsonify(result)
+
+
+def _stored_docx_bytes(cand):
+    """The original .docx of a consultant the caller may see: from the database, or - for files
+    uploaded before that table existed - from the resumes folder if it survived the last
+    deploy. Returns None when there isn't one."""
+    rec = models.get_resume_file(cand["id"])
+    if rec and (rec.get("filename") or "").lower().endswith(".docx"):
+        return rec["data"]
+    path = cand.get("resume_path") or ""
+    if path.lower().endswith(".docx"):
+        real, root = os.path.realpath(path), os.path.realpath(RESUMES_DIR)
+        if real.startswith(root + os.sep) and os.path.isfile(real):
+            try:
+                with open(real, "rb") as fh:
+                    return fh.read()
+            except OSError:
+                return None
+    return None
 
 
 @app.route("/api/resume-bot/extract-text", methods=["POST", "OPTIONS"])

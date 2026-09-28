@@ -12,6 +12,7 @@ let state = {
     pipeline: {},
     activeTab: 'jobs',
     lastOptimizedResumeText: '',
+    lastOptimizedDocxBase64: '',
     lastOptimizedCandidateName: 'Consultant'
 };
 
@@ -1023,6 +1024,11 @@ function initResumeBot() {
     // resume), 'file' (an attached file), or 'typed' (pasted/edited by hand). Tracked so opening
     // the tab never overwrites something the recruiter attached or typed.
     let sourceMode = 'stored';
+    // For an exact-format result the ORIGINAL .docx is what gets edited: the attached File (kept
+    // in memory here, never uploaded until Optimize is clicked), or the consultant's stored
+    // original Word file (the server holds it). Anything typed/edited falls back to plain text.
+    let attachedDocx = null;
+    let storedHasDocx = false;
 
     const setSourceNote = (html, tone) => {
         if (!sourceNote) return;
@@ -1040,6 +1046,8 @@ function initResumeBot() {
         const candId = candSelect ? parseInt(candSelect.value) : NaN;
         if (fileInput) fileInput.value = '';
         sourceMode = 'stored';
+        attachedDocx = null;
+        storedHasDocx = false;
         if (!candId) {
             if (resumeTextarea) resumeTextarea.value = '';
             setSourceNote('Select a consultant, attach a file, or paste a resume below.', 'muted');
@@ -1052,9 +1060,14 @@ function initResumeBot() {
             const cand = await res.json().catch(() => ({}));
             const text = (cand.resume_text || '').trim();
             if (resumeTextarea) resumeTextarea.value = text;
+            storedHasDocx = !!text && /\.docx$/i.test(cand.resume_filename || '');
             const who = escapeHtml(cand.name || 'this consultant');
             setSourceNote(text
-                ? `Using the resume on file for <b>${who}</b> (${text.length.toLocaleString()} characters). To optimize a different resume, attach a file or paste text below.`
+                ? `Using the resume on file for <b>${who}</b> (${text.length.toLocaleString()} characters). `
+                    + (storedHasDocx
+                        ? 'It is a Word file, so the optimized version will be that same file with only the changes edited in (original formatting kept). '
+                        : 'It is not a Word file, so the download will be a clean Word file built from the text. ')
+                    + 'To optimize a different resume, attach a file or paste text below.'
                 : `No resume is on file for <b>${who}</b>. Attach a .docx / .pdf / .txt file or paste the resume text below.`,
                 text ? 'ok' : 'warn');
         } catch (err) {
@@ -1066,7 +1079,9 @@ function initResumeBot() {
     if (candSelect) candSelect.addEventListener('change', () => loadStoredResume(false));
     if (resumeTextarea) resumeTextarea.addEventListener('input', () => {
         sourceMode = 'typed';
-        setSourceNote('Using the text in the box (edited or pasted by hand).', 'muted');
+        attachedDocx = null;
+        storedHasDocx = false;
+        setSourceNote('Using the text in the box (edited or pasted by hand). The Word download will be rebuilt from this text - to keep a resume\'s exact original formatting, attach its .docx file instead of editing the text.', 'muted');
     });
 
     if (fileInput) {
@@ -1088,7 +1103,12 @@ function initResumeBot() {
                 }
                 if (resumeTextarea) resumeTextarea.value = data.text;
                 sourceMode = 'file';
-                setSourceNote(`Using the attached file <b>${escapeHtml(data.filename)}</b> (${Number(data.chars).toLocaleString()} characters). It is used only for this optimization - it is not saved to any consultant.`, 'ok');
+                storedHasDocx = false;
+                attachedDocx = /\.docx$/i.test(data.filename || file.name) ? file : null;
+                setSourceNote(`Using the attached file <b>${escapeHtml(data.filename)}</b> (${Number(data.chars).toLocaleString()} characters). It is used only for this optimization - it is not saved to any consultant. `
+                    + (attachedDocx
+                        ? 'Your Word file will be edited in place, so its original formatting is kept.'
+                        : 'Only a .docx can keep its original formatting; for this file the download will be a clean Word file built from the text.'), 'ok');
             } catch (err) {
                 fileInput.value = '';
                 setSourceNote('Could not read that file: ' + escapeHtml(err.message), 'error');
@@ -1128,13 +1148,28 @@ function initResumeBot() {
             btnOptimize.innerHTML = '⚡ Running your master prompt (can take up to a minute)...';
 
             try {
-                // Only the visible text is sent - never a consultant id - so the server can't
-                // substitute a different resume than the one shown in the box.
-                const res = await fetch('/api/resume-bot/optimize', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ jd_text: jd, resume_text: resume, custom_instructions: notes })
-                });
+                // What is sent is always the resume the box says is in use:
+                //  - an attached .docx  -> the file itself (edited in place, formatting kept)
+                //  - the loaded stored resume, if it is a Word file -> the consultant id + a flag so
+                //    the server edits that stored original (it never substitutes a different person)
+                //  - anything else (PDF/txt/pasted/edited) -> just the visible text
+                let fetchOpts;
+                const storedCandId = candSelect ? parseInt(candSelect.value) : NaN;
+                if (sourceMode === 'file' && attachedDocx) {
+                    const fd = new FormData();
+                    fd.append('resume_file', attachedDocx);
+                    fd.append('jd_text', jd);
+                    fd.append('custom_instructions', notes);
+                    fetchOpts = { method: 'POST', body: fd };
+                } else {
+                    const payload = { jd_text: jd, resume_text: resume, custom_instructions: notes };
+                    if (sourceMode === 'stored' && storedHasDocx && storedCandId) {
+                        payload.candidate_id = storedCandId;
+                        payload.use_stored_file = true;
+                    }
+                    fetchOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) };
+                }
+                const res = await fetch('/api/resume-bot/optimize', fetchOpts);
                 if (res.status === 401) { window.location.href = '/login'; return; }
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok || data.error) {
@@ -1150,6 +1185,8 @@ function initResumeBot() {
                     ? data.candidate_name
                     : (selectedCand ? selectedCand.name : (data.candidate_name || 'Consultant'));
                 state.lastOptimizedResumeText = data.optimized ? (data.updated_resume_text || '') : '';
+                // The edited ORIGINAL file, when the server could edit it in place.
+                state.lastOptimizedDocxBase64 = (data.optimized && data.format_preserved) ? (data.docx_base64 || '') : '';
 
                 const resultsCard = document.getElementById('resumebot-results-card');
                 if (resultsCard) resultsCard.style.display = 'block';
@@ -1203,7 +1240,37 @@ function initResumeBot() {
                 const notesEl = byId('result-ats-notes');
                 if (notesEl) notesEl.innerHTML = (data.ats_optimization_notes || []).map(n => `<li>${escapeHtml(n)}</li>`).join('') || '<li style="color:#94a3b8;">No notes.</li>';
 
-                if (byId('result-preview-label')) byId('result-preview-label').innerText = data.optimized ? 'Optimized Resume Preview' : 'Resume (unchanged - original text)';
+                // Format status + a precise change list, so the recruiter can verify every edit.
+                const fmtEl = byId('result-format-note');
+                if (fmtEl) {
+                    const preserved = !!(data.optimized && data.format_preserved);
+                    const note = preserved
+                        ? `✓ Original formatting preserved - the download is your own Word file with only the ${(data.changes || []).length} change(s) below edited in. Everything else (fonts, layout, tables, section order, bullets) is untouched.`
+                        : (data.optimized ? (data.format_note || '') : '');
+                    fmtEl.style.display = note ? 'block' : 'none';
+                    fmtEl.innerText = note;
+                    fmtEl.style.background = preserved ? '#ecfdf5' : '#fffbeb';
+                    fmtEl.style.border = preserved ? '1px solid #a7f3d0' : '1px solid #fde68a';
+                    fmtEl.style.color = preserved ? '#047857' : '#92400e';
+                }
+                const changesBox = byId('result-changes-box'), changesEl = byId('result-changes');
+                if (changesBox && changesEl) {
+                    const changes = data.changes || [], skipped = data.skipped_edits || [];
+                    const clip = (s, n) => (s && s.length > n) ? s.slice(0, n) + '…' : (s || '');
+                    const rows = changes.map(c => c.op === 'insert_after'
+                        ? `<div style="margin:0 0 10px; padding:8px 10px; border-left:3px solid #10b981; background:#f0fdf4;"><span style="color:#059669; font-weight:600;">+ New line</span> <span style="color:#64748b;">(added after “${escapeHtml(clip(c.before, 70))}”)</span><div>${escapeHtml(c.after)}</div></div>`
+                        : `<div style="margin:0 0 10px; padding:8px 10px; border-left:3px solid #3b82f6; background:#eff6ff;"><span style="color:#1d4ed8; font-weight:600;">Edited line</span><div style="color:#64748b; text-decoration:line-through;">${escapeHtml(clip(c.before, 300))}</div><div>${escapeHtml(c.after)}</div></div>`);
+                    const skippedRows = skipped.length
+                        ? [`<div style="margin-top:8px; color:#92400e;"><b>${skipped.length} proposed edit(s) were NOT applied</b> (safety checks):</div>`]
+                            .concat(skipped.map(s => `<div style="margin:4px 0; color:#92400e; font-size:0.8rem;">• ${escapeHtml(clip(s.new_text, 90))} - <i>${escapeHtml(s.reason)}</i></div>`))
+                        : [];
+                    changesBox.style.display = (rows.length || skippedRows.length) ? '' : 'none';
+                    changesEl.innerHTML = rows.concat(skippedRows).join('');
+                }
+
+                if (byId('result-preview-label')) byId('result-preview-label').innerText = data.optimized
+                    ? (data.format_preserved ? 'Optimized Resume - text preview (the download keeps your original layout)' : 'Optimized Resume Preview')
+                    : 'Resume (unchanged - original text)';
                 if (byId('result-preview-text')) byId('result-preview-text').value = data.updated_resume_text || '';
                 if (btnDownload) btnDownload.style.display = data.optimized ? '' : 'none';
 
@@ -1227,6 +1294,25 @@ function initResumeBot() {
             }
 
             try {
+                const safeName = state.lastOptimizedCandidateName.replace(/[^a-zA-Z0-9_-]/g, '_');
+                // Exact-format path: the server already edited the original .docx - save it as is.
+                if (state.lastOptimizedDocxBase64) {
+                    const bin = atob(state.lastOptimizedDocxBase64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    const fileBlob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+                    const fileUrl = window.URL.createObjectURL(fileBlob);
+                    const link = document.createElement('a');
+                    link.href = fileUrl;
+                    link.download = `${safeName}_ATS_Tailored_Resume.docx`;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    setTimeout(() => window.URL.revokeObjectURL(fileUrl), 10000);
+                    showToast('📥 Your original Word file, with the tailored changes, downloaded (formatting preserved).', 'success');
+                    return;
+                }
+
                 const res = await fetch('/api/resume-bot/download-docx', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1246,7 +1332,6 @@ function initResumeBot() {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                const safeName = state.lastOptimizedCandidateName.replace(/[^a-zA-Z0-9_-]/g, '_');
                 a.download = `${safeName}_ATS_Tailored_Resume.docx`;
                 document.body.appendChild(a);
                 a.click();

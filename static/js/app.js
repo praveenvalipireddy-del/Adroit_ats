@@ -1997,6 +1997,93 @@ function updateStudentMetrics(students) {
     if (onboardedElem) onboardedElem.innerText = state.consultants.length;
 }
 
+// Shared by the LinkedIn column link and the "Message" quick action, so both always agree on
+// which URL a candidate's row actually points at.
+function cleanCandidateName(c) {
+    return (c.name || 'Candidate')
+        .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect|Senior|Junior|Associate)\b/gi, '')
+        .replace(/[,\/()]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function resolveLinkedInUrl(c) {
+    const cleanName = cleanCandidateName(c);
+    let url = (c.linkedin_url || c.profile_url || '').trim();
+    const isDirect = !!(url && url.includes('linkedin.com/in/'));
+    if (!isDirect && (!url || !url.startsWith('http') || url.includes('search/results'))) {
+        url = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}`;
+    }
+    return { url, isDirect, cleanName };
+}
+
+// A short, honest LinkedIn message: only states education facts this candidate's row actually
+// shows as verified - nothing invented, no years-of-experience or placement claims. The recruiter
+// pastes it into LinkedIn's own chat box and can edit it first (LinkedIn caps a CONNECTION
+// REQUEST note at 300 characters, though an ordinary message to someone you're connected to is not
+// capped the same way).
+function buildLinkedInDmText(c) {
+    const firstName = (c.name || '').trim().split(/\s+/)[0] || 'there';
+    const yearVerified = c.year_verified !== false;
+    const bYear = (c.bachelor_year || c.grad_year || '').trim();
+    const bCollege = (c.bachelor_college || '').trim();
+    const mUni = (c.master_university || c.university || '').trim();
+    const knownCollege = bCollege && bCollege !== 'College not listed';
+    const knownUni = mUni && mUni !== 'University not listed';
+
+    let seen = '';
+    if (yearVerified && knownCollege && bYear) {
+        seen = ` I saw your ${bCollege} background (${bYear})` + (knownUni ? ` and your Master's at ${mUni}.` : '.');
+    } else if (knownUni) {
+        seen = ` I saw your Master's at ${mUni}.`;
+    }
+
+    return `Hi ${firstName},${seen} We work with US IT clients on contract/C2C roles and wanted to reach out directly - are you currently open to hearing about new opportunities? Happy to share details if so.`;
+}
+
+async function copyTextSafely(text) {
+    try {
+        if (window.isSecureContext && navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (err) { /* fall through to the legacy path below */ }
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+    } catch (err) {
+        return false;
+    }
+}
+
+// The "Message" quick action: this is as far as automation goes. It copies a drafted message and
+// opens the candidate's LinkedIn profile - the recruiter clicks LinkedIn's own Message button and
+// pastes it themselves. Nothing here logs into LinkedIn or sends on the recruiter's behalf:
+// automating that step risks LinkedIn restricting the recruiter's own account.
+async function onMessageOnLinkedIn(cardObj) {
+    const c = typeof cardObj === 'string' ? JSON.parse(cardObj) : cardObj;
+    const { url, isDirect } = resolveLinkedInUrl(c);
+    window.open(url, '_blank', 'noopener');   // opened synchronously, in the same click, so it isn't popup-blocked
+    const text = buildLinkedInDmText(c);
+    const copied = await copyTextSafely(text);
+    if (!copied) {
+        showToast('Could not copy automatically - here is the message to paste yourself: ' + text, 'warning', 15000);
+    } else if (isDirect) {
+        showToast('💬 Message copied. Paste it into the chat box on the LinkedIn profile that just opened - you send it.', 'success', 6000);
+    } else {
+        showToast("No direct LinkedIn profile link is on file for this candidate, so a LinkedIn search opened instead. Message copied - once you find them, paste it into the chat.", 'info', 8000);
+    }
+}
+window.onMessageOnLinkedIn = onMessageOnLinkedIn;
+
 function renderStudentsGrid(candidates) {
     const tbody = document.getElementById('students-table-body');
     if (!tbody) return;
@@ -2045,21 +2132,7 @@ function renderStudentsGrid(candidates) {
             settlementSub = "Curricular Practical Training";
             settlementBadgeStyle = "background:rgba(2,132,199,0.10); color:#0369a1; border:1px solid rgba(2,132,199,0.35);";
         }
-        const cleanName = (c.name || 'Candidate')
-            .replace(/\b(Ph\.?D|CFP|MS|B\.?Tech|Engineer|Developer|Lead|Architect|Senior|Junior|Associate)\b/gi, '')
-            .replace(/[,\/()]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        let targetLiUrl = (c.linkedin_url || c.profile_url || '').trim();
-        
-        // Priority 1: Direct LinkedIn profile link (https://www.linkedin.com/in/...)
-        if (targetLiUrl && targetLiUrl.includes('linkedin.com/in/')) {
-            // Exact profile URL
-        } else if (!targetLiUrl || !targetLiUrl.startsWith('http') || targetLiUrl.includes('search/results')) {
-            targetLiUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(cleanName)}`;
-        }
-        
+        const { url: targetLiUrl, cleanName } = resolveLinkedInUrl(c);
         const googleLiUrl = `https://www.google.com/search?q=site:linkedin.com/in/+${encodeURIComponent('"' + cleanName + '"')}+USA`;
         const initials = (c.name || 'US').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
@@ -2160,6 +2233,9 @@ function renderStudentsGrid(candidates) {
             <!-- 8. Quick Actions -->
             <td style="padding: 14px 16px; text-align:right;">
                 <div style="display:inline-flex; gap:6px; align-items:center;">
+                    <button class="btn btn-secondary btn-xs" onclick='onMessageOnLinkedIn(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="background:rgba(10,102,194,0.10); color:#0a66c2; border:1px solid rgba(10,102,194,0.35);" title="Copies a drafted message and opens their LinkedIn profile - you paste and send it yourself">
+                        💬 Message
+                    </button>
                     <button class="btn btn-secondary btn-xs" onclick='onOpenStudentPitch(${JSON.stringify(c).replace(/'/g, "&apos;")})' style="background:rgba(99,102,241,0.10); color:#4338ca; border:1px solid rgba(99,102,241,0.35);">
                         Pitch
                     </button>

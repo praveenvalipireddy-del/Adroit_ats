@@ -14,7 +14,8 @@ from docx.oxml.ns import qn
 from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 
-_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+# A career/education year: 1970-2039. (Not "1920" in a "1080x1920 video" line, which is a pixel size.)
+_YEAR_RE = re.compile(r"\b(?:19[7-9]\d|20[0-3]\d)\b")
 _YEARS_EXP_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:years|yrs)", re.I)
 
 MAX_EDITS = 40

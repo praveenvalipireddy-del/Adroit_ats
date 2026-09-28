@@ -31,7 +31,10 @@ DOMAINS = {
     "Insurance": ["insurance", "policy", "claims", "underwriting", "actuarial"]
 }
 
-# Technical keywords dictionary
+# Technical keywords dictionary. Two jobs: (1) the keyword-scan fallback when the AI is down, and
+# (2) the "unapproved technology" guard - a technology named here that the original resume lacks
+# and the analysis step did not approve is refused. So this list is deliberately about real
+# technologies, not soft words ('swift', 'helm', 'go' would false-alarm on ordinary sentences).
 TECH_KEYWORDS = [
     "Java", "Java 21", "Java 17", "Spring Boot", "Spring Cloud", "Microservices", "REST API", "GraphQL",
     "Kafka", "RabbitMQ", "ActiveMQ", "AWS", "Amazon Web Services", "Azure", "GCP", "Google Cloud",
@@ -39,8 +42,18 @@ TECH_KEYWORDS = [
     "Python", "FastAPI", "Django", "Flask", "PyTorch", "TensorFlow", "LangChain", "LLM", "RAG", "Vector DB",
     "React", "React 19", "Next.js", "TypeScript", "JavaScript", "Angular", "Vue.js", "Node.js", "Tailwind CSS",
     "PostgreSQL", "MySQL", "Oracle", "MongoDB", "Cassandra", "Redis", "Elasticsearch", "Snowflake", "dbt",
-    "Airflow", "Spark", "Hadoop", "SQL", "gRPC", "Prometheus", "Grafana", "Splunk", "ArgoCD", "Linux"
+    "Airflow", "Spark", "Hadoop", "SQL", "gRPC", "Prometheus", "Grafana", "Splunk", "ArgoCD", "Linux",
+    # AI / automation / no-code
+    "n8n", "Zapier", "Make.com", "Airtable", "OpenAI", "GPT-4", "GPT-4o", "Claude", "Gemini", "LangGraph", "CrewAI",
+    "AutoGen", "Pinecone", "ChromaDB", "Weaviate", "Hugging Face", "Prompt Engineering", "MCP", "Webhooks",
+    "WhatsApp Business API", "Twilio", "Power Automate", "Retool", "HubSpot", "Salesforce",
+    # more general engineering
+    ".NET", "C#", "PHP", "Laravel", "Ruby on Rails", "Kotlin", "Selenium", "Playwright", "Cypress", "JUnit",
+    "Hibernate", "Maven", "Gradle", "Ansible", "Azure DevOps", "Databricks", "BigQuery", "Redshift",
+    "Power BI", "Tableau", "OAuth", "JWT",
 ]
+# A keyword-scan percentage is only shown when the JD names at least this many of them.
+MIN_JD_TECH = 3
 
 def extract_text_from_file_bytes(file_bytes, filename, strict=False):
     """Extracts text from PDF, DOCX, or plain text bytes. With strict=True a file that can't be
@@ -82,13 +95,9 @@ def detect_domain(text):
     return best_domain
 
 def extract_skills_from_text(text):
-    found = []
-    text_lower = f" {text.lower()} "
-    for tech in TECH_KEYWORDS:
-        # Simple word boundary check
-        pattern = r'(?i)\b' + re.escape(tech) + r'\b'
-        if re.search(pattern, text):
-            found.append(tech)
+    # Same boundary rule as the unapproved-technology guard, so 'C#', '.NET' and 'Node.js' are found
+    # too (a plain \b can't sit next to '#' or a leading '.').
+    found = [tech for tech in TECH_KEYWORDS if _tech_present(tech, text)]
     return list(dict.fromkeys(found))
 
 def gemini_configured() -> bool:
@@ -112,12 +121,41 @@ def _explain_gemini_error(ex: Exception) -> str:
         return f"Gemini model '{GEMINI_MODEL}' isn't available on this key - set GEMINI_MODEL to a current model name"
     if "timeout" in low or "timed out" in low or "deadline" in low:
         return "Gemini took too long to answer (over 80 seconds) - try again"
+    if _is_transient_gemini_error(ex):
+        return ("Google's Gemini is overloaded right now (503 - high demand), even after retrying and switching to backup models. "
+                "Nothing is wrong with your resume or the JD - click Optimize again in a minute or two")
     return "Gemini call failed: " + " ".join(msg.split())[:140]
 
 
 def _is_transient_gemini_error(ex: Exception) -> bool:
     low = str(ex).lower()
-    return any(t in low for t in ("503", "unavailable", "overloaded", "500 internal", "temporarily"))
+    return any(t in low for t in ("503", "unavailable", "overloaded", "high demand", "500 internal", "temporarily"))
+
+
+def _is_quota_error(ex: Exception) -> bool:
+    low = str(ex).lower()
+    return "429" in low or "resource_exhausted" in low or "quota" in low
+
+
+def _is_model_missing_error(ex: Exception) -> bool:
+    low = str(ex).lower()
+    return "404" in low or "not found" in low or "is not supported" in low
+
+
+# The free tier's capacity and daily quota are per MODEL, so when the preferred model is overloaded
+# (503) or out of quota (429), the next one usually still answers. Order = best first.
+_DEFAULT_FALLBACK_MODELS = "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash-lite"
+
+
+def _model_chain():
+    """Models to try, in order: GEMINI_MODEL first, then GEMINI_FALLBACK_MODELS (comma separated;
+    set it to an empty value to turn fallbacks off)."""
+    chain = [GEMINI_MODEL]
+    for m in os.getenv("GEMINI_FALLBACK_MODELS", _DEFAULT_FALLBACK_MODELS).split(","):
+        m = m.strip()
+        if m and m not in chain:
+            chain.append(m)
+    return chain
 
 
 # --------------------------------------------------------------------------------------
@@ -228,7 +266,7 @@ def detect_candidate_name(resume_text: str):
     return (first, True) if looks_like_name else ("Technical Consultant", False)
 
 
-_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_YEAR_RE = re.compile(r"\b(?:19[7-9]\d|20[0-3]\d)\b")      # same rule as docx_editor: 1970-2039
 _YEARS_EXP_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:years|yrs)", re.I)
 
 
@@ -335,6 +373,7 @@ def _analysis_result(data: dict, resume_text: str):
         "docx_base64": "",
         "changes": [],
         "skipped_edits": [],
+        "ai_model": "",
     }, _skill_plan(data)
 
 
@@ -503,28 +542,39 @@ def _finish_rewrite(result, plan, raw, truncated, resume_text, docx_bytes):
     return result
 
 
-def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int, started: float):
-    """One Gemini call, retried once on a transient 503-type error while there is still time.
-    Returns (text, truncated); raises on failure."""
+def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int):
+    """One Gemini request, made resilient: a 503 (overloaded) is retried once on the same model,
+    then - like a 429 (quota) or 404 (model not on this key) - the next model in the chain is tried.
+    A bad API key or a blocked prompt fails the same on every model, so it raises straight away.
+    Returns (text, truncated, model_used); raises the FIRST error if every model failed."""
     kwargs = {"response_mime_type": "application/json"} if want_json else {}
     gen_config = types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens, temperature=0.3, **kwargs)
-    response = None
-    for attempt in range(2):
-        try:
-            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt, config=gen_config)
-            break
-        except Exception as ex:
-            if attempt == 0 and _is_transient_gemini_error(ex) and time.monotonic() - started < 45:
-                time.sleep(2)
-                continue
-            raise
-    text = (response.text or "").strip()
-    truncated = False
-    try:
-        truncated = "MAX_TOKENS" in str(response.candidates[0].finish_reason).upper()
-    except Exception:
-        pass
-    return text, truncated
+    chain = _model_chain()
+    started = time.monotonic()
+    first_error = None
+    for model in chain:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(model=model, contents=prompt, config=gen_config)
+                text = (response.text or "").strip()
+                truncated = False
+                try:
+                    truncated = "MAX_TOKENS" in str(response.candidates[0].finish_reason).upper()
+                except Exception:
+                    pass
+                return text, truncated, model
+            except Exception as ex:
+                first_error = first_error or ex
+                transient = _is_transient_gemini_error(ex)
+                if not (transient or _is_quota_error(ex) or _is_model_missing_error(ex)) and model == chain[0]:
+                    raise
+                if transient and attempt == 0 and time.monotonic() - started < 60:
+                    time.sleep(3)
+                    continue
+                break                                   # give up on this model, try the next one
+        if time.monotonic() - started > 75:
+            break                                       # don't let one step run past the server's time limit
+    raise first_error
 
 
 def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_bytes: bytes = None):
@@ -539,17 +589,16 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
     if not master:
         return None, "MASTER_RESUME_PROMPT.md is missing on the server"
 
-    started = time.monotonic()
     custom = custom_instructions or "None"
     try:
         from google import genai
         from google.genai import types
 
         client = genai.Client(api_key=config.GEMINI_API_KEY.strip(), http_options=types.HttpOptions(timeout=80000))
-        raw1, _ = _generate(
+        raw1, _, model1 = _generate(
             client, types, master + "\n\n" + _ANALYSIS_CONTRACT,
             f"JOB DESCRIPTION:\n{jd_text}\n\nRESUME:\n{resume_text}\n\nOPTIONAL INSTRUCTIONS:\n{custom}\n",
-            want_json=True, max_tokens=8192, started=started)
+            want_json=True, max_tokens=8192)
     except Exception as ex:
         reason = _explain_gemini_error(ex)
         logger.warning(f"Gemini analysis unavailable: {reason}")
@@ -563,6 +612,7 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
     result, plan = _analysis_result(data, resume_text)
     if result is None:
         return None, plan                       # (None, reason)
+    result["ai_model"] = model1
 
     initial, level = result["initial_match_percentage"], result["enhancement_level"]
     if initial < 60:
@@ -577,10 +627,12 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
     # Step 2: the complete updated resume, as plain text.
     try:
         resume_block = docx_editor.numbered_listing(docx_editor.load_paragraphs(docx_bytes)[1]) if docx_bytes is not None else resume_text
-        raw2, truncated = _generate(
+        raw2, truncated, model2 = _generate(
             client, types, master + "\n\n" + (_REWRITE_CONTRACT_DOCX if docx_bytes is not None else _REWRITE_CONTRACT_TEXT),
             f"{_approved_block(result, plan)}\nJOB DESCRIPTION:\n{jd_text}\n\nRESUME:\n{resume_block}\n\nOPTIONAL INSTRUCTIONS:\n{custom}\n",
-            want_json=False, max_tokens=16384, started=started)
+            want_json=False, max_tokens=16384)
+        if model2 != model1:
+            result["ai_model"] = f"{model1} (analysis) + {model2} (resume)"
     except Exception as ex:
         reason = _explain_gemini_error(ex)
         logger.warning(f"Gemini rewrite step failed: {reason}")
@@ -622,22 +674,27 @@ def _keyword_analysis(resume_text: str, jd_text: str, ai_reason: str):
         + _cert_edu_points(resume_text) + _work_auth_points(resume_text)
     ))
     initial = max(0, min(100, initial))
-    decision, level, _ = decide_enhancement(initial)
+    # A percentage built from one or two recognised technologies means nothing (a JD about n8n / Claude
+    # automation may name a single item this list knows) - so below MIN_JD_TECH the number is withheld.
+    scored = len(jd_skills) >= MIN_JD_TECH
     name, detected = detect_candidate_name(resume_text)
+    retry_hint = (" Nothing is wrong with your resume or the JD - click Optimize again in a minute or two."
+                  if "overloaded" in (ai_reason or "").lower() else "")
     return {
         "candidate_name": name,
         "candidate_name_detected": detected,
-        "initial_match_percentage": initial,
-        "target_match_percentage": initial,
+        "initial_match_percentage": initial if scored else None,
+        "target_match_percentage": initial if scored else None,
         "match_breakdown": {},
-        "match_decision": decision if initial < 60 else f"Analysis only - AI rewrite unavailable (match band: {decision})",
+        # Never a "Reject" / band decision here: that is a judgement only the AI analysis is allowed to make.
+        "match_decision": "AI analysis unavailable - keyword check only (no match decision was made)",
         "enhancement_level": "None",
         "analysis_source": "keyword-scan",
         "ai_powered": False,
         "optimized": False,
         "not_optimized_reason": ("The resume was not changed. Without the AI, the app can only report the keyword gap - "
                                  "it can't tell which missing skills this candidate can truthfully claim, and inserting them "
-                                 "mechanically would invent experience."),
+                                 "mechanically would invent experience." + retry_hint),
         "ai_unavailable_reason": ai_reason,
         "domain_detected": jd_domain,
         "mandatory_matched_skills": matched,
@@ -649,7 +706,9 @@ def _keyword_analysis(resume_text: str, jd_text: str, ai_reason: str):
         "ats_optimization_notes": [
             f"Keyword scan only: compared the JD against ~{len(TECH_KEYWORDS)} well-known technologies, so skills outside that list are not counted.",
             f"Found {len(matched)} of {len(jd_skills)} recognised JD technologies in the resume.",
-        ],
+        ] + ([] if scored else [
+            f"This JD names only {len(jd_skills)} technolog{'y' if len(jd_skills) == 1 else 'ies'} the scan recognises, so no percentage is shown - "
+            f"a number built from so little would be meaningless. The AI analysis reads the whole JD."]),
         "updated_resume_text": resume_text,
     }
 
@@ -683,6 +742,7 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_by
     result.setdefault("docx_base64", "")
     result.setdefault("changes", [])
     result.setdefault("skipped_edits", [])
+    result.setdefault("ai_model", "")
     return result
 
 def create_docx_resume(resume_text, candidate_name="Candidate"):

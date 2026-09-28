@@ -1193,17 +1193,24 @@ function initResumeBot() {
 
                 const byId = (id) => document.getElementById(id);
                 if (byId('result-title')) byId('result-title').innerText = data.match_decision || 'Resume Optimization Complete';
-                if (byId('score-initial')) byId('score-initial').innerText = `${data.initial_match_percentage ?? '?'}%`;
-                if (byId('score-target')) byId('score-target').innerText = `${data.target_match_percentage ?? '?'}%`;
-                if (byId('score-progress-bar')) byId('score-progress-bar').style.width = `${data.target_match_percentage ?? 0}%`;
+                // When the AI did not run, the only number available is a crude keyword overlap. Show it as
+                // exactly that (or not at all) - never as an "ATS match" a recruiter could act on.
+                const keywordOnly = data.analysis_source === 'keyword-scan';
+                const pct = data.initial_match_percentage;
+                if (byId('score-initial')) byId('score-initial').innerText = keywordOnly
+                    ? (pct == null ? 'not scored (JD names too few known technologies)' : `${pct}% keyword overlap only - NOT an AI match score`)
+                    : `${pct ?? '?'}%`;
+                if (byId('score-target')) byId('score-target').innerText = keywordOnly ? 'not calculated' : `${data.target_match_percentage ?? '?'}%`;
+                if (byId('score-progress-bar')) byId('score-progress-bar').style.width = keywordOnly ? '0%' : `${data.target_match_percentage ?? 0}%`;
                 if (byId('result-domain')) byId('result-domain').innerText = `Domain: ${data.domain_detected || 'Not detected'}`;
 
                 // Which engine produced this - shown per result, so a quota problem is never hidden.
                 const aiBadge = byId('result-ai-badge');
                 if (aiBadge) {
                     let badge;
-                    if (data.ai_powered && data.optimized) badge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">✨ AI analysis + rewrite (Gemini, your master prompt)</span>`;
-                    else if (data.ai_powered) badge = `<span class="badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">✨ AI analysis (Gemini) - resume left unchanged</span>`;
+                    const modelTag = data.ai_model ? ` <span style="font-weight:400;">[${escapeHtml(data.ai_model)}]</span>` : '';
+                    if (data.ai_powered && data.optimized) badge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">✨ AI analysis + rewrite (Gemini, your master prompt)${modelTag}</span>`;
+                    else if (data.ai_powered) badge = `<span class="badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">✨ AI analysis (Gemini) - resume left unchanged${modelTag}</span>`;
                     else badge = `<span class="badge" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;">⚙️ Keyword scan only (no AI)</span>`
                         + (data.ai_unavailable_reason ? `<div style="font-size:0.78rem; color:#b45309; margin-top:4px;">AI skipped: ${escapeHtml(data.ai_unavailable_reason)}</div>` : '');
                     aiBadge.innerHTML = badge;

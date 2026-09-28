@@ -1079,7 +1079,8 @@ function initResumeBot() {
                 if (aiBadge) {
                     aiBadge.innerHTML = data.ai_powered
                         ? `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">✨ AI-Rewritten (Gemini)</span>`
-                        : `<span class="badge" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;" title="Gemini's free tier is unavailable right now (no key configured, or today's free quota is used up) - showing the keyword-matching rewrite instead.">⚙️ Keyword-Matched (rule-based)</span>`;
+                        : `<span class="badge" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;">⚙️ Keyword-Matched (rule-based)</span>`
+                          + (data.ai_unavailable_reason ? `<div style="font-size:0.78rem; color:#b45309; margin-top:4px;">AI rewrite skipped: ${escapeHtml(data.ai_unavailable_reason)}</div>` : '');
                 }
                 if (scoreInitial) scoreInitial.innerText = `${data.initial_match_percentage ?? '?'}%`;
                 if (scoreTarget) scoreTarget.innerText = `${data.target_match_percentage ?? '?'}%`;

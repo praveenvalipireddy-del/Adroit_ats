@@ -91,13 +91,32 @@ def gemini_configured() -> bool:
     return bool((config.GEMINI_API_KEY or "").strip())
 
 
+def _explain_gemini_error(ex: Exception) -> str:
+    """Short, user-safe reason a Gemini call failed - shown next to the 'rule-based' badge so
+    a problem (bad key, exhausted free quota, wrong model) is diagnosable instead of the page
+    silently falling back with no explanation. Never includes the API key itself."""
+    msg = str(ex)
+    key = (config.GEMINI_API_KEY or "").strip()
+    if key:
+        msg = msg.replace(key, "***")
+    low = msg.lower()
+    if "429" in msg or "resource_exhausted" in low or "quota" in low:
+        return "Gemini's free daily quota is used up - it resets at midnight Pacific time"
+    if "api key" in low or "api_key" in low or "401" in msg or "403" in msg or "permission_denied" in low or "unauthenticated" in low:
+        return "Google rejected the API key - check GEMINI_API_KEY was copied correctly"
+    if "404" in msg or "not found" in low or "is not supported" in low:
+        return f"Gemini model '{GEMINI_MODEL}' isn't available on this key - set GEMINI_MODEL to a current model name"
+    return "Gemini call failed: " + " ".join(msg.split())[:140]
+
+
 def _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills, skills_to_add, domain):
-    """Real AI rewrite via Gemini's free tier. Returns None - never raises - when no key is
-    configured, the free daily quota is used up, or any other error occurs. Callers must
-    fall back to the deterministic rule-based rewrite in that case, so the feature keeps
-    working (just without AI phrasing) instead of breaking once the free quota runs out."""
+    """Real AI rewrite via Gemini's free tier. Returns (text, reason): text is the AI-written
+    resume, or None - never an exception - when no key is configured, the free daily quota is
+    used up, or any other error occurs, with `reason` saying which. Callers must fall back to
+    the deterministic rule-based rewrite on None, so the feature keeps working (just without
+    AI phrasing) instead of breaking once the free quota runs out."""
     if not gemini_configured():
-        return None
+        return None, "no GEMINI_API_KEY is configured on the server"
     try:
         from google import genai
         from google.genai import types
@@ -131,10 +150,13 @@ def _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills
             ),
         )
         text = (response.text or "").strip()
-        return text or None
+        if not text:
+            return None, "Gemini returned an empty response (it may have blocked the content)"
+        return text, ""
     except Exception as ex:
-        logger.warning(f"Gemini AI rewrite unavailable, using rule-based fallback: {ex}")
-        return None
+        reason = _explain_gemini_error(ex)
+        logger.warning(f"Gemini AI rewrite unavailable, using rule-based fallback: {reason}")
+        return None, reason
 
 
 def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
@@ -277,7 +299,7 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
     # Real AI rewrite when Gemini is configured and its free tier is available this call;
     # the deterministic rewrite above is the guaranteed fallback either way, so the result
     # always has genuine content - it's just less naturally phrased without the AI pass.
-    ai_text = _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills, safe_to_add, jd_domain)
+    ai_text, ai_unavailable_reason = _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills, safe_to_add, jd_domain)
     ai_powered = ai_text is not None
     final_resume_text = ai_text if ai_powered else updated_resume_text
 
@@ -288,6 +310,7 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
         "match_decision": decision,
         "enhancement_level": enhancement_level,
         "ai_powered": ai_powered,
+        "ai_unavailable_reason": "" if ai_powered else ai_unavailable_reason,
         "domain_detected": jd_domain,
         "mandatory_matched_skills": matched_skills,
         "mandatory_missing_skills": missing_skills,

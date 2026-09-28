@@ -1065,36 +1065,77 @@ def api_resume_bot_optimize():
     if request.method == "OPTIONS":
         return jsonify({}), 200
 
-    data = request.json or {}
-    resume_text = data.get("resume_text", "").strip()
-    jd_text = data.get("jd_text", "").strip()
-    custom_instructions = data.get("custom_instructions", "").strip()
+    # Login required: this returns the (rewritten) resume text, and used to accept any
+    # candidate_id from anyone - so a stranger could enumerate ids and read other people's resumes.
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+
+    data = request.get_json(silent=True) or {}
+    resume_text = (data.get("resume_text") or "").strip()
+    jd_text = (data.get("jd_text") or "").strip()
+    custom_instructions = (data.get("custom_instructions") or "").strip()
     candidate_id = data.get("candidate_id")
 
+    # Only when the caller sent no text at all: use the selected consultant's stored resume, and
+    # only one they may see. Never invent a stand-in resume from their name/title/skills - an
+    # optimization of made-up text is worse than an error.
     if candidate_id and not resume_text:
-        cand = models.get_candidate_by_id(candidate_id)
-        if cand:
-            resume_text = cand.get("resume_text") or f"{cand['name']}\n{cand['title']}\nSkills: {cand['primary_skills']}\nRate: {cand['target_rate']}"
+        try:
+            cand = models.get_candidate_by_id(int(candidate_id), user_id=user["id"], is_admin=("Admin" in user.get("role", "")))
+        except (TypeError, ValueError):
+            cand = None
+        resume_text = ((cand or {}).get("resume_text") or "").strip()
 
     if not resume_text:
-        return jsonify({"error": "Resume text or uploaded file is required."}), 400
+        return jsonify({"error": "No resume to optimize. Attach a .docx / .pdf / .txt file or paste the resume text first."}), 400
     if not jd_text:
-        return jsonify({"error": "Job Description (JD) is required."}), 400
+        return jsonify({"error": "Paste the client's Job Description (JD) first."}), 400
 
     result = resume_bot.optimize_resume_for_jd(
         resume_text=resume_text,
         jd_text=jd_text,
         custom_instructions=custom_instructions
     )
+    if result.get("error"):
+        return jsonify(result), 400
 
     return jsonify(result)
+
+
+@app.route("/api/resume-bot/extract-text", methods=["POST", "OPTIONS"])
+def api_resume_bot_extract_text():
+    """Reads an attached resume file and returns its text so the page can show exactly what will
+    be optimized. Nothing is stored - the file is read in memory and discarded."""
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+
+    f = request.files.get("resume_file")
+    if not f or not f.filename:
+        return jsonify({"error": "Choose a resume file (.docx, .pdf or .txt)."}), 400
+    filename = secure_filename(f.filename) or "resume"
+    if os.path.splitext(filename.lower())[1] not in (".docx", ".pdf", ".txt"):
+        return jsonify({"error": "Unsupported file type. Attach a .docx, .pdf or .txt resume."}), 400
+    raw = f.read()
+    if len(raw) > 5 * 1024 * 1024:
+        return jsonify({"error": "That file is over 5 MB - attach a smaller resume."}), 413
+
+    text = resume_bot.extract_text_from_file_bytes(raw, filename, strict=True)
+    if len(text.strip()) < 30:
+        return jsonify({"error": "No readable text was found in that file (a scanned-image PDF can't be read). Paste the resume text instead."}), 422
+    return jsonify({"text": text, "filename": filename, "chars": len(text)})
 
 @app.route("/api/resume-bot/download-docx", methods=["POST", "OPTIONS"])
 def api_resume_bot_download_docx():
     if request.method == "OPTIONS":
         return jsonify({}), 200
 
-    data = request.json or {}
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+
+    data = request.get_json(silent=True) or {}
     resume_text = data.get("resume_text", "")
     candidate_name = data.get("candidate_name", "Consultant")
 

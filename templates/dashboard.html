@@ -648,9 +648,9 @@
                             <p>Align candidate resumes with client JDs following the strict ATS Keyword & Domain Optimization Rules. Generates ready-to-submit Word (.docx) resumes with tailored highlights.</p>
                             <p style="font-size:0.8rem; color:{{ '#059669' if has_gemini else '#b45309' }}; margin-top:4px;">
                                 {% if has_gemini %}
-                                ✨ Real AI rewriting via Google Gemini's free tier is active. If its free daily quota runs out, results fall back to keyword-matching only (each result says which one was used).
+                                ✨ Runs your Master Resume Prompt (MASTER_RESUME_PROMPT.md) on Google Gemini's free tier: weighted match analysis, decision band, safe skill additions, then the updated resume. If the free daily quota runs out, you get the keyword analysis only and the resume is left unchanged (each result says which happened).
                                 {% else %}
-                                ⚠️ No GEMINI_API_KEY configured yet - results use keyword-matching only, not real AI rewriting. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#b45309;">aistudio.google.com/apikey</a> and add it as GEMINI_API_KEY.
+                                ⚠️ No GEMINI_API_KEY configured yet - only a basic keyword scan is available and the resume is never rewritten. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#b45309;">aistudio.google.com/apikey</a> and add it as GEMINI_API_KEY.
                                 {% endif %}
                             </p>
                         </div>
@@ -668,12 +668,13 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label>Or Upload New .docx / .pdf Resume</label>
+                                <label>Or Upload a Different .docx / .pdf / .txt Resume</label>
                                 <input type="file" id="resumebot-file-input" accept=".docx,.pdf,.txt" class="form-control">
+                                <div id="resumebot-source-note" style="font-size:0.8rem; margin-top:6px; color:#64748b;"></div>
                             </div>
                             <div class="form-group">
-                                <label>Consultant Resume Text (Auto-Populated)</label>
-                                <textarea id="resumebot-resume-text" rows="10" class="form-control" placeholder="Resume text will populate here..."></textarea>
+                                <label>Resume Text - exactly this text is what gets optimized (edit or paste over it freely)</label>
+                                <textarea id="resumebot-resume-text" rows="10" class="form-control" placeholder="The selected consultant's resume, or the file you attach, appears here. You can also paste any resume."></textarea>
                             </div>
                         </div>
 
@@ -708,14 +709,17 @@
                             </button>
                         </div>
 
+                        <div id="result-not-optimized" style="display:none; margin:12px 0; padding:12px 14px; border-radius:8px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; font-size:0.88rem;"></div>
+
                         <div class="match-score-bar-wrap">
                             <div class="score-labels">
-                                <span>Initial ATS Match: <strong id="score-initial">65%</strong></span>
-                                <span>Optimized ATS Match: <strong id="score-target" style="color: #34d399;">95%</strong></span>
+                                <span>Initial ATS Match: <strong id="score-initial">-</strong></span>
+                                <span>Optimized ATS Match: <strong id="score-target" style="color: #34d399;">-</strong></span>
                             </div>
                             <div class="progress-track">
-                                <div class="progress-fill" id="score-progress-bar" style="width: 95%;"></div>
+                                <div class="progress-fill" id="score-progress-bar" style="width: 0%;"></div>
                             </div>
+                            <div id="result-breakdown" style="font-size:0.78rem; color:#64748b; margin-top:8px;"></div>
                         </div>
 
                         <div class="skills-matched-grid">
@@ -724,13 +728,26 @@
                                 <div id="result-matched-skills" class="tags-container"></div>
                             </div>
                             <div class="skill-box">
-                                <h4>➕ Strategic Keywords Added</h4>
+                                <h4>➕ Skills Added (by section)</h4>
                                 <div id="result-added-skills" class="tags-container"></div>
+                            </div>
+                            <div class="skill-box">
+                                <h4>❌ Missing Skills</h4>
+                                <div id="result-missing-skills" class="tags-container"></div>
+                            </div>
+                            <div class="skill-box">
+                                <h4>⚠️ Risky Skills Deliberately Not Added</h4>
+                                <div id="result-risky-skills" class="tags-container"></div>
                             </div>
                         </div>
 
+                        <div class="skill-box" style="margin-top:12px;">
+                            <h4>📝 ATS Optimization Notes</h4>
+                            <ul id="result-ats-notes" style="margin:6px 0 0 18px; font-size:0.85rem; color:#334155;"></ul>
+                        </div>
+
                         <div class="form-group" style="margin-top: 16px;">
-                            <label>Optimized Resume Preview</label>
+                            <label id="result-preview-label">Optimized Resume Preview</label>
                             <textarea id="result-preview-text" rows="12" class="form-control" readonly></textarea>
                         </div>
                     </div>
@@ -1099,7 +1116,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.20.1"></script>
+    <script src="/static/js/app.js?v=5.21.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

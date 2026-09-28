@@ -94,6 +94,8 @@ function switchTab(rawTabId) {
         if (typeof renderConsultantsTable === 'function') renderConsultantsTable();
     } else if (paneKey === 'drafts') {
         loadPipeline();
+    } else if (paneKey === 'resumebot') {
+        if (typeof window.refreshResumeBotSource === 'function') window.refreshResumeBotSource(true);
     } else if (paneKey === 'team') {
         loadRecruiters();
     } else if (paneKey === 'students') {
@@ -1015,14 +1017,107 @@ function initResumeBot() {
     const jdTextarea = document.getElementById('resumebot-jd-text');
     const resumeTextarea = document.getElementById('resumebot-resume-text');
     const notesInput = document.getElementById('resumebot-custom-notes');
+    const sourceNote = document.getElementById('resumebot-source-note');
+
+    // Where the text in the resume box came from: 'stored' (the selected consultant's saved
+    // resume), 'file' (an attached file), or 'typed' (pasted/edited by hand). Tracked so opening
+    // the tab never overwrites something the recruiter attached or typed.
+    let sourceMode = 'stored';
+
+    const setSourceNote = (html, tone) => {
+        if (!sourceNote) return;
+        const colors = { ok: '#047857', warn: '#b45309', error: '#b91c1c', muted: '#64748b' };
+        sourceNote.style.color = colors[tone] || colors.muted;
+        sourceNote.innerHTML = html;
+    };
+
+    // The optimizer only ever works on the text visible in the resume box. Selecting a
+    // consultant loads THEIR saved resume there (or says plainly that none is on file) - it is
+    // never silently swapped in behind the scenes, which is what used to happen when the box
+    // was empty and a different attached resume was ignored.
+    async function loadStoredResume(onlyIfPristine = false) {
+        if (onlyIfPristine && sourceMode !== 'stored') return;
+        const candId = candSelect ? parseInt(candSelect.value) : NaN;
+        if (fileInput) fileInput.value = '';
+        sourceMode = 'stored';
+        if (!candId) {
+            if (resumeTextarea) resumeTextarea.value = '';
+            setSourceNote('Select a consultant, attach a file, or paste a resume below.', 'muted');
+            return;
+        }
+        setSourceNote('Loading the resume on file...', 'muted');
+        try {
+            const res = await fetch(`/api/consultants/${candId}`);
+            if (res.status === 401) { window.location.href = '/login'; return; }
+            const cand = await res.json().catch(() => ({}));
+            const text = (cand.resume_text || '').trim();
+            if (resumeTextarea) resumeTextarea.value = text;
+            const who = escapeHtml(cand.name || 'this consultant');
+            setSourceNote(text
+                ? `Using the resume on file for <b>${who}</b> (${text.length.toLocaleString()} characters). To optimize a different resume, attach a file or paste text below.`
+                : `No resume is on file for <b>${who}</b>. Attach a .docx / .pdf / .txt file or paste the resume text below.`,
+                text ? 'ok' : 'warn');
+        } catch (err) {
+            setSourceNote('Could not load that consultant\'s resume: ' + escapeHtml(err.message), 'error');
+        }
+    }
+    window.refreshResumeBotSource = loadStoredResume;
+
+    if (candSelect) candSelect.addEventListener('change', () => loadStoredResume(false));
+    if (resumeTextarea) resumeTextarea.addEventListener('input', () => {
+        sourceMode = 'typed';
+        setSourceNote('Using the text in the box (edited or pasted by hand).', 'muted');
+    });
+
+    if (fileInput) {
+        fileInput.addEventListener('change', async () => {
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) return;
+            setSourceNote(`Reading <b>${escapeHtml(file.name)}</b>...`, 'muted');
+            const formData = new FormData();
+            formData.append('resume_file', file);
+            try {
+                const res = await fetch('/api/resume-bot/extract-text', { method: 'POST', body: formData });
+                if (res.status === 401) { window.location.href = '/login'; return; }
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    fileInput.value = '';
+                    setSourceNote(escapeHtml(data.error || 'Could not read that file.'), 'error');
+                    showToast(data.error || 'Could not read that file.', 'error', 6000);
+                    return;
+                }
+                if (resumeTextarea) resumeTextarea.value = data.text;
+                sourceMode = 'file';
+                setSourceNote(`Using the attached file <b>${escapeHtml(data.filename)}</b> (${Number(data.chars).toLocaleString()} characters). It is used only for this optimization - it is not saved to any consultant.`, 'ok');
+            } catch (err) {
+                fileInput.value = '';
+                setSourceNote('Could not read that file: ' + escapeHtml(err.message), 'error');
+            }
+        });
+    }
+
+    // Show the selected consultant's saved resume as soon as the page is ready.
+    loadStoredResume(true);
+
+    const setList = (id, items, cssClass, prefix, emptyMsg) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = (items && items.length)
+            ? items.map(s => `<span class="skill-tag ${cssClass}">${prefix}${escapeHtml(s)}</span>`).join(' ')
+            : `<span style="color:#94a3b8; font-size:0.85rem;">${emptyMsg}</span>`;
+    };
 
     if (btnOptimize) {
         btnOptimize.addEventListener('click', async () => {
             const jd = jdTextarea ? jdTextarea.value.trim() : '';
             const resume = resumeTextarea ? resumeTextarea.value.trim() : '';
-            const candId = candSelect ? parseInt(candSelect.value) : state.activeConsultantId;
             const notes = notesInput ? notesInput.value.trim() : '';
 
+            if (!resume) {
+                showToast('There is no resume to optimize. Attach a file or paste the resume text first.', 'warning');
+                if (resumeTextarea) resumeTextarea.focus();
+                return;
+            }
             if (!jd) {
                 showToast('Please paste the client Job Description (JD) to optimize against.', 'warning');
                 if (jdTextarea) jdTextarea.focus();
@@ -1030,83 +1125,89 @@ function initResumeBot() {
             }
 
             btnOptimize.disabled = true;
-            btnOptimize.innerHTML = '⚡ Optimizing Resume (ATS Keyword Engine)...';
+            btnOptimize.innerHTML = '⚡ Running your master prompt (can take up to a minute)...';
 
             try {
+                // Only the visible text is sent - never a consultant id - so the server can't
+                // substitute a different resume than the one shown in the box.
                 const res = await fetch('/api/resume-bot/optimize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        candidate_id: candId,
-                        jd_text: jd,
-                        resume_text: resume,
-                        custom_instructions: notes
-                    })
+                    body: JSON.stringify({ jd_text: jd, resume_text: resume, custom_instructions: notes })
                 });
-
-                const data = await res.json();
-                if (data.error) {
-                    showToast(data.error, 'error');
+                if (res.status === 401) { window.location.href = '/login'; return; }
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.error) {
+                    showToast(data.error || 'Optimization failed.', 'error', 6000);
                     return;
                 }
 
-                // Populate results - field names must match resume_bot.optimize_resume_for_jd()'s
-                // actual return dict exactly (initial_match_percentage, target_match_percentage,
-                // domain_detected, mandatory_matched_skills, skills_added.*, updated_resume_text).
-                // These previously didn't match at all, so every number/skill shown was always a
-                // hardcoded fallback regardless of the real resume/JD - and Download always failed
-                // because lastOptimizedResumeText was always empty.
-                state.lastOptimizedResumeText = data.updated_resume_text || '';
-                const selectedCand = state.consultants.find(c => c.id === candId);
-                state.lastOptimizedCandidateName = selectedCand ? selectedCand.name : (data.candidate_name || 'Consultant');
+                const selectedCand = state.consultants.find(c => c.id === parseInt(candSelect ? candSelect.value : NaN));
+                // The Word heading uses the name found in THIS resume (a different person's file
+                // must not be headed with the selected consultant's name); the consultant's name
+                // is only the fallback when the resume doesn't start with a name.
+                state.lastOptimizedCandidateName = data.candidate_name_detected
+                    ? data.candidate_name
+                    : (selectedCand ? selectedCand.name : (data.candidate_name || 'Consultant'));
+                state.lastOptimizedResumeText = data.optimized ? (data.updated_resume_text || '') : '';
 
                 const resultsCard = document.getElementById('resumebot-results-card');
                 if (resultsCard) resultsCard.style.display = 'block';
 
-                const resultTitle = document.getElementById('result-title');
-                const scoreInitial = document.getElementById('score-initial');
-                const scoreTarget = document.getElementById('score-target');
-                const scoreBar = document.getElementById('score-progress-bar');
-                const matchedSkills = document.getElementById('result-matched-skills');
-                const addedSkills = document.getElementById('result-added-skills');
-                const domainBadge = document.getElementById('result-domain');
-                const previewText = document.getElementById('result-preview-text');
+                const byId = (id) => document.getElementById(id);
+                if (byId('result-title')) byId('result-title').innerText = data.match_decision || 'Resume Optimization Complete';
+                if (byId('score-initial')) byId('score-initial').innerText = `${data.initial_match_percentage ?? '?'}%`;
+                if (byId('score-target')) byId('score-target').innerText = `${data.target_match_percentage ?? '?'}%`;
+                if (byId('score-progress-bar')) byId('score-progress-bar').style.width = `${data.target_match_percentage ?? 0}%`;
+                if (byId('result-domain')) byId('result-domain').innerText = `Domain: ${data.domain_detected || 'Not detected'}`;
 
-                if (resultTitle) {
-                    resultTitle.innerText = data.match_decision || 'Resume Optimization Complete';
-                }
-                const aiBadge = document.getElementById('result-ai-badge');
+                // Which engine produced this - shown per result, so a quota problem is never hidden.
+                const aiBadge = byId('result-ai-badge');
                 if (aiBadge) {
-                    aiBadge.innerHTML = data.ai_powered
-                        ? `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">✨ AI-Rewritten (Gemini)</span>`
-                        : `<span class="badge" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;">⚙️ Keyword-Matched (rule-based)</span>`
-                          + (data.ai_unavailable_reason ? `<div style="font-size:0.78rem; color:#b45309; margin-top:4px;">AI rewrite skipped: ${escapeHtml(data.ai_unavailable_reason)}</div>` : '');
-                }
-                if (scoreInitial) scoreInitial.innerText = `${data.initial_match_percentage ?? '?'}%`;
-                if (scoreTarget) scoreTarget.innerText = `${data.target_match_percentage ?? '?'}%`;
-                if (scoreBar) scoreBar.style.width = `${data.target_match_percentage ?? 0}%`;
-
-                if (domainBadge) domainBadge.innerText = `Domain: ${data.domain_detected || 'Not detected'}`;
-
-                if (matchedSkills) {
-                    const matched = data.mandatory_matched_skills || [];
-                    matchedSkills.innerHTML = matched.length
-                        ? matched.map(s => `<span class="skill-tag green">✓ ${escapeHtml(s)}</span>`).join(' ')
-                        : `<span style="color:#94a3b8; font-size:0.85rem;">No JD keywords already present in this resume.</span>`;
+                    let badge;
+                    if (data.ai_powered && data.optimized) badge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">✨ AI analysis + rewrite (Gemini, your master prompt)</span>`;
+                    else if (data.ai_powered) badge = `<span class="badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">✨ AI analysis (Gemini) - resume left unchanged</span>`;
+                    else badge = `<span class="badge" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;">⚙️ Keyword scan only (no AI)</span>`
+                        + (data.ai_unavailable_reason ? `<div style="font-size:0.78rem; color:#b45309; margin-top:4px;">AI skipped: ${escapeHtml(data.ai_unavailable_reason)}</div>` : '');
+                    aiBadge.innerHTML = badge;
                 }
 
-                if (addedSkills) {
-                    const added = (data.skills_added && data.skills_added.technical_skills) || [];
-                    addedSkills.innerHTML = added.length
-                        ? added.map(s => `<span class="skill-tag blue">+ ${escapeHtml(s)}</span>`).join(' ')
-                        : `<span style="color:#94a3b8; font-size:0.85rem;">No missing keywords needed adding.</span>`;
+                const banner = byId('result-not-optimized');
+                if (banner) {
+                    banner.style.display = data.optimized ? 'none' : 'block';
+                    banner.innerText = data.optimized ? '' : (data.not_optimized_reason || 'The resume was not changed.');
                 }
 
-                if (previewText) {
-                    previewText.innerText = data.updated_resume_text || 'Optimized resume content ready.';
+                const bd = data.match_breakdown || {};
+                if (byId('result-breakdown')) {
+                    const labels = { mandatory_skills: ['Mandatory skills', 40], recent_project_relevance: ['Recent project', 25], domain_experience: ['Domain', 15], tools_frameworks_cloud: ['Tools/cloud', 10], certifications_education: ['Certs/education', 5], location_work_authorization: ['Location/work auth', 5] };
+                    byId('result-breakdown').innerText = Object.keys(labels).every(k => bd[k] !== undefined)
+                        ? 'Weighted match: ' + Object.entries(labels).map(([k, [name, cap]]) => `${name} ${Math.round(bd[k])}/${cap}`).join(' · ')
+                        : '';
                 }
 
-                showToast('✨ Resume successfully optimized for ATS & keywords!', 'success');
+                setList('result-matched-skills', (data.mandatory_matched_skills || []).map(s => s).concat((data.partial_match_skills || []).map(s => `${s} (partial)`)), 'green', '✓ ', 'No JD skills already present in this resume.');
+                setList('result-missing-skills', (data.mandatory_missing_skills || []).map(s => s).concat((data.preferred_missing_skills || []).map(s => `${s} (preferred)`)), 'blue', '− ', 'No missing skills found.');
+                setList('result-risky-skills', data.risky_skills_avoided || [], 'blue', '', 'None flagged.');
+
+                const added = data.skills_added || {};
+                const addedEl = byId('result-added-skills');
+                if (addedEl) {
+                    const groups = [['Summary', added.summary], ['Technical Skills', added.technical_skills], ['Projects', added.recent_projects], ['Environment', added.environment]]
+                        .filter(([, list]) => list && list.length);
+                    addedEl.innerHTML = groups.length
+                        ? groups.map(([name, list]) => `<div style="margin-bottom:6px;"><b style="font-size:0.78rem; color:#475569;">${name}:</b> ${list.map(s => `<span class="skill-tag blue">+ ${escapeHtml(s)}</span>`).join(' ')}</div>`).join('')
+                        : `<span style="color:#94a3b8; font-size:0.85rem;">${data.optimized ? 'No skills needed adding.' : 'Nothing was added - the resume was not changed.'}</span>`;
+                }
+
+                const notesEl = byId('result-ats-notes');
+                if (notesEl) notesEl.innerHTML = (data.ats_optimization_notes || []).map(n => `<li>${escapeHtml(n)}</li>`).join('') || '<li style="color:#94a3b8;">No notes.</li>';
+
+                if (byId('result-preview-label')) byId('result-preview-label').innerText = data.optimized ? 'Optimized Resume Preview' : 'Resume (unchanged - original text)';
+                if (byId('result-preview-text')) byId('result-preview-text').value = data.updated_resume_text || '';
+                if (btnDownload) btnDownload.style.display = data.optimized ? '' : 'none';
+
+                showToast(data.optimized ? '✨ Resume optimized against the JD with your master prompt.' : 'Analysis done - the resume was not changed (see the note in the results).', data.optimized ? 'success' : 'info', 5000);
                 if (resultsCard) resultsCard.scrollIntoView({ behavior: 'smooth' });
 
             } catch (err) {
@@ -1135,6 +1236,7 @@ function initResumeBot() {
                     })
                 });
 
+                if (res.status === 401) { window.location.href = '/login'; return; }
                 if (!res.ok) {
                     showToast('Failed to generate .docx resume.', 'error');
                     return;

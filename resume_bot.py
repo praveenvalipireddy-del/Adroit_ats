@@ -1,6 +1,8 @@
 import re
 import os
 import io
+import json
+import time
 import logging
 import docx
 from docx.shared import Pt, Inches, RGBColor
@@ -37,8 +39,10 @@ TECH_KEYWORDS = [
     "Airflow", "Spark", "Hadoop", "SQL", "gRPC", "Prometheus", "Grafana", "Splunk", "ArgoCD", "Linux"
 ]
 
-def extract_text_from_file_bytes(file_bytes, filename):
-    """Extracts text from PDF, DOCX, or plain text bytes."""
+def extract_text_from_file_bytes(file_bytes, filename, strict=False):
+    """Extracts text from PDF, DOCX, or plain text bytes. With strict=True a file that can't be
+    parsed returns '' instead of its raw bytes decoded as text (which for a broken .docx/.pdf is
+    just binary garbage that would then be treated as the resume)."""
     name = filename.lower()
     text = ""
     try:
@@ -61,7 +65,7 @@ def extract_text_from_file_bytes(file_bytes, filename):
             text = file_bytes.decode("utf-8", errors="ignore")
     except Exception as e:
         print(f"Error extracting text from {filename}: {e}")
-        text = file_bytes.decode("utf-8", errors="ignore")
+        text = "" if strict else file_bytes.decode("utf-8", errors="ignore")
     return text.strip()
 
 def detect_domain(text):
@@ -92,9 +96,9 @@ def gemini_configured() -> bool:
 
 
 def _explain_gemini_error(ex: Exception) -> str:
-    """Short, user-safe reason a Gemini call failed - shown next to the 'rule-based' badge so
-    a problem (bad key, exhausted free quota, wrong model) is diagnosable instead of the page
-    silently falling back with no explanation. Never includes the API key itself."""
+    """Short, user-safe reason a Gemini call failed - shown in the result so a problem (bad
+    key, exhausted free quota, wrong model, timeout) is diagnosable instead of the page
+    silently doing nothing. Never includes the API key itself."""
     msg = str(ex)
     key = (config.GEMINI_API_KEY or "").strip()
     if key:
@@ -106,229 +110,343 @@ def _explain_gemini_error(ex: Exception) -> str:
         return "Google rejected the API key - check GEMINI_API_KEY was copied correctly"
     if "404" in msg or "not found" in low or "is not supported" in low:
         return f"Gemini model '{GEMINI_MODEL}' isn't available on this key - set GEMINI_MODEL to a current model name"
+    if "timeout" in low or "timed out" in low or "deadline" in low:
+        return "Gemini took too long to answer (over 90 seconds) - try again"
     return "Gemini call failed: " + " ".join(msg.split())[:140]
 
 
-def _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills, skills_to_add, domain):
-    """Real AI rewrite via Gemini's free tier. Returns (text, reason): text is the AI-written
-    resume, or None - never an exception - when no key is configured, the free daily quota is
-    used up, or any other error occurs, with `reason` saying which. Callers must fall back to
-    the deterministic rule-based rewrite on None, so the feature keeps working (just without
-    AI phrasing) instead of breaking once the free quota runs out."""
+def _is_transient_gemini_error(ex: Exception) -> bool:
+    low = str(ex).lower()
+    return any(t in low for t in ("503", "unavailable", "overloaded", "500 internal", "temporarily"))
+
+
+# --------------------------------------------------------------------------------------
+# The recruiter's own master prompt is the spec. It is sent to Gemini verbatim (so editing
+# MASTER_RESUME_PROMPT.md changes the optimizer's behaviour with no code change); the code
+# below only adds a machine-readable output contract and enforces the rules it can verify.
+# --------------------------------------------------------------------------------------
+MASTER_PROMPT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MASTER_RESUME_PROMPT.md")
+
+
+def load_master_prompt() -> str:
+    try:
+        with open(MASTER_PROMPT_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as ex:
+        logger.error(f"Could not read {MASTER_PROMPT_FILE}: {ex}")
+        return ""
+
+
+_APP_OUTPUT_CONTRACT = """=== HOW THIS APP READS YOUR ANSWER (this replaces the 'FINAL OUTPUT FORMAT' and 'OUTPUT' wording above) ===
+One decision rule is missing from the MATCH-BASED DECISION RULES above: BELOW 60% MATCH -> Reject. Do not optimize; return the original resume text unchanged in updated_resume_text.
+
+Respond with ONE JSON object and nothing else - no markdown fences, no commentary before or after - using exactly these keys:
+{
+  "initial_match_percentage": <integer 0-100, realistic and NOT inflated>,
+  "match_breakdown": {
+    "mandatory_skills": <0-40>, "recent_project_relevance": <0-25>, "domain_experience": <0-15>,
+    "tools_frameworks_cloud": <0-10>, "certifications_education": <0-5>, "location_work_authorization": <0-5>
+  },
+  "domain_detected": "<domain>",
+  "strong_match_skills": ["..."],
+  "partial_match_skills": ["..."],
+  "mandatory_missing_skills": ["..."],
+  "preferred_missing_skills": ["..."],
+  "risky_skills_avoided": ["skills you deliberately did NOT add, and why in a few words"],
+  "skills_added": {"summary": ["..."], "technical_skills": ["..."], "projects": ["..."], "environment": ["..."]},
+  "ats_optimization_notes": ["Keywords optimized: ...", "Domain alignment improvements: ...", "Recent project enhancements: ..."],
+  "target_match_percentage": <integer 0-100>,
+  "updated_resume_text": "<the COMPLETE updated resume as plain text, same section order and bullet structure as the original; the unchanged original if rejected>"
+}
+match_breakdown must add up to initial_match_percentage. Never change or drop any date, never change total years of experience, and never state a new number of years for any technology."""
+
+_BREAKDOWN_CAPS = {
+    "mandatory_skills": 40, "recent_project_relevance": 25, "domain_experience": 15,
+    "tools_frameworks_cloud": 10, "certifications_education": 5, "location_work_authorization": 5,
+}
+
+
+def decide_enhancement(initial: int):
+    """(decision label, enhancement level, highest allowed target %) from the master prompt's
+    match bands. Decided here in code from the percentage - never taken from the model - so
+    the bands are always applied exactly as written."""
+    if initial < 60:
+        return "Reject (Profile Gap Too Wide)", "None", initial
+    if initial <= 70:
+        return "Moderate Enhancement (Candidate Viable for C2C Submission)", "Moderate", 90
+    if initial <= 85:
+        return "Strong ATS Optimization (High Placement Probability)", "Strong", 96
+    if initial <= 90:
+        return "Minimal Enhancement / Fine-Tuning", "Minimal", 95
+    return "No Major Changes Needed (Already a Strong Match)", "None", initial
+
+
+_SECTION_WORDS = ("summary", "profile", "experience", "skills", "resume", "objective", "education", "curriculum", "contact")
+
+
+def detect_candidate_name(resume_text: str):
+    """(name, detected). detected=False means the first line doesn't look like a person's name
+    (e.g. it is a section heading), so callers should use the selected consultant's name."""
+    lines = [l.strip() for l in (resume_text or "").split("\n") if l.strip()]
+    if not lines:
+        return "", False
+    first = lines[0]
+    looks_like_name = (
+        len(first) <= 40 and "@" not in first and ":" not in first
+        and not re.search(r"\d", first) and 1 <= len(first.split()) <= 5
+        and re.search(r"[A-Za-z]", first)
+        and not any(w in first.lower() for w in _SECTION_WORDS)
+    )
+    return (first, True) if looks_like_name else ("Technical Consultant", False)
+
+
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_YEARS_EXP_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:years|yrs)", re.I)
+
+
+def check_resume_safety(original: str, updated: str) -> str:
+    """The master prompt's NEVER rules that can be verified mechanically. Returns '' when the
+    rewrite is acceptable, otherwise the reason it must be discarded."""
+    o_years, n_years = set(_YEAR_RE.findall(original)), set(_YEAR_RE.findall(updated))
+    if o_years != n_years:
+        return "it changed employment/education dates (" + ", ".join(sorted(o_years ^ n_years)) + ")"
+    added = set(_YEARS_EXP_RE.findall(updated)) - set(_YEARS_EXP_RE.findall(original))
+    if added:
+        return "it introduced new years-of-experience claims (" + ", ".join(sorted(added)) + " years)"
+    if len(updated.strip()) < 0.6 * len(original.strip()):
+        return "it returned a much shorter resume than the original (likely cut off)"
+    return ""
+
+
+def _parse_json_object(text: str):
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I).strip()
+    try:
+        obj = json.loads(text)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            obj = json.loads(text[start:end + 1])
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+def _as_list(value):
+    return [str(x).strip() for x in value if str(x).strip()] if isinstance(value, list) else []
+
+
+def _num(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_ai_result(data: dict, resume_text: str):
+    """Turns Gemini's JSON into the app's response shape, applying the master prompt's rules
+    in code. Returns (result, reason); result is None only if the answer is unusable."""
+    breakdown_raw = data.get("match_breakdown") if isinstance(data.get("match_breakdown"), dict) else {}
+    parts = {}
+    for key, cap in _BREAKDOWN_CAPS.items():
+        n = _num(breakdown_raw.get(key))
+        if n is not None:
+            parts[key] = max(0.0, min(float(cap), n))
+    if len(parts) == len(_BREAKDOWN_CAPS):
+        initial = int(round(sum(parts.values())))       # the weighted parts decide, so the % can't be inflated on its own
+    else:
+        n = _num(data.get("initial_match_percentage"))
+        if n is None:
+            return None, "Gemini's answer had no match percentage"
+        initial = int(round(max(0.0, min(100.0, n))))
+        parts = {}
+
+    decision, level, target_cap = decide_enhancement(initial)
+    tgt = _num(data.get("target_match_percentage"))
+    target = initial if target_cap <= initial else int(round(max(initial, min(target_cap, tgt if tgt is not None else target_cap))))
+
+    sa = data.get("skills_added") if isinstance(data.get("skills_added"), dict) else {}
+    skills_added = {
+        "summary": _as_list(sa.get("summary")),
+        "technical_skills": _as_list(sa.get("technical_skills")),
+        "recent_projects": _as_list(sa.get("projects") or sa.get("recent_projects")),
+        "environment": _as_list(sa.get("environment")),
+    }
+    empty_added = {"summary": [], "technical_skills": [], "recent_projects": [], "environment": []}
+
+    updated = str(data.get("updated_resume_text") or "").strip()
+    optimized, not_optimized_reason = False, ""
+    if initial < 60:
+        updated, skills_added = resume_text, empty_added
+        not_optimized_reason = ("The match is below 60%, so per your master prompt this profile is rejected "
+                                "and the resume was left unchanged.")
+    else:
+        problem = "Gemini did not return an updated resume" if not updated else check_resume_safety(resume_text, updated)
+        if problem:
+            updated, skills_added = resume_text, empty_added
+            not_optimized_reason = f"The AI's rewrite was discarded because {problem}. The resume was left unchanged - click Optimize again to retry."
+        else:
+            optimized = True
+
+    name, detected = detect_candidate_name(resume_text)
+    return {
+        "candidate_name": name,
+        "candidate_name_detected": detected,
+        "initial_match_percentage": initial,
+        "target_match_percentage": target,
+        "match_breakdown": parts,
+        "match_decision": decision,
+        "enhancement_level": level,
+        "analysis_source": "gemini",
+        "ai_powered": True,
+        "optimized": optimized,
+        "not_optimized_reason": not_optimized_reason,
+        "ai_unavailable_reason": "",
+        "domain_detected": str(data.get("domain_detected") or "Not detected").strip(),
+        "mandatory_matched_skills": _as_list(data.get("strong_match_skills")),
+        "partial_match_skills": _as_list(data.get("partial_match_skills")),
+        "mandatory_missing_skills": _as_list(data.get("mandatory_missing_skills")),
+        "preferred_missing_skills": _as_list(data.get("preferred_missing_skills")),
+        "risky_skills_avoided": _as_list(data.get("risky_skills_avoided")),
+        "skills_added": skills_added,
+        "ats_optimization_notes": _as_list(data.get("ats_optimization_notes")),
+        "updated_resume_text": updated,
+    }, ""
+
+
+def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str):
+    """Runs the master prompt through Gemini. Returns (result, reason): result is the app's
+    response dict, or None - never an exception - when AI is unavailable, with `reason` saying
+    why (no key, free quota used up, malformed answer, ...)."""
     if not gemini_configured():
         return None, "no GEMINI_API_KEY is configured on the server"
+    master = load_master_prompt()
+    if not master:
+        return None, "MASTER_RESUME_PROMPT.md is missing on the server"
     try:
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=config.GEMINI_API_KEY.strip())
-        system_instruction = (
-            "You are an ATS resume optimization expert for US IT staffing. Rewrite the given "
-            "resume so it naturally incorporates the listed keywords where genuinely relevant. "
-            "STRICT RULES: never invent employers, job titles, dates, degrees, or certifications "
-            "that are not already in the original resume. Never change any date, company name, "
-            "or the chronological order of jobs. Keep every real detail of the candidate's "
-            "actual experience - only rephrase bullet points and skills sections and weave in "
-            "relevant keywords/technologies. Return ONLY the rewritten resume text - no "
-            "commentary, no markdown fences, no preamble."
-        )
+        client = genai.Client(api_key=config.GEMINI_API_KEY.strip(), http_options=types.HttpOptions(timeout=90000))
         prompt = (
-            f"ORIGINAL RESUME:\n{resume_text}\n\n"
-            f"TARGET JOB DESCRIPTION:\n{jd_text}\n\n"
-            f"Domain: {domain}\n"
-            f"Keywords already present (keep as-is): {', '.join(matched_skills) or 'none'}\n"
-            f"Keywords to naturally weave in, only where truthful: {', '.join(skills_to_add) or 'none'}\n"
-            + (f"Additional instructions from the recruiter: {custom_instructions}\n" if custom_instructions else "")
+            f"JOB DESCRIPTION:\n{jd_text}\n\n"
+            f"RESUME:\n{resume_text}\n\n"
+            f"OPTIONAL INSTRUCTIONS:\n{custom_instructions or 'None'}\n"
         )
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                max_output_tokens=2000,
-                temperature=0.4,
-            ),
+        gen_config = types.GenerateContentConfig(
+            system_instruction=master + "\n\n" + _APP_OUTPUT_CONTRACT,
+            response_mime_type="application/json",
+            max_output_tokens=16384,
+            temperature=0.3,
         )
-        text = (response.text or "").strip()
-        if not text:
-            return None, "Gemini returned an empty response (it may have blocked the content)"
-        return text, ""
+        response = None
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt, config=gen_config)
+                break
+            except Exception as ex:
+                if attempt == 0 and _is_transient_gemini_error(ex):
+                    time.sleep(2)
+                    continue
+                raise
+        raw_text = (response.text or "").strip()
     except Exception as ex:
         reason = _explain_gemini_error(ex)
-        logger.warning(f"Gemini AI rewrite unavailable, using rule-based fallback: {reason}")
+        logger.warning(f"Gemini optimization unavailable: {reason}")
         return None, reason
 
+    if not raw_text:
+        return None, "Gemini returned an empty response (it may have blocked the content)"
+    data = _parse_json_object(raw_text)
+    if data is None:
+        return None, "Gemini's answer was not valid JSON (it may have been cut off) - try again"
+    return _normalize_ai_result(data, resume_text)
 
-def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
-    """
-    Executes the Master Resume Optimization & JD Alignment Logic:
-    1. Weighted Match Analysis (Mandatory 40%, Projects 25%, Domain 15%, Tools 10%, Certs 5%, Location 5%)
-    2. Decision Rules (<60% Reject, 61-70% Moderate, 71-85% Strong, 86-90% Minimal, >90% Preserve)
-    3. Strict Safety Preservations (Dates, Companies, Chronology untouched)
-    4. Skill classification & Project enhancement
-    5. Complete updated tailored resume generation
-    """
-    if not resume_text or not jd_text:
-        return {"error": "Both resume and job description are required."}
 
+def _cert_edu_points(text: str) -> int:
+    return 5 if re.search(r"\b(bachelor|master|b\.?tech|m\.?tech|b\.?e\b|m\.?s\b|mba|degree|certified|certification|certificate)\b", text, re.I) else 0
+
+
+def _work_auth_points(text: str) -> int:
+    return 5 if re.search(r"\b(u\.?s\.? citizen|green card|gc ead|h-?1b|h4 ?ead|opt|cpt|work authori[sz]ation|authori[sz]ed to work|visa)\b", text, re.I) else 0
+
+
+def _keyword_analysis(resume_text: str, jd_text: str, ai_reason: str):
+    """Analysis-only fallback used when Gemini is unavailable. It measures how many of ~70
+    well-known technologies from the JD appear in the resume - a real, verifiable number - but
+    it does NOT rewrite the resume: deciding which missing skills a candidate can truthfully
+    claim is exactly the judgement the master prompt reserves for a careful reader, and
+    inserting them mechanically would fabricate experience."""
     jd_skills = extract_skills_from_text(jd_text)
     resume_skills = extract_skills_from_text(resume_text)
     jd_domain = detect_domain(jd_text)
+    resume_lower = {s.lower() for s in resume_skills}
+    matched = [s for s in jd_skills if s.lower() in resume_lower]
+    missing = [s for s in jd_skills if s.lower() not in resume_lower]
+    ratio = (len(matched) / len(jd_skills)) if jd_skills else 0.0
+    domain_matched = 1.0 if any(kw in resume_text.lower() for kw in DOMAINS.get(jd_domain, [])) else 0.0
 
-    # 1. Match Analysis
-    matched_skills = [s for s in jd_skills if any(rs.lower() == s.lower() for rs in resume_skills)]
-    missing_skills = [s for s in jd_skills if not any(rs.lower() == s.lower() for rs in resume_skills)]
-
-    # Calculate Realistic Weighted Match Percentage
-    if jd_skills:
-        skill_match_ratio = len(matched_skills) / len(jd_skills)
-    else:
-        skill_match_ratio = 0.75
-
-    # Check recent domain/project alignment
-    domain_matched = 1.0 if any(kw in resume_text.lower() for kw in DOMAINS.get(jd_domain, [])) else 0.6
-    
-    # Weighted calculation
-    # Mandatory Skills: 40%, Recent Project: 25%, Domain: 15%, Tools: 10%, Education: 5%, Work Auth: 5%
-    initial_score = int(
-        (skill_match_ratio * 40) +
-        (skill_match_ratio * 25) +
-        (domain_matched * 15) +
-        (min(1.0, len(resume_skills) / 8.0) * 10) +
-        5 + 5
-    )
-    initial_score = max(45, min(92, initial_score))
-
-    # 2. Decision Logic
-    if initial_score < 60:
-        decision = "Reject (Profile Gap Too Wide)"
-        target_score = initial_score
-        enhancement_level = "None"
-    elif 60 <= initial_score <= 70:
-        decision = "Moderate Enhancement (Candidate Viable for C2C Submission)"
-        target_score = min(88, initial_score + 18)
-        enhancement_level = "Moderate"
-    elif 71 <= initial_score <= 85:
-        decision = "Strong ATS Optimization (High Placement Probability)"
-        target_score = min(94, initial_score + 14)
-        enhancement_level = "Strong"
-    else:
-        decision = "Minimal Enhancement / Fine-Tuning"
-        target_score = min(98, initial_score + 6)
-        enhancement_level = "Minimal"
-
-    # 3. Classify Skills to Add safely
-    safe_to_add = []
-    risky_avoided = []
-    
-    # Avoid adding impossible / heavy niche skills candidate has no background in
-    for s in missing_skills:
-        if s in ["Kafka", "Docker", "Kubernetes", "AWS", "Azure", "PostgreSQL", "Redis", "Microservices", "REST API", "CI/CD", "TypeScript", "GraphQL", "Spring Cloud", "Snowflake"]:
-            safe_to_add.append(s)
-        else:
-            if len(safe_to_add) < 4:
-                safe_to_add.append(s)
-            else:
-                risky_avoided.append(s)
-
-    # 4. Generate Section Upgrades
-    skills_added_summary = safe_to_add[:2]
-    skills_added_tech = safe_to_add
-    skills_added_project = safe_to_add[:3]
-    skills_added_env = safe_to_add
-
-    # Extract Candidate Name from top lines of resume
-    lines = [l.strip() for l in resume_text.split("\n") if l.strip()]
-    candidate_name = lines[0] if lines else "Candidate Name"
-    if len(candidate_name) > 40 or "@" in candidate_name or ":" in candidate_name:
-        candidate_name = "Technical Consultant"
-
-    # Build Updated Resume Text preserving original structure
-    updated_resume_lines = []
-    has_injected_skills = False
-    has_enhanced_summary = False
-    has_enhanced_project = False
-
-    for line in lines:
-        l_lower = line.lower()
-        
-        # 1. Enhance Professional Summary
-        if not has_enhanced_summary and any(kw in l_lower for kw in ["summary", "professional summary", "profile"]):
-            updated_resume_lines.append(line)
-            if skills_added_summary:
-                updated_resume_lines.append(
-                    f"• Demonstrated track record in {jd_domain} enterprise engineering, specializing in {', '.join(skills_added_summary)}."
-                )
-            has_enhanced_summary = True
-            continue
-
-        # 2. Inject into Technical Skills section
-        if not has_injected_skills and any(kw in l_lower for kw in ["technical skills", "skills & tools", "core competencies", "skills:"]):
-            updated_resume_lines.append(line)
-            if safe_to_add:
-                updated_resume_lines.append(f"• Optimized Core Stack: {', '.join(safe_to_add)}")
-            has_injected_skills = True
-            continue
-
-        # 3. Enhance Recent Project section
-        if not has_enhanced_project and any(kw in l_lower for kw in ["responsibilities", "key achievements", "project description", "duties:"]):
-            updated_resume_lines.append(line)
-            if skills_added_project:
-                primary_skill = skills_added_project[0]
-                updated_resume_lines.append(
-                    f"• Architected and deployed scalable {jd_domain} microservices leveraging {primary_skill} and automated CI/CD cloud pipelines to achieve high system availability."
-                )
-            has_enhanced_project = True
-            continue
-
-        # 4. Enhance Environment section
-        if "environment:" in l_lower or "technologies used:" in l_lower:
-            existing_env = line.split(":", 1)[1] if ":" in line else ""
-            new_env_items = list(dict.fromkeys([s.strip() for s in existing_env.split(",") if s.strip()] + safe_to_add))
-            updated_resume_lines.append(f"Environment / Tech Stack: {', '.join(new_env_items[:12])}")
-            continue
-
-        updated_resume_lines.append(line)
-
-    # Fallback if structure didn't trigger
-    if not has_injected_skills and safe_to_add:
-        updated_resume_lines.insert(min(4, len(updated_resume_lines)), f"\nTECHNICAL SKILLS ALIGNMENT:\n• {', '.join(safe_to_add)}\n")
-
-    updated_resume_text = "\n".join(updated_resume_lines)
-
-    # Real AI rewrite when Gemini is configured and its free tier is available this call;
-    # the deterministic rewrite above is the guaranteed fallback either way, so the result
-    # always has genuine content - it's just less naturally phrased without the AI pass.
-    ai_text, ai_unavailable_reason = _ai_rewrite_resume(resume_text, jd_text, custom_instructions, matched_skills, safe_to_add, jd_domain)
-    ai_powered = ai_text is not None
-    final_resume_text = ai_text if ai_powered else updated_resume_text
-
+    # Same weights as the master prompt. Parts a keyword scan cannot see (recent-project
+    # relevance beyond keywords) reuse the skill ratio; certs/education and work authorization
+    # only score when the resume actually mentions them - no free points.
+    initial = int(round(
+        ratio * 40 + ratio * 25 + domain_matched * 15
+        + min(1.0, len(resume_skills) / 8.0) * 10
+        + _cert_edu_points(resume_text) + _work_auth_points(resume_text)
+    ))
+    initial = max(0, min(100, initial))
+    decision, level, _ = decide_enhancement(initial)
+    name, detected = detect_candidate_name(resume_text)
     return {
-        "candidate_name": candidate_name,
-        "initial_match_percentage": initial_score,
-        "target_match_percentage": target_score,
-        "match_decision": decision,
-        "enhancement_level": enhancement_level,
-        "ai_powered": ai_powered,
-        "ai_unavailable_reason": "" if ai_powered else ai_unavailable_reason,
+        "candidate_name": name,
+        "candidate_name_detected": detected,
+        "initial_match_percentage": initial,
+        "target_match_percentage": initial,
+        "match_breakdown": {},
+        "match_decision": decision if initial < 60 else f"Analysis only - AI rewrite unavailable (match band: {decision})",
+        "enhancement_level": "None",
+        "analysis_source": "keyword-scan",
+        "ai_powered": False,
+        "optimized": False,
+        "not_optimized_reason": ("The resume was not changed. Without the AI, the app can only report the keyword gap - "
+                                 "it can't tell which missing skills this candidate can truthfully claim, and inserting them "
+                                 "mechanically would invent experience."),
+        "ai_unavailable_reason": ai_reason,
         "domain_detected": jd_domain,
-        "mandatory_matched_skills": matched_skills,
-        "mandatory_missing_skills": missing_skills,
-        "skills_added": {
-            "summary": skills_added_summary,
-            "technical_skills": skills_added_tech,
-            "recent_projects": skills_added_project,
-            "environment": skills_added_env
-        },
-        "risky_skills_avoided": risky_avoided,
+        "mandatory_matched_skills": matched,
+        "partial_match_skills": [],
+        "mandatory_missing_skills": missing,
+        "preferred_missing_skills": [],
+        "risky_skills_avoided": [],
+        "skills_added": {"summary": [], "technical_skills": [], "recent_projects": [], "environment": []},
         "ats_optimization_notes": [
-            f"Aligned resume keywords to {jd_domain} terminology without altering career dates or chronology.",
-            f"Injected high-priority mandatory ATS keywords: {', '.join(safe_to_add)}.",
-            "Enhanced recent project bullets with quantifiable architectural action verbs.",
-            "Preserved original employment dates, companies, and timeline realism perfectly."
+            f"Keyword scan only: compared the JD against ~{len(TECH_KEYWORDS)} well-known technologies, so skills outside that list are not counted.",
+            f"Found {len(matched)} of {len(jd_skills)} recognised JD technologies in the resume.",
         ],
-        "updated_resume_text": final_resume_text
+        "updated_resume_text": resume_text,
     }
+
+
+def optimize_resume_for_jd(resume_text, jd_text, custom_instructions=""):
+    """Master Resume Optimization & JD Alignment (see MASTER_RESUME_PROMPT.md).
+
+    With Gemini available, the master prompt drives the full analysis + rewrite; the match band
+    is applied in code and mechanically checkable safety rules (dates, years of experience) are
+    enforced on the result. Without Gemini it returns the keyword analysis only and leaves the
+    resume unchanged."""
+    resume_text = (resume_text or "").strip()
+    jd_text = (jd_text or "").strip()
+    if not resume_text or not jd_text:
+        return {"error": "Both resume and job description are required."}
+
+    result, reason = _ai_optimize(resume_text, jd_text, (custom_instructions or "").strip())
+    if result is not None:
+        return result
+    return _keyword_analysis(resume_text, jd_text, reason)
 
 def create_docx_resume(resume_text, candidate_name="Candidate"):
     """Generates a clean, professionally formatted Microsoft Word (.docx) document."""
@@ -344,7 +462,9 @@ def create_docx_resume(resume_text, candidate_name="Candidate"):
 
     lines = [l.strip() for l in resume_text.split("\n") if l.strip()]
 
-    # Heading / Name
+    # Heading / Name. The resume's first line is only dropped when it IS the name line being
+    # replaced by the heading - dropping it unconditionally deleted real content (e.g. a
+    # "Professional Summary" heading) from resumes that don't start with the name.
     if lines:
         name_p = doc.add_paragraph()
         name_run = name_p.add_run(candidate_name)
@@ -352,7 +472,9 @@ def create_docx_resume(resume_text, candidate_name="Candidate"):
         name_run.font.size = Pt(18)
         name_run.font.color.rgb = RGBColor(15, 23, 42)
         name_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        lines = lines[1:]
+        name_line, name_found = detect_candidate_name(resume_text)
+        if name_found and lines[0].strip().lower() == name_line.strip().lower():
+            lines = lines[1:]
 
     for line in lines:
         # Check if section title

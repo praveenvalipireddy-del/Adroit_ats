@@ -426,6 +426,41 @@ _PROFILE_FIELDS = "linkedinUrl,firstName,lastName,headline,location,education,cu
 
 POLL_BATCH = 200
 
+_LOG_TS_RE = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z\s*")
+
+
+def _provider_problem(run_id: str, status: str, status_message: str = ""):
+    """Why a FINISHED run returned no profiles at all, read from its log: (message, kind), or ('', '')
+    when it simply had no results. Apify reports such runs as 'SUCCEEDED' (the actor exits normally
+    after logging 'Error fetching the first page'), so without this the page said 'scanned 0 profiles,
+    none matched' for what was really the LinkedIn data provider failing. Kinds:
+      overloaded  'Acquire timeout - too many queued requests' (seen live whenever runs were started in parallel)
+      plan_limit  the scraper refuses a FREE Apify account after 10 runs ('free user run limit reached') - retrying is pointless
+      timeout / error"""
+    try:
+        log = requests.get(f"{API}/actor-runs/{run_id}/log", params={"token": _token()}, timeout=20).text or ""
+    except Exception:
+        log = ""
+    if "free user run limit" in (status_message or "").lower() or re.search(r"free users are limited|upgrade to a paid plan", log, re.I):
+        sentence = next((_LOG_TS_RE.sub("", l.strip()).replace("[WARNING]", "").strip() for l in log.splitlines()
+                         if re.search(r"free users are limited", l, re.I)), "Free users are limited to 10 runs")
+        msg, kind = f"this scraper stops serving a FREE Apify account after a few runs (\"{sentence[:120]}\") - upgrade the Apify account to a paid plan to continue", "plan_limit"
+    elif "too many queued requests" in log or "Acquire timeout" in log:
+        msg, kind = "the LinkedIn data provider was overloaded (too many queued requests)", "overloaded"
+    elif status == "TIMED-OUT" or "reached the timeout" in log:
+        msg, kind = "the run timed out before the provider returned any profiles", "timeout"
+    else:
+        errors = [_LOG_TS_RE.sub("", l.strip()) for l in log.splitlines()
+                  if re.search(r"\b(error|failed)\b", l, re.I) and l.strip()]
+        if errors:
+            msg, kind = errors[-1][:160], "error"
+        elif status in ("FAILED", "ABORTED"):
+            msg, kind = f"the run ended as {status} without returning profiles", "error"
+        else:
+            return "", ""                              # a genuinely empty result page, not an error
+    token = _token()
+    return (msg.replace(token, "***") if token else msg), kind
+
 
 def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offset: int = 0, matched_so_far: int = 0,
                 target: int = TARGET_MATCHES) -> Dict:
@@ -482,7 +517,12 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
     # batch means there may be more waiting at the next offset).
     more_waiting = len(raw_items) >= POLL_BATCH
     done = (status in TERMINAL_STATUSES or status == "ABORTING" or aborted) and not more_waiting
+    provider_error, provider_kind = "", ""
+    if done and offset == 0 and not raw_items and not aborted:
+        provider_error, provider_kind = _provider_problem(run_id, status, run.get("statusMessage") or "")
     return {
+        "provider_error": provider_error,        # non-empty = the run gave nothing because the provider failed
+        "provider_error_kind": provider_kind,    # overloaded / timeout / error (retry once) or plan_limit (stop: retrying is pointless)
         "status": "ABORTED" if aborted else status,
         "done": done,
         "next_offset": offset + len(raw_items),

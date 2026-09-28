@@ -1365,6 +1365,15 @@ def api_students_search_start():
     cursor = sourcing_store.get_cursor("apify", bachelor_year)
     start_page = cursor["next_page"]
     pages = data.get("pages") or 1
+    # Re-trying ONE page whose run failed at the data provider: same page again, cursor untouched
+    # (that page was already reserved when it was first started).
+    retry_page = None
+    if data.get("retry_start_page"):
+        try:
+            retry_page = max(1, min(int(data["retry_start_page"]), linkedin_sourcing.MAX_START_PAGE))
+            start_page, pages = retry_page, 1
+        except (TypeError, ValueError):
+            retry_page = None
     result = linkedin_sourcing.start_search(
         bachelor_year,
         pages=pages,   # number of parallel one-page runs to start (max 5)
@@ -1375,7 +1384,8 @@ def api_students_search_start():
         return jsonify({"error": result["error"]}), result.get("code", 500)
     # Reserve this page range immediately so a second recruiter clicking Search in the
     # same moment gets the NEXT range, not an overlapping (double-paid) one.
-    sourcing_store.save_cursor("apify", bachelor_year, next_page=result["next_start_page"])
+    if not retry_page:
+        sourcing_store.save_cursor("apify", bachelor_year, next_page=result["next_start_page"])
     result["bachelor_year"] = bachelor_year
     return jsonify(result)
 

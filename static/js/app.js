@@ -1847,27 +1847,43 @@ async function loadStudents(runLive = false) {
         const depthPages = parseInt(document.getElementById('filter-student-depth')?.value || '6', 10) || 6;
         // Stop early (and stop paying) once this many verified matches have been found.
         const targetMatches = depthPages <= 3 ? 8 : (depthPages <= 6 ? 15 : 30);
-        const WAVE = 3;   // one-page runs started in parallel per step
+        // ONE page at a time. Live test (2026-09-28): the LinkedIn data provider (the Apify actor) chokes when
+        // several runs hit it together - with 3 runs started at once only 1 returned profiles, the others
+        // logged "Acquire timeout - too many queued requests" yet Apify still billed them as "succeeded".
+        // A single run worked every time (24-25 profiles for $0.20).
+        const WAVE = 1;
+        const retryDelayMs = (typeof window.SOURCING_RETRY_DELAY_MS === 'number') ? window.SOURCING_RETRY_DELAY_MS : 20000;   // tests shorten this
         const sleep = (ms) => new Promise(r => setTimeout(r, ms));
         const costByRun = {};
         let pagesUsed = 0;
         let stopMessage = '';
+        const retryPages = [];          // pages whose run failed at the provider: one more try each
+        const providerFailures = [];    // pages that failed again
+        let planLimitHit = false;       // the Apify account is blocked from this scraper: stop, don't pay for doomed runs
         const startedAt = Date.now();
         const timeLeft = () => Date.now() - startedAt < 16 * 60 * 1000;
 
-        // Depth = several one-page Apify runs (a free Apify plan caps each run at ~25 profiles).
-        // Each wave starts up to WAVE runs in parallel, polls them until they finish, then
-        // decides whether to continue (more pages allowed and target matches not yet reached).
-        while (pagesUsed < depthPages && matches.length < targetMatches && timeLeft()) {
+        // Depth = several one-page Apify runs (a free Apify plan caps each run at ~25 profiles), each
+        // polled to the end before the next starts; then decide whether to continue (more pages allowed
+        // and the target number of matches not yet reached).
+        while ((pagesUsed < depthPages || retryPages.length) && matches.length < targetMatches && timeLeft() && !planLimitHit) {
+            const isRetry = retryPages.length > 0;
+            const retryPage = isRetry ? retryPages.shift() : null;
+            if (isRetry) {
+                setStudentsSearchStatus(`The LinkedIn data provider was busy - retrying page ${retryPage} in a moment (a failed page only costs about $0.004)...`);
+                await sleep(retryDelayMs);
+            }
             const waveSize = Math.min(WAVE, depthPages - pagesUsed);
             // start_page is decided server-side from the TEAM's shared cursor (sourcing_store),
             // not sent from here, so two recruiters searching at once still get non-overlapping pages.
-            const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ bachelor_year: by, pages: waveSize }) });
+            // A retry re-asks for that same page (the server does not move the cursor for it).
+            const body = isRetry ? { bachelor_year: by, pages: 1, retry_start_page: retryPage } : { bachelor_year: by, pages: waveSize };
+            const startRes = await fetch('/api/students/search-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) });
             if (startRes.status === 401) { window.location.href = '/login'; return; }
             const start = await startRes.json().catch(() => ({}));
             if (!startRes.ok) { stopMessage = start.error || 'Could not start the LinkedIn search.'; break; }
-            const runs = (start.runs || []).map(r => ({ ...r, offset: 0, done: false, failures: 0 }));
-            pagesUsed += runs.length;
+            const runs = (start.runs || []).map(r => ({ ...r, offset: 0, done: false, failures: 0, retried: isRetry }));
+            if (!isRetry) pagesUsed += runs.length;
             if (start.warning) stopMessage = start.warning;
             if (runs.length === 0) break;
 
@@ -1892,6 +1908,17 @@ async function loadStudents(runLive = false) {
                         fresh.forEach(c => found.push(c));
                         matches = matches.concat(fresh);
                         r.done = !!poll.done;
+                        // The run ended but the provider gave nothing (its log says why): try that page once more,
+                        // and if it fails again say so - never present it as "scanned 0, none matched".
+                        if (poll.done && poll.provider_error) {
+                            if (poll.provider_error_kind === 'plan_limit') {
+                                // The Apify account itself is blocked (free accounts get only a few runs of this scraper):
+                                // retrying or starting more pages would only pay for runs that cannot work.
+                                planLimitHit = true;
+                                providerFailures.push({ page: r.start_page, message: poll.provider_error });
+                            } else if (!r.retried) retryPages.push(r.start_page);
+                            else providerFailures.push({ page: r.start_page, message: poll.provider_error });
+                        }
                     } catch (e) {
                         r.failures += 1;
                         if (r.failures >= 3) r.done = true;
@@ -1904,6 +1931,7 @@ async function loadStudents(runLive = false) {
             }
         }
         cost = Object.values(costByRun).reduce((a, b) => a + b, 0);
+        retryPages.forEach(p => providerFailures.push({ page: p, message: 'the search ran out of time before this page could be retried' }));
 
         if (pagesUsed === 0) {
             studentsEmptyMessage = stopMessage || 'Could not start the LinkedIn search.';
@@ -1911,13 +1939,24 @@ async function loadStudents(runLive = false) {
             renderStudentsGrid(state.students);
             return;
         }
+        if (scanned === 0 && providerFailures.length) {
+            studentsEmptyMessage = planLimitHit
+                ? `The LinkedIn search could not run: ${providerFailures[0].message}. Nothing is wrong with your filters. (A blocked run costs about $0.004.)`
+                : `The LinkedIn data provider returned no profiles: ${providerFailures[0].message}. This is a problem on the provider's side, not with your filters or your Apify key - wait a few minutes and click Search LinkedIn again. Each failed run only costs about $0.004.`;
+            setStudentsSearchStatus(`<span style="color:#b91c1c;">${escapeHtml(studentsEmptyMessage)}</span>`);
+            renderStudentsGrid(state.students);
+            return;
+        }
+        const failNote = providerFailures.length
+            ? ` <span style="color:#b45309;">${providerFailures.length} page(s) (${providerFailures.map(f => f.page).join(', ')}) could not be fetched: ${escapeHtml(providerFailures[0].message)}. ${planLimitHit ? 'The search stopped there so no more credits are wasted.' : 'They are skipped for now - click Search LinkedIn again in a few minutes.'}</span>`
+            : '';
 
         // Every verified match was already saved to the shared pool by the server as it
         // was found (see search-poll), so nothing needs to be persisted from here.
         const skipText = summarizeStudentSkips(skipped);
         // Apify finalizes a run's cost slightly after it ends, so only show it when it is a real figure.
         const costText = (cost !== null && Number(cost) > 0) ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
-        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} across your team). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.${stopMessage ? ' <span style="color:#b45309;">Note: ' + escapeHtml(stopMessage) + '</span>' : ''}`);
+        setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} across your team). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.${failNote}${stopMessage ? ' <span style="color:#b45309;">Note: ' + escapeHtml(stopMessage) + '</span>' : ''}`);
         if (found.length === 0) {
             studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Click "Search LinkedIn" again to scan the next pages of results (each search moves on to new profiles).`;
             renderStudentsGrid(state.students);

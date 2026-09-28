@@ -1145,7 +1145,7 @@ function initResumeBot() {
             }
 
             btnOptimize.disabled = true;
-            btnOptimize.innerHTML = '⚡ Running your master prompt (can take up to a minute)...';
+            btnOptimize.innerHTML = '⚡ Running your master prompt: analysis, then writing the resume (up to 2 minutes)...';
 
             try {
                 // What is sent is always the resume the box says is in use:

@@ -213,9 +213,61 @@ def edit_problem(old, new, inserting=False):
     return ""
 
 
-def apply_edits(docx_bytes, edits):
+_TAG_RE = re.compile(r"^\((?:bullet|heading/title line - do not edit|locked - do not edit)\)\s*")
+_LINE_RE = re.compile(r"^\[(\d+|\+)\]\s?(.*)$")
+
+
+def _norm(text):
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def parse_numbered(text):
+    """Reads the AI's whole-resume answer, one '[12] text' line per paragraph (and '[+] text' for a
+    new paragraph). Returns [[kind, index-or-None, text], ...] with kind 'n' or '+'. A line with no
+    tag continues the previous paragraph (paragraphs that contain manual line breaks); code fences
+    and the tags the AI was shown are dropped."""
+    entries = []
+    for line in (text or "").replace("\r\n", "\n").split("\n"):
+        if line.strip().startswith("```"):
+            continue
+        m = _LINE_RE.match(line.strip())
+        if m:
+            tag, body = m.groups()
+            entries.append(["+" if tag == "+" else "n", None if tag == "+" else int(tag), _TAG_RE.sub("", body.lstrip())])
+        elif entries and line.strip():
+            entries[-1][2] += "\n" + line.rstrip()
+    return entries
+
+
+def edits_from_rewrite(entries, paragraphs):
+    """Turns the AI's complete rewritten resume into edits against the original paragraphs:
+    a paragraph whose text differs (ignoring spacing) becomes a 'replace', a '[+]' line becomes an
+    'insert_after' its predecessor. Paragraphs the AI left out are simply unchanged - nothing is
+    ever deleted. Returns (edits, number of distinct original paragraphs the AI returned)."""
+    originals = {p["index"]: p["text"] for p in paragraphs}
+    edits, seen, anchor = [], set(), None
+    for kind, idx, body in entries:
+        if kind == "n":
+            if idx not in originals or idx in seen:
+                continue
+            seen.add(idx)
+            anchor = idx
+            # Untagged lines only belong to a paragraph that really had manual line breaks; anything
+            # beyond that is the model talking ("Note: I added...") and must not enter the resume.
+            body = "\n".join(body.strip().split("\n")[:originals[idx].count("\n") + 1]).strip()
+            if body and _norm(body) != _norm(originals[idx]):
+                edits.append({"op": "replace", "paragraph": idx, "new_text": body})
+        else:
+            body = body.strip().split("\n")[0].strip()          # a new paragraph is one line
+            if anchor is not None and body:
+                edits.append({"op": "insert_after", "paragraph": anchor, "new_text": body})
+    return edits, len(seen)
+
+
+def apply_edits(docx_bytes, edits, extra_check=None):
     """Applies the AI's edits to the original document. Returns (new_docx_bytes, applied,
-    skipped). Every edit is checked on its own; refused ones are reported with the reason."""
+    skipped). Every edit is checked on its own; refused ones are reported with the reason.
+    `extra_check(old_text, new_text, inserting)` may return a further reason to refuse an edit."""
     document, paragraphs = load_paragraphs(docx_bytes)
     by_index = {p["index"]: p for p in paragraphs}
     applied, skipped = [], []
@@ -253,7 +305,7 @@ def apply_edits(docx_bytes, edits):
             elif new_text == target["text"].strip():
                 problem = "the text was not changed"
             else:
-                problem = edit_problem(target["text"], new_text)
+                problem = edit_problem(target["text"], new_text) or (extra_check(target["text"], new_text, False) if extra_check else "")
             if problem:
                 skip(edit, problem)
             elif not _replace_text(target["paragraph"], new_text):
@@ -266,7 +318,7 @@ def apply_edits(docx_bytes, edits):
             if target["heading"]:
                 problem = "a new line can't be added straight after a heading (it would copy the heading's formatting)"
             else:
-                problem = edit_problem("", new_text, inserting=True)
+                problem = edit_problem("", new_text, inserting=True) or (extra_check("", new_text, True) if extra_check else "")
             if problem:
                 skip(edit, problem)
             else:

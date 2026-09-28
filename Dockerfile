@@ -26,4 +26,4 @@ COPY . .
 EXPOSE 5000
 
 # Run with production Gunicorn server
-CMD ["gunicorn", "app:app", "--workers=3", "--bind=0.0.0.0:5000", "--timeout=120"]
+CMD ["gunicorn", "app:app", "--workers=3", "--bind=0.0.0.0:5000", "--timeout=240"]

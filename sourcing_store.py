@@ -35,14 +35,19 @@ def _year_key(year) -> str:
 
 
 def get_cached_matches(source: str, search_year) -> List[Dict]:
-    """Every verified match any recruiter has already found for this search - free to read."""
+    """Every verified match any recruiter has already found for this Bachelor's year - free to read.
+    Looked up by the candidate's OWN Bachelor's year (not by which search happened to find them), so
+    a profile discovered while searching 2020 is also served, free, to whoever searches its real
+    year later. No year = every verified match for the source."""
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM sourced_candidates WHERE source = ? AND search_year = ? ORDER BY id ASC",
-            (source, _year_key(search_year)),
-        )
+        year_key = _year_key(search_year)
+        if year_key:
+            cur.execute("SELECT * FROM sourced_candidates WHERE source = ? AND bachelor_year = ? ORDER BY id ASC",
+                        (source, year_key))
+        else:
+            cur.execute("SELECT * FROM sourced_candidates WHERE source = ? ORDER BY id ASC", (source,))
         rows = cur.fetchall()
         out = []
         for row in rows:
@@ -62,10 +67,11 @@ def get_cached_matches(source: str, search_year) -> List[Dict]:
 def save_matches(source: str, search_year, matches: List[Dict], user_id: Optional[int] = None) -> int:
     """Adds newly-verified matches to the shared pool. Safe to call with matches the pool
     already has - duplicates (same source + profile_url) are skipped, not double-stored.
+    Each match is filed under its OWN verified Bachelor's year (search_year is only the fallback),
+    so profiles found while searching one year serve every other year's search too.
     Returns how many were genuinely new."""
     if not matches:
         return 0
-    year_key = _year_key(search_year)
     conn = get_db_connection()
     added = 0
     try:
@@ -74,22 +80,45 @@ def save_matches(source: str, search_year, matches: List[Dict], user_id: Optiona
             url = (m.get("profile_url") or "").strip()
             if not url:
                 continue
+            year_key = _year_key(m.get("bachelor_year")) or _year_key(search_year)
+            # Check first, and let the INSERT itself ignore a race: on Postgres a failed INSERT makes the
+            # connection wrapper roll back the WHOLE batch, silently dropping the people already saved
+            # earlier in the same call. Re-scans and year-banking make duplicates routine, not rare.
+            cur.execute("SELECT 1 FROM sourced_candidates WHERE source = ? AND profile_url = ?", (source, url))
+            if cur.fetchone():
+                continue
             try:
                 cur.execute(
                     f"""INSERT INTO sourced_candidates
                         (source, search_year, found_by_user_id, {", ".join(_CANDIDATE_COLS)})
-                        VALUES ({", ".join(["?"] * (3 + len(_CANDIDATE_COLS)))})""",
+                        VALUES ({", ".join(["?"] * (3 + len(_CANDIDATE_COLS)))})
+                        ON CONFLICT DO NOTHING""",
                     [source, year_key, user_id] + [m.get(col, "") for col in _CANDIDATE_COLS],
                 )
                 added += 1
-            except Exception:
-                # Unique index (source, profile_url) rejected a duplicate - expected, not an error.
-                pass
+            except Exception as ex:
+                logger.warning(f"save_matches: could not store one profile: {ex}")
         conn.commit()
         return added
     except Exception as ex:
         logger.error(f"save_matches failed: {ex}")
         return 0
+    finally:
+        conn.close()
+
+
+def pool_counts(source: str) -> Dict[str, int]:
+    """{bachelor_year: number of verified candidates in the team pool} for one source - what the team
+    already owns (free to view), so recruiters can see it before paying for another search."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT bachelor_year, COUNT(*) AS n FROM sourced_candidates WHERE source = ? "
+                    "AND bachelor_year IS NOT NULL AND bachelor_year <> '' GROUP BY bachelor_year ORDER BY bachelor_year", (source,))
+        return {str(r["bachelor_year"]): int(r["n"]) for r in cur.fetchall()}
+    except Exception as ex:
+        logger.error(f"pool_counts failed: {ex}")
+        return {}
     finally:
         conn.close()
 

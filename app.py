@@ -1341,7 +1341,8 @@ def api_students_sourced_pool():
     bachelor_year = _parse_bachelor_year({"bachelor_year": request.args.get("bachelor_year")})
     matches = sourcing_store.get_cached_matches(source, bachelor_year)
     cursor = sourcing_store.get_cursor(source, bachelor_year)
-    return jsonify({"matches": matches, "exhausted": cursor["exhausted"]})
+    return jsonify({"matches": matches, "exhausted": cursor["exhausted"],
+                    "pool_counts": sourcing_store.pool_counts(source)})
 
 
 @app.route("/api/students/search-start", methods=["POST", "OPTIONS"])
@@ -1410,6 +1411,10 @@ def api_students_search_poll():
     # Every recruiter's find goes straight into the shared pool - the next person who
     # searches this year sees it for free instead of Apify re-scanning the same profile.
     sourcing_store.save_matches("apify", bachelor_year, result.get("new_matches") or [], user["id"])
+    # Profiles that were fully verified but graduated in a DIFFERENT year are banked under their own
+    # year (their year's search will then show them for free). Not sent to the browser for this year.
+    other = result.pop("other_year_matches", None) or []
+    result["banked_other_years"] = sourcing_store.save_matches("apify", None, other, user["id"]) if other else 0
     return jsonify(result)
 
 

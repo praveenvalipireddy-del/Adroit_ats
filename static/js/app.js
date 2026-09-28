@@ -1653,8 +1653,15 @@ const STUDENT_SKIP_LABELS = {
     no_bachelor: 'listed no Bachelor\'s degree',
     no_us_master: 'had no US Master\'s listed',
     not_in_us: 'are not currently in the USA',
-    incomplete: 'had incomplete data'
+    incomplete: 'had incomplete data',
+    // Fully verified people who graduated in ANOTHER year: kept, not lost.
+    other_year_banked: 'are verified for a different graduation year and were saved to your team pool for that year (free to view later)'
 };
+
+// "2019 x 5 · 2020 x 2" from the pool's per-year counts.
+function formatPoolCounts(counts) {
+    return Object.entries(counts || {}).filter(([, n]) => n > 0).map(([y, n]) => `${escapeHtml(y)} × ${n}`).join(' · ');
+}
 
 function setStudentsSearchStatus(html) {
     const el = document.getElementById('students-search-status');
@@ -1718,6 +1725,7 @@ async function loadStudents(runLive = false) {
     // + year, read straight from the shared database - no PDL/Apify call involved.
     let found = [];
     let poolExhausted = false;
+    let poolCounts = {};
     if (source) {
         try {
             const poolRes = await fetch(`/api/students/sourced-pool?source=${encodeURIComponent(source)}&bachelor_year=${encodeURIComponent(by)}`);
@@ -1725,6 +1733,7 @@ async function loadStudents(runLive = false) {
             const poolData = await poolRes.json().catch(() => ({}));
             found = poolData.matches || [];
             poolExhausted = !!poolData.exhausted;
+            poolCounts = poolData.pool_counts || {};
         } catch (err) {
             console.error('Error loading shared sourcing pool:', err);
         }
@@ -1737,9 +1746,14 @@ async function loadStudents(runLive = false) {
     if (!runLive) {
         studentsEmptyMessage = 'No candidates to show yet. Click "Search LinkedIn" to find India-Bachelor\'s + US-Master\'s profiles for the selected year.';
         renderStudentsGrid(state.students);
-        setStudentsSearchStatus(found.length > 0
+        // Everything the team has already paid for, by graduation year - viewing it is free, so the
+        // recruiter can see it BEFORE spending on another search.
+        const poolLine = formatPoolCounts(poolCounts)
+            ? ` <span style="color:#475569;">Your team's pool by graduation year: <b>${formatPoolCounts(poolCounts)}</b> (change the year to view another - free).</span>`
+            : '';
+        setStudentsSearchStatus((found.length > 0
             ? `Showing <b>${found.length}</b> verified match(es) your team has already found for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to fetch more (it uses your chosen data source's credits; pick the size first).`
-            : `Pick a data source and size, then click <b>Search LinkedIn</b>. People Data Labs uses 1 free monthly record per person returned; Apify costs about $0.20 per 25 profiles scanned.`);
+            : `Pick a data source and size, then click <b>Search LinkedIn</b>. People Data Labs uses 1 free monthly record per person returned; Apify costs about $0.20 per 25 profiles scanned.`) + poolLine);
         return;
     }
 
@@ -1925,22 +1939,23 @@ function updateStudentMetrics(students) {
     const switchersElem = document.getElementById('stat-students-switchers');
     const onboardedElem = document.getElementById('stat-students-onboarded');
 
+    // Real counts only. (These used to fall back to invented numbers - 70% of the total for "OPT",
+    // 40% for "switchers", and "3" onboarded - whenever the true count was zero.)
     const total = students.length;
-    // B.Tech <= 2020 metrics
     const optCount = students.filter(s => {
         const tag = (s.status_badge || s.status_tag || '').toLowerCase();
         return tag.includes('opt') || tag.includes('cpt');
-    }).length || Math.round(total * 0.7);
+    }).length;
 
     const switchersCount = students.filter(s => {
-        const by = parseInt(s.bachelor_year || s.grad_year || 2018);
+        const by = parseInt(s.bachelor_year || s.grad_year);
         return by >= 2014 && by <= 2018;
-    }).length || Math.round(total * 0.4);
+    }).length;
 
     if (totalElem) totalElem.innerText = total;
     if (optElem) optElem.innerText = optCount;
     if (switchersElem) switchersElem.innerText = switchersCount;
-    if (onboardedElem) onboardedElem.innerText = state.consultants.length || 3;
+    if (onboardedElem) onboardedElem.innerText = state.consultants.length;
 }
 
 function renderStudentsGrid(candidates) {
@@ -1977,8 +1992,9 @@ function renderStudentsGrid(candidates) {
 
     tbody.innerHTML = candidates.map(c => {
         const rawStatus = (c.status_tag || c.status_badge || c.settlement_pathway || '').toLowerCase();
-        let settlementBadge = c.settlement_badge || "🇺🇸 MS USA ➔ STEM OPT";
-        let settlementSub = c.settlement_sub || "3-Year Work Authorization";
+        // Never claim a visa pathway that the source didn't state ("STEM OPT / 3-year authorization" used to be the default).
+        let settlementBadge = c.settlement_badge || "Work authorization not verified";
+        let settlementSub = c.settlement_sub || "Confirm with the candidate";
         let settlementBadgeStyle = "background:rgba(16,185,129,0.12); color:#047857; border:1px solid rgba(16,185,129,0.4);";
 
         if (rawStatus.includes('h1b')) {
@@ -2014,11 +2030,12 @@ function renderStudentsGrid(candidates) {
         const yearVerified = c.year_verified !== false;
         const bTechYear = (c.bachelor_year || c.grad_year || '').trim();
         const bTechYearDisplay = yearVerified && bTechYear ? bTechYear : '⚠️ Verify';
-        const bTechCollege = c.bachelor_college || 'India Accredited College';
-        const bTechDegree = c.bachelor_degree || 'B.Tech / B.E.';
+        // Unknown stays "not listed" - it is never filled in with a plausible-sounding guess.
+        const bTechCollege = c.bachelor_college || 'College not listed';
+        const bTechDegree = c.bachelor_degree || "Bachelor's degree";
 
-        const mDegree = c.master_degree || c.degree || "MS in USA";
-        const mUni = c.master_university || c.university || 'US University';
+        const mDegree = c.master_degree || c.degree || "Master's: not listed";
+        const mUni = c.master_university || c.university || 'University not listed';
 
         return `
         <tr style="border-bottom: 1px solid #e2e8f0; transition: background 0.15s ease;" onmouseover="this.style.background='rgba(37,99,235,0.05)'" onmouseout="this.style.background='transparent'">

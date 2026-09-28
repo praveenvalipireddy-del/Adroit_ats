@@ -94,6 +94,25 @@ INDIAN_INSTITUTION_MARKERS = [
     "mumbai", "pune", "kerala", "tamil nadu", "andhra", "telangana", "karnataka", "maharashtra",
     "gujarat", "uttar pradesh", "rajasthan", "punjab", "haryana", "odisha", "coimbatore", "vijayawada",
     "visakhapatnam", "warangal", "trichy", "tiruchirappalli", "surathkal", "kakinada", "anantapur",
+    # Real Indian colleges seen on live profiles whose names carry none of the markers above (e.g.
+    # "Vignan's University", "Madras Christian College") were rejected as "not an Indian college", so their
+    # graduates never showed up. Every stem here is India-only: this list also REJECTS Indian Master's
+    # degrees, so an ambiguous name ("Loyola", "St. Xavier's", "Presidency") must never be added.
+    "deemed to be university", "deemed university", "vignan", "madras christian", "jntuh", "jntuk", "jntua", "jntus",
+    "kalasalingam", "karunya", "chettinad", "saveetha", "kongu", "bannari amman", "thiagarajar", "velammal",
+    "kumaraguru", "hindustan institute", "abdur rahman", "ssn college", "sri sivasubramaniya", "sona college",
+    "coimbatore institute", "mepco", "rajalakshmi", "sairam", "jeppiaar", "panimalar", "easwari", "sri krishna college",
+    "lakireddy", "pragati engineering", "anurag", "cmr college", "cmr institute", "cmr technical",
+    "institute of aeronautical engineering", "lendi", "pydah", "raghu engineering", "vishnu institute", "swarnandhra",
+    "sir c r reddy", "bapatla engineering", "acharya nagarjuna", "sri venkateswara", "sri padmavathi", "kits warangal",
+    "srkr", "gudlavalleru", "vr siddhartha", "prasad v potluri", "mvgr", "aditya engineering", "godavari institute",
+    "nmamit", "siddaganga", "dayananda sagar", "ramaiah", "sri jayachamarajendra", "sjce", "bmsce", "nitte",
+    "kiit", "veermata jijabai", "vjti", "coep", "college of engineering pune", "walchand", "sinhgad", "symbiosis",
+    "vishwakarma institute", "mit world peace", "bharati vidyapeeth", "d y patil", "pccoe", "somaiya", "thadomal", "nmims",
+    "dharmsinh", "dhirubhai ambani", "pdpu", "pandit deendayal", "lnmiit", "shri ramdeobaba", "vnit",
+    "visvesvaraya national", "maulana azad national", "motilal nehru national", "malaviya national",
+    "sardar vallabhbhai national", "chandigarh university", "bennett university", "shiv nadar", "jaypee", "galgotias",
+    "guru nanak dev",
 ]
 
 # Markers of non-US institutions, so a UK/Canada/Australia/etc. Master's is not
@@ -433,13 +452,22 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
         logger.error(f"Apify poll exception: {ex}")
         return {"error": "Lost contact with Apify while polling.", "code": 502}
 
-    matches, skipped = [], {}
+    matches, other_years, skipped = [], [], {}
     for item in raw_items:
         cand, reason = evaluate_profile(item, bachelor_year)
         if cand:
             matches.append(cand)
-        else:
-            skipped[reason] = skipped.get(reason, 0) + 1
+            continue
+        if reason == "wrong_bachelor_year" and bachelor_year:
+            # Already paid for and fully verified (Indian Bachelor's + US Master's + in the US) - it just
+            # graduated in a different year. Throwing it away made every search pay for ~6 profiles to
+            # keep 1. It is banked in the team pool under ITS OWN year, so that year's search is free.
+            other, _ = evaluate_profile(item, None)
+            if other:
+                other_years.append(other)
+                skipped["other_year_banked"] = skipped.get("other_year_banked", 0) + 1
+                continue
+        skipped[reason] = skipped.get(reason, 0) + 1
 
     total_matched = matched_so_far + len(matches)
     aborted = False
@@ -460,6 +488,7 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
         "next_offset": offset + len(raw_items),
         "scanned_new": len(raw_items),
         "new_matches": matches,
+        "other_year_matches": other_years,       # saved to the pool by the route; not shown for this year's search
         "skipped": skipped,
         "cost_usd": run.get("usageTotalUsd"),
         "stopped_early": aborted,

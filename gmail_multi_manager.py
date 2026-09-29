@@ -256,20 +256,30 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
     msg["Subject"] = subject
     msg.set_content(body_text)
 
-    # Attach Resume
-    resume_attached = False
-    resume_path = cand.get("resume_path")
-    if resume_path and os.path.exists(resume_path):
-        with open(resume_path, "rb") as f:
-            file_data = f.read()
+    # Attach the ORIGINAL resume file. Checked in the database first: Render wipes the on-disk
+    # data/resumes/ folder on every deploy, so a file uploaded before the last deploy is gone from
+    # disk but still in resume_files (see models.save_resume_file / models.get_resume_file, added
+    # for the Resume Optimizer's in-place editing) - without this, a draft would go out with no
+    # resume attached, silently, for any consultant uploaded before the app's last redeploy.
+    resume_attached, resume_note = False, ""
+    file_name, file_data = None, None
+    stored = models.get_resume_file(candidate_id)
+    if stored and stored.get("data"):
+        file_name, file_data = stored.get("filename") or "resume", stored["data"]
+    else:
+        resume_path = cand.get("resume_path")
+        if resume_path and os.path.exists(resume_path):
             file_name = os.path.basename(resume_path)
-        msg.add_attachment(
-            file_data,
-            maintype="application",
-            subtype="vnd.openxmlformats-officedocument.wordprocessingml.document",
-            filename=file_name
-        )
+            with open(resume_path, "rb") as f:
+                file_data = f.read()
+
+    if file_data:
+        mime_type, _ = mimetypes.guess_type(file_name)
+        maintype, _, subtype = (mime_type or "application/octet-stream").partition("/")
+        msg.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=file_name)
         resume_attached = True
+    else:
+        resume_note = "No resume file is on record for this consultant - the draft was created without an attachment. Upload their resume on the Consultants tab and try again."
 
     # 1. METHOD A: Using Gmail App Password (IMAP Append to [Gmail]/Drafts)
     app_password = cand.get("gmail_app_password")
@@ -309,6 +319,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                 "candidate_name": cand_name,
                 "company": company,
                 "resume_attached": resume_attached,
+                "resume_note": resume_note,
                 "preview": body_text[:280] + "..."
             }
         except Exception as e:
@@ -362,6 +373,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                     "candidate_name": cand_name,
                     "company": company,
                     "resume_attached": resume_attached,
+                    "resume_note": resume_note,
                     "preview": body_text[:280] + "..."
                 }
         except Exception as e:

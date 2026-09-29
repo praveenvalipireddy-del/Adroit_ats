@@ -910,8 +910,11 @@ async function createJobDraft(jobId, candId, customToEmail = '', btnElement = nu
 
         const data = await res.json();
         if (data.success) {
-            showToast(`✉️ Gmail Draft Created for ${data.consultant_name}! Sent to: ${data.recruiter_email || 'Recruiter'}`, 'success', 6000);
-            
+            showToast(`✉️ Gmail Draft Created for ${data.candidate_name}! Sent to: ${data.to_email || data.recruiter_email || 'Recruiter'}`, 'success', 6000);
+            if (!data.resume_attached) {
+                showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
+            }
+
             // Update stats
             const statDrafts = document.getElementById('stat-drafted-count');
             if (statDrafts) {
@@ -1618,9 +1621,16 @@ function initModals() {
 
                 const data = await res.json();
                 if (data.success) {
-                    showToast(`⚡ Draft created in ${data.consultant_name}'s Gmail with attached .docx resume!`, 'success', 6000);
+                    // Never claim the resume was attached unless it really was - resume_attached
+                    // reflects whether a real file was actually found and attached.
+                    showToast(data.resume_attached
+                        ? `⚡ Draft created in ${data.candidate_name}'s Gmail with attached .docx resume!`
+                        : `⚡ Draft created in ${data.candidate_name}'s Gmail.`, 'success', 6000);
+                    if (!data.resume_attached) {
+                        showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
+                    }
                     closePasteDraftModal();
-                    
+
                     // Update stats
                     const statDrafts = document.getElementById('stat-drafted-count');
                     if (statDrafts) {
@@ -3219,7 +3229,10 @@ async function submitCopilotDraftToGmail() {
 
         const data = await res.json();
         if (data.success) {
-            showToast(`✉️ Personalized Gmail Draft successfully saved for ${data.consultant_name}!`, 'success', 6000);
+            showToast(`✉️ Personalized Gmail Draft successfully saved for ${data.candidate_name}!`, 'success', 6000);
+            if (!data.resume_attached) {
+                showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
+            }
             closeAiCopilotModal();
             const statDrafts = document.getElementById('stat-drafted-count');
             if (statDrafts) statDrafts.innerText = (parseInt(statDrafts.innerText) || 0) + 1;

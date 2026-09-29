@@ -1716,7 +1716,7 @@ function setPresetFilter(keyword, bachelorYear) {
 // runLive=false: instant + free (recruiter-added candidates only).
 // runLive=true : also starts the paid live LinkedIn search and streams results in.
 async function loadStudents(runLive = false) {
-    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
+    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2023';
     const source = document.getElementById('filter-student-source')?.value || '';
     const tbody = document.getElementById('students-table-body');
     const resultsElem = document.getElementById('students-results-wrapper');
@@ -2332,7 +2332,7 @@ function closeStudentPitchModal() {
 window.closeStudentPitchModal = closeStudentPitchModal;
 
 function exportStudentsCSV() {
-    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
+    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2023';
 
     fetch('/api/students/export-csv', {
         method: 'POST',
@@ -2364,10 +2364,10 @@ window.exportStudentsCSV = exportStudentsCSV;
 // Path A: Google X-Ray & Live Recruiter Search Engine
 // =========================================================================
 function buildXRayQuery() {
-    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2020';
+    const by = document.getElementById('filter-student-bachelor-year')?.value?.trim() || '2023';
 
     const yearMatch = by.match(/\b(19\d\d|20\d\d)\b/);
-    const targetYear = yearMatch ? yearMatch[1] : '2020';
+    const targetYear = yearMatch ? yearMatch[1] : '2023';
 
     const parts = [
         'site:linkedin.com/in/',

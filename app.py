@@ -1224,10 +1224,15 @@ def api_resume_bot_download_docx():
 # =========================================================================
 
 def _parse_bachelor_year(data):
-    """Selected Bachelor's passout year (India). None means 'All years'."""
+    """Selected Bachelor's passout year (India). None means 'All years'. Clamped to the range
+    Sourcing actually supports (linkedin_sourcing.MIN/MAX_BACHELOR_YEAR) - not a hardcoded 2020,
+    which used to silently downgrade a request for e.g. 2023 to 2020 with no explanation."""
     raw_by = str((data or {}).get("bachelor_year") or (data or {}).get("year") or "").strip()
     year_match = re.search(r'\b(19\d\d|20\d\d)\b', raw_by)
-    return min(2020, int(year_match.group(1))) if year_match else None
+    if not year_match:
+        return None
+    year = int(year_match.group(1))
+    return max(linkedin_sourcing.MIN_BACHELOR_YEAR, min(linkedin_sourcing.MAX_BACHELOR_YEAR, year))
 
 
 @app.route("/api/students/search", methods=["GET", "POST", "OPTIONS"])

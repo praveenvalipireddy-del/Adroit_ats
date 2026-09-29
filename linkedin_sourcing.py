@@ -46,6 +46,13 @@ COST_PER_PAGE_USD = 0.21   # $0.10 search page + 25 x $0.004 full profiles (+ sm
 TARGET_MATCHES = 15        # stop early (abort the run) once this many verified matches exist
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
 
+# The Bachelor's-year range this whole Sourcing feature covers. Raise MAX_BACHELOR_YEAR as more
+# recent graduates finish their US Master's and become bench-ready (a specific year's search -
+# e.g. build_pdl_query and evaluate_profile/evaluate_pdl_person when a year IS given - is not
+# bounded by this; it only shapes the "All Years" fallback range and the year picker's options).
+MIN_BACHELOR_YEAR = int(os.getenv("SOURCING_MIN_BACHELOR_YEAR", "2010"))
+MAX_BACHELOR_YEAR = int(os.getenv("SOURCING_MAX_BACHELOR_YEAR", "2023"))
+
 # Broad spread of Indian colleges (not just IIT/NIT) - the LinkedIn "school"
 # facet accepts a list, so all of these are covered by a single search.
 INDIAN_SCHOOLS_FOR_SEARCH = [
@@ -228,7 +235,7 @@ def evaluate_profile(item: Dict, bachelor_year: Optional[int]) -> Tuple[Optional
         if not chosen:
             return None, "wrong_bachelor_year"
     else:
-        chosen = next(((e, y) for e, y in dated if 2010 <= y <= 2020), None)
+        chosen = next(((e, y) for e, y in dated if MIN_BACHELOR_YEAR <= y <= MAX_BACHELOR_YEAR), None)
         if not chosen:
             return None, "wrong_bachelor_year"
     b_entry, b_year = chosen
@@ -639,7 +646,7 @@ def build_pdl_query(bachelor_year: Optional[int], tier: str = "strict", now_year
         if level == 0:
             must.append({"range": {"education.start_date": {"gte": f"{bachelor_year - 5}-01-01", "lte": f"{bachelor_year - 3}-12-31"}}})
     else:
-        must.append({"range": {"education.end_date": {"gte": "2010-01-01", "lte": "2020-12-31"}}})
+        must.append({"range": {"education.end_date": {"gte": f"{MIN_BACHELOR_YEAR}-01-01", "lte": f"{MAX_BACHELOR_YEAR}-12-31"}}})
     query = {"bool": {"must": must}}
     if must_not:
         query["bool"]["must_not"] = must_not
@@ -723,7 +730,7 @@ def evaluate_pdl_person(person: Dict, bachelor_year: Optional[int]) -> Tuple[Opt
     if bachelor_year:
         chosen = next(((e, y) for e, y in dated if y == bachelor_year), None)
     else:
-        chosen = next(((e, y) for e, y in dated if 2010 <= y <= 2020), None)
+        chosen = next(((e, y) for e, y in dated if MIN_BACHELOR_YEAR <= y <= MAX_BACHELOR_YEAR), None)
     if not chosen:
         return None, "wrong_bachelor_year"
     b_entry, b_year = chosen

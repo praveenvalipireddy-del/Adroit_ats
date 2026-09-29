@@ -4,7 +4,7 @@ import sqlite3
 import urllib.parse
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash, check_password_hash
 import config
 
@@ -206,6 +206,7 @@ def init_db():
         match_score INTEGER DEFAULT 88,
         status TEXT DEFAULT 'Open',
         is_24h INTEGER DEFAULT 1,
+        is_seed_example INTEGER DEFAULT 0,
         scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -378,6 +379,7 @@ def migrate_db(conn):
         "recruiter_name": "TEXT",
         "matched_skills": "TEXT",
         "is_24h": "INTEGER DEFAULT 1",
+        "is_seed_example": "INTEGER DEFAULT 0",
         "scraped_at": "TEXT",
         "country": "TEXT DEFAULT 'United States'"
     }
@@ -595,18 +597,22 @@ def ensure_default_jobs(conn):
                 with open(seed_path, "r", encoding="utf-8") as f:
                     jobs = json.load(f)
                 for j in jobs:
+                    # is_seed_example=1 marks this as historical example data, never a live scrape -
+                    # the "LIVE 24h" filter (get_jobs(is_24h_only=True)) must never show it, no matter
+                    # how fresh scraped_at looks. scraped_at is left NULL (not "now") so it can never
+                    # pass a naive freshness check either, even if that exclusion is ever bypassed.
                     cursor.execute("""
                     INSERT INTO jobs (
                         title, company, location, job_type, salary, source, url,
                         recruiter_email, recruiter_phone, recruiter_name, description,
-                        matched_skills, match_score, status, is_24h
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        matched_skills, match_score, status, is_24h, is_seed_example, scraped_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         j.get("title"), j.get("company"), j.get("location"), j.get("job_type", "Contract (C2C)"),
                         j.get("salary"), j.get("source", "Dice"), j.get("url"),
                         j.get("recruiter_email"), j.get("recruiter_phone"), j.get("recruiter_name"),
                         j.get("description"), j.get("matched_skills"), j.get("match_score", 88),
-                        j.get("status", "Open"), j.get("is_24h", 1)
+                        j.get("status", "Open"), j.get("is_24h", 1), 1, None
                     ))
                 conn.commit()
                 logger.info(f"Seeded {len(jobs)} live US IT jobs into database.")
@@ -1123,6 +1129,28 @@ def get_resume_file(candidate_id):
         return None
     return {"filename": row["filename"], "data": bytes(row["data"])}
 
+def _parse_db_timestamp(value):
+    """Best-effort parse of a jobs.scraped_at value into a timezone-aware UTC datetime.
+    SQLite's CURRENT_TIMESTAMP yields a naive UTC string ('YYYY-MM-DD HH:MM:SS[.ffffff]');
+    Postgres drivers hand back a real datetime (naive or tz-aware). Returns None (never a
+    guessed time) if the value is missing or in an unrecognized format."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        s = value.strip().replace("T", " ")
+        if not s:
+            return None
+        s = s.split("+")[0].split("Z")[0].strip()
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+    return None
+
+
 def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1151,6 +1179,17 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
         if country and country != "All":
             j_country = (j.get("country") or "United States")
             if j_country.lower() != country.lower():
+                continue
+
+        # 0b. "LIVE 24h" filter - honestly enforce it: exclude static example/seed rows outright
+        # (they are never a real scrape, no matter what scraped_at says), and exclude anything
+        # whose scraped_at is missing or older than 24 hours. A missing/unparseable scraped_at is
+        # treated as NOT fresh (excluded), never assumed fresh.
+        if is_24h_only:
+            if j.get("is_seed_example"):
+                continue
+            scraped_dt = _parse_db_timestamp(j.get("scraped_at"))
+            if scraped_dt is None or (datetime.now(timezone.utc) - scraped_dt) > timedelta(hours=24):
                 continue
 
         # 1. Source filter (matches 'Dice' for 'Dice.com', 'LinkedIn' for 'LinkedIn (Live 24h)', etc.)
@@ -1269,10 +1308,15 @@ def save_or_update_scraped_job(job_data):
     if existing:
         job_id = existing[0]
         current_email = existing[1]
-        # Only update if new email found and old was blank
+        # This posting was just found again by a live scrape, so it is confirmed still live right
+        # now - always refresh scraped_at so the "LIVE 24h" filter keeps showing it, not just on
+        # the first time it was ever seen. Also update the email if a new one was found and the
+        # old one was blank.
         if recruiter_email and not current_email:
-            cursor.execute("UPDATE jobs SET recruiter_email = ?, salary = COALESCE(?, salary) WHERE id = ?", (recruiter_email, salary, job_id))
-            conn.commit()
+            cursor.execute("UPDATE jobs SET recruiter_email = ?, salary = COALESCE(?, salary), scraped_at = CURRENT_TIMESTAMP, is_seed_example = 0 WHERE id = ?", (recruiter_email, salary, job_id))
+        else:
+            cursor.execute("UPDATE jobs SET scraped_at = CURRENT_TIMESTAMP, is_seed_example = 0 WHERE id = ?", (job_id,))
+        conn.commit()
         conn.close()
         return job_id
     else:

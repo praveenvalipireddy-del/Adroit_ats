@@ -556,26 +556,32 @@ def api_jobs_search():
         country=country
     )
 
-    # If 0 results or live_scrape requested, trigger a live scrape of the selected market.
-    if (len(results) == 0 or live_scrape) and query:
+    # If 0 results or live_scrape requested, trigger a live scrape of the selected market. This no
+    # longer requires a typed query: since is_24h_only now genuinely hides stale/example data, an
+    # empty-query tab load with nothing fresh in the DB must still go get real jobs rather than
+    # show an empty table - "Software Engineer" is the same generic default already used elsewhere
+    # (triggerUsScrape) when no keyword is given.
+    if len(results) == 0 or live_scrape:
+        scrape_query = query or "Software Engineer"
         try:
             if country.lower() == "india":
                 scrape_res = india_job_scrapers.run_multi_source_india_scrape(
-                    keywords=[query], location=location or "India", save_to_db=True
+                    keywords=[scrape_query], location=location or "India", save_to_db=True
                 )
             else:
                 scrape_res = us_job_scrapers.run_multi_source_us_scrape(
-                    keywords=[query],
+                    keywords=[scrape_query],
                     location=location or "United States",
                     contract_only=True,
                     save_to_db=True
                 )
             results = models.get_jobs(
-                query=query,
+                query=query if query else None,
                 location=location if location and location.lower() != "united states" else None,
                 source=source if source != "All" else None,
                 job_type=job_type if job_type != "All" else None,
                 contract_only=False,
+                is_24h_only=is_24h_only,
                 country=country
             )
             if not results and scrape_res.get("jobs"):

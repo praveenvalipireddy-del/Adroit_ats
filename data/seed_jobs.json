@@ -1,22 +1,5 @@
 [
   {
-    "title": "Principal Java Cloud Architect",
-    "company": "Apex Fintech Global",
-    "location": "Dallas, TX (Hybrid)",
-    "job_type": "Contract (C2C)",
-    "salary": "$95 - $105/hr",
-    "source": "LinkedIn",
-    "url": "https://www.linkedin.com/jobs/view/apex-fintech-java",
-    "recruiter_email": null,
-    "recruiter_phone": null,
-    "recruiter_name": null,
-    "description": "Looking for an expert Java/Spring Boot architect to lead our real-time trade settlement modernization on AWS.",
-    "matched_skills": null,
-    "match_score": 96,
-    "status": "Open",
-    "is_24h": 1
-  },
-  {
     "title": "Senior Generative AI Platform Engineer",
     "company": "Cognitive Pulse AI",
     "location": "San Francisco, CA (Remote)",
@@ -81,23 +64,6 @@
     "description": "High-throughput data streaming and low-latency execution engines using Python 3.12, Redis, and C++ bindings.",
     "matched_skills": null,
     "match_score": 84,
-    "status": "Open",
-    "is_24h": 1
-  },
-  {
-    "title": "Principal Java 21 / AWS Microservices Lead (Java Cloud Architect)",
-    "company": "Goldman Sachs Prime",
-    "location": "Dallas, TX (Hybrid)",
-    "job_type": "Contract (C2C)",
-    "salary": "$100 - $115/hr",
-    "source": "LinkedIn (Scraped)",
-    "url": "https://linkedin.com/jobs/view/gs-java-lead",
-    "recruiter_email": null,
-    "recruiter_phone": null,
-    "recruiter_name": null,
-    "description": "Real-time event driven transaction processing using Java 21, Kafka, and Spring Boot for Java Cloud Architect.",
-    "matched_skills": null,
-    "match_score": 97,
     "status": "Open",
     "is_24h": 1
   },

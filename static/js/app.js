@@ -2889,21 +2889,26 @@ function renderConsultantsTable() {
                 `}
             </td>
             <td style="padding: 14px 18px;">
-                ${gmailConnected ? `
-                    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; color: #059669;">
-                        <span style="width: 7px; height: 7px; border-radius: 50%; background: #059669;"></span> Connected
-                    </span>
-                ` : `
-                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                        <button class="btn btn-xs btn-open-app-pass" data-id="${c.id}" data-name="${escapeHtml(c.name)}" data-email="${escapeHtml(c.email || '')}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; cursor:pointer;">
-                            🔑 App Password
-                        </button>
-                        ${window.HAS_GOOGLE_OAUTH ? `
-                        <a href="/api/consultants/${c.id}/connect-gmail" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; text-decoration: none;">
-                            OAuth
-                        </a>` : ''}
-                    </div>
-                `}
+                <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-start;">
+                    ${gmailConnected ? `
+                        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; color: #059669;">
+                            <span style="width: 7px; height: 7px; border-radius: 50%; background: #059669;"></span> Connected
+                        </span>
+                    ` : `
+                        <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                            <button class="btn btn-xs btn-open-app-pass" data-id="${c.id}" data-name="${escapeHtml(c.name)}" data-email="${escapeHtml(c.email || '')}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; cursor:pointer;">
+                                🔑 App Password
+                            </button>
+                            ${window.HAS_GOOGLE_OAUTH ? `
+                            <a href="/api/consultants/${c.id}/connect-gmail" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; text-decoration: none;">
+                                OAuth
+                            </a>` : ''}
+                        </div>
+                    `}
+                    <button class="btn btn-xs btn-paste-draft-for-candidate" data-id="${c.id}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; cursor:pointer; white-space: nowrap;" title="Paste a job requirement and create a Gmail draft applying ${escapeHtml(c.name)} for it">
+                        📋 Paste Req &amp; Draft
+                    </button>
+                </div>
             </td>
             <td style="padding: 14px 18px; text-align: right;">
                 <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
@@ -2952,6 +2957,17 @@ function renderConsultantsTable() {
             const candId = parseInt(btn.getAttribute('data-id'));
             const name = btn.getAttribute('data-name');
             openUploadResumeModal(candId, name);
+        });
+    });
+
+    // Per-consultant "Paste Req & Draft": opens the SAME paste-requirement modal the header
+    // button uses, pre-selected to this row's consultant - no need to also find them in the
+    // dropdown. Works whether or not Gmail shows Connected yet; submitting still requires it,
+    // same as every other draft path, and reports a clear error if it isn't connected.
+    tbody.querySelectorAll('.btn-paste-draft-for-candidate').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const candId = parseInt(btn.getAttribute('data-id'));
+            openPasteDraftModal(candId);
         });
     });
 

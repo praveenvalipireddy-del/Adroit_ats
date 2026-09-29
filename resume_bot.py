@@ -6,6 +6,7 @@ import difflib
 import json
 import time
 import logging
+import requests
 import docx
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -20,6 +21,15 @@ logger = logging.getLogger("resume_bot")
 # needed). Kept on the "-latest" alias so it keeps pointing at a free-tier-eligible Flash
 # model as Google updates what that alias means, rather than pinning a dated version here.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+
+# Optional PAID backup for when Gemini's whole free-tier chain fails (see _generate). Never the
+# default: Gemini answers every ordinary request, so a normal day costs nothing extra.
+XAI_API_URL = "https://api.x.ai/v1/chat/completions"
+XAI_MODEL = os.getenv("XAI_MODEL", "grok-4.3")
+
+
+def xai_configured() -> bool:
+    return bool((config.XAI_API_KEY or "").strip())
 
 # Master domains catalog
 DOMAINS = {
@@ -542,11 +552,40 @@ def _finish_rewrite(result, plan, raw, truncated, resume_text, docx_bytes):
     return result
 
 
+def _generate_grok(system: str, prompt: str, want_json: bool, max_tokens: int):
+    """One call to xAI's Grok, via its OpenAI-compatible /v1/chat/completions endpoint (that
+    endpoint is marked legacy by xAI but is documented as currently supported; it maps onto this
+    app's (text, truncated, model) shape far more directly than their newer Responses API).
+    Raises on failure. Called ONLY from _generate below, as the last resort after Gemini's whole
+    free-tier chain has failed - never on an ordinary request."""
+    payload = {
+        "model": XAI_MODEL,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    if want_json:
+        payload["response_format"] = {"type": "json_object"}
+    resp = requests.post(
+        XAI_API_URL,
+        headers={"Authorization": f"Bearer {config.XAI_API_KEY.strip()}", "Content-Type": "application/json"},
+        json=payload, timeout=80,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"xAI Grok call failed: HTTP {resp.status_code}: {resp.text[:200]}")
+    data = resp.json()
+    choice = (data.get("choices") or [{}])[0]
+    text = (choice.get("message") or {}).get("content") or ""
+    truncated = choice.get("finish_reason") == "length"
+    return text.strip(), truncated, f"{XAI_MODEL} (backup)"
+
+
 def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int):
     """One Gemini request, made resilient: a 503 (overloaded) is retried once on the same model,
     then - like a 429 (quota) or 404 (model not on this key) - the next model in the chain is tried.
     A bad API key or a blocked prompt fails the same on every model, so it raises straight away.
-    Returns (text, truncated, model_used); raises the FIRST error if every model failed."""
+    Returns (text, truncated, model_used); raises the FIRST error if every model failed - unless an
+    xAI (Grok) key is configured, in which case that is tried once as a paid backup first."""
     kwargs = {"response_mime_type": "application/json"} if want_json else {}
     gen_config = types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens, temperature=0.3, **kwargs)
     chain = _model_chain()
@@ -574,6 +613,14 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
                 break                                   # give up on this model, try the next one
         if time.monotonic() - started > 75:
             break                                       # don't let one step run past the server's time limit
+    # Gemini's whole free-tier chain failed. Try the optional paid backup, if configured, before
+    # giving up - this is the ONLY place Grok is ever called, so a day where Gemini works fine
+    # never spends anything on it.
+    if xai_configured():
+        try:
+            return _generate_grok(system, prompt, want_json, max_tokens)
+        except Exception as grok_ex:
+            logger.warning(f"Grok backup also failed: {grok_ex}")
     raise first_error
 
 

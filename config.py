@@ -48,6 +48,11 @@ PDL_API_KEY = os.getenv("PDL_API_KEY", "")
 # Optional: when unset, the feature falls back to the deterministic keyword-matching rewrite.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+# Optional xAI (Grok) key, used ONLY as a backup for the Resume Optimizer when Gemini's whole
+# free-tier model chain fails (quota used up, overloaded, ...) - never the default provider, so a
+# normal day costs nothing extra. Get one at console.x.ai.
+XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+
 # --- Database ---
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()

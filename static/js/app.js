@@ -1208,9 +1208,11 @@ function initResumeBot() {
                 const aiBadge = byId('result-ai-badge');
                 if (aiBadge) {
                     let badge;
+                    // Never say "Gemini" here specifically - ai_model already names whichever provider actually
+                    // answered (Gemini normally, or the Grok backup on the rare day Gemini can't).
                     const modelTag = data.ai_model ? ` <span style="font-weight:400;">[${escapeHtml(data.ai_model)}]</span>` : '';
-                    if (data.ai_powered && data.optimized) badge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">✨ AI analysis + rewrite (Gemini, your master prompt)${modelTag}</span>`;
-                    else if (data.ai_powered) badge = `<span class="badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">✨ AI analysis (Gemini) - resume left unchanged${modelTag}</span>`;
+                    if (data.ai_powered && data.optimized) badge = `<span class="badge" style="background:#ecfdf5; color:#059669; border:1px solid #a7f3d0;">✨ AI analysis + rewrite (your master prompt)${modelTag}</span>`;
+                    else if (data.ai_powered) badge = `<span class="badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">✨ AI analysis - resume left unchanged${modelTag}</span>`;
                     else badge = `<span class="badge" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;">⚙️ Keyword scan only (no AI)</span>`
                         + (data.ai_unavailable_reason ? `<div style="font-size:0.78rem; color:#b45309; margin-top:4px;">AI skipped: ${escapeHtml(data.ai_unavailable_reason)}</div>` : '');
                     aiBadge.innerHTML = badge;

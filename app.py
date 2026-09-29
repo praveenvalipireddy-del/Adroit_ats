@@ -186,7 +186,8 @@ def dashboard():
             has_pdl=linkedin_sourcing.pdl_configured(),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
-            has_grok=resume_bot.xai_configured()
+            has_grok=resume_bot.xai_configured(),
+            has_openrouter=resume_bot.openrouter_configured()
         )
     except Exception as e:
         logger.warning(f"Using embedded template fallback: {e}")
@@ -202,7 +203,8 @@ def dashboard():
             has_pdl=linkedin_sourcing.pdl_configured(),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
-            has_grok=resume_bot.xai_configured()
+            has_grok=resume_bot.xai_configured(),
+            has_openrouter=resume_bot.openrouter_configured()
         )
 
 # --- Stats & Activity API ---

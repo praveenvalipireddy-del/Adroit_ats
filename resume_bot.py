@@ -22,10 +22,17 @@ logger = logging.getLogger("resume_bot")
 # model as Google updates what that alias means, rather than pinning a dated version here.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
-# Optional PAID backup for when Gemini's whole free-tier chain fails (see _generate). Never the
-# default: Gemini answers every ordinary request, so a normal day costs nothing extra.
+# Optional backups for when Gemini's whole free-tier chain fails (see _generate). Never the
+# default: Gemini answers every ordinary request, so a normal day costs nothing extra. The FREE
+# one (OpenRouter) is tried first, the paid one (xAI) only if that also fails or isn't configured.
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
 XAI_API_URL = "https://api.x.ai/v1/chat/completions"
 XAI_MODEL = os.getenv("XAI_MODEL", "grok-4.3")
+
+
+def openrouter_configured() -> bool:
+    return bool((config.OPENROUTER_API_KEY or "").strip())
 
 
 def xai_configured() -> bool:
@@ -552,6 +559,55 @@ def _finish_rewrite(result, plan, raw, truncated, resume_text, docx_bytes):
     return result
 
 
+def _openrouter_or_xai_generate(system: str, prompt: str, want_json: bool, max_tokens: int):
+    """Tries the free OpenRouter backup first, then the paid xAI one, in that order (never both -
+    the first one that answers wins). Raises the LAST error if every configured backup failed, or
+    if neither is configured (nothing to try)."""
+    last_error = None
+    if openrouter_configured():
+        try:
+            return _generate_openrouter(system, prompt, want_json, max_tokens)
+        except Exception as ex:
+            last_error = ex
+            logger.warning(f"OpenRouter backup failed: {ex}")
+    if xai_configured():
+        try:
+            return _generate_grok(system, prompt, want_json, max_tokens)
+        except Exception as ex:
+            last_error = ex
+            logger.warning(f"Grok backup also failed: {ex}")
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("no backup provider is configured")
+
+
+def _generate_openrouter(system: str, prompt: str, want_json: bool, max_tokens: int):
+    """One call to OpenRouter's free tier (an OpenAI-compatible router in front of many models;
+    OPENROUTER_MODEL, default a ':free' Llama variant, picks which one). Free models are capped at
+    50 requests/day (1000/day once $10 has ever been added) and 20/minute - a backup, only used
+    when Gemini has already failed, should rarely get near either. Raises on failure."""
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    if want_json:
+        payload["response_format"] = {"type": "json_object"}
+    resp = requests.post(
+        OPENROUTER_API_URL,
+        headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY.strip()}", "Content-Type": "application/json"},
+        json=payload, timeout=80,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"OpenRouter call failed: HTTP {resp.status_code}: {resp.text[:200]}")
+    data = resp.json()
+    choice = (data.get("choices") or [{}])[0]
+    text = (choice.get("message") or {}).get("content") or ""
+    truncated = choice.get("finish_reason") in ("length", "content_filter")
+    return text.strip(), truncated, f"{OPENROUTER_MODEL} (free backup)"
+
+
 def _generate_grok(system: str, prompt: str, want_json: bool, max_tokens: int):
     """One call to xAI's Grok, via its OpenAI-compatible /v1/chat/completions endpoint (that
     endpoint is marked legacy by xAI but is documented as currently supported; it maps onto this
@@ -613,14 +669,14 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
                 break                                   # give up on this model, try the next one
         if time.monotonic() - started > 75:
             break                                       # don't let one step run past the server's time limit
-    # Gemini's whole free-tier chain failed. Try the optional paid backup, if configured, before
-    # giving up - this is the ONLY place Grok is ever called, so a day where Gemini works fine
-    # never spends anything on it.
-    if xai_configured():
+    # Gemini's whole free-tier chain failed. Try the optional backups, if configured, before
+    # giving up - this is the ONLY place either is ever called, so a day where Gemini works fine
+    # never touches them.
+    if openrouter_configured() or xai_configured():
         try:
-            return _generate_grok(system, prompt, want_json, max_tokens)
-        except Exception as grok_ex:
-            logger.warning(f"Grok backup also failed: {grok_ex}")
+            return _openrouter_or_xai_generate(system, prompt, want_json, max_tokens)
+        except Exception as backup_ex:
+            logger.warning(f"Every backup also failed: {backup_ex}")
     raise first_error
 
 

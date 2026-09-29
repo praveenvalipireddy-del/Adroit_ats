@@ -649,8 +649,8 @@
                             <p style="font-size:0.8rem; color:{{ '#059669' if has_gemini else '#b45309' }}; margin-top:4px;">
                                 {% if has_gemini %}
                                 ✨ Runs your Master Resume Prompt (MASTER_RESUME_PROMPT.md) on Google Gemini's free tier in two steps: (1) weighted match analysis, decision band and the skills that are safe to add, then (2) the complete updated resume, written back into your original Word file so its format is kept. Each resume uses two of the free daily requests.
-                                {% if has_grok %} If Gemini can't answer (quota used up, overloaded), it automatically falls back to xAI's Grok (a small paid cost per resume) instead of giving up - each result names whichever one actually answered.{% endif %}
-                                If neither can answer, you get the keyword analysis only and the resume is left unchanged (each result says which happened). Note: on Google's free tier, prompts may be used by Google to improve its products - test with sample resumes, not real candidates' data.
+                                {% if has_openrouter or has_grok %} If Gemini can't answer (quota used up, overloaded), it automatically falls back{% if has_openrouter %} to a free backup model on OpenRouter{% endif %}{% if has_openrouter and has_grok %}, then{% endif %}{% if has_grok %} to xAI's Grok (a small paid cost per resume){% endif %} instead of giving up - each result names whichever one actually answered.{% endif %}
+                                If none of them can answer, you get the keyword analysis only and the resume is left unchanged (each result says which happened). Note: on Google's free tier, prompts may be used by Google to improve its products - test with sample resumes, not real candidates' data.
                                 {% else %}
                                 ⚠️ No GEMINI_API_KEY configured yet - only a basic keyword scan is available and the resume is never rewritten. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#b45309;">aistudio.google.com/apikey</a> and add it as GEMINI_API_KEY.
                                 {% endif %}
@@ -1124,7 +1124,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.29.0"></script>
+    <script src="/static/js/app.js?v=5.30.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

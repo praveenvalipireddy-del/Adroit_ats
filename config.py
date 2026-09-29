@@ -50,8 +50,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # Optional xAI (Grok) key, used ONLY as a backup for the Resume Optimizer when Gemini's whole
 # free-tier model chain fails (quota used up, overloaded, ...) - never the default provider, so a
-# normal day costs nothing extra. Get one at console.x.ai.
+# normal day costs nothing extra. Get one at console.x.ai (no free tier - paid credit required).
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+
+# Optional OpenRouter key - a FREE backup tried before the paid xAI one (see the priority in
+# resume_bot._generate). OpenRouter's free-tier (":free" models) allows 50 requests/day (1000/day
+# once $10 has ever been added), so a backup rarely gets close to it. Get one free at
+# openrouter.ai/keys - no card needed. Must be named exactly OPENROUTER_API_KEY (not GROQ_API_KEY -
+# Groq and OpenRouter are two different companies too).
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # --- Database ---
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))

@@ -183,7 +183,6 @@ def dashboard():
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN),
-            has_pdl=linkedin_sourcing.pdl_configured(),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
             has_grok=resume_bot.xai_configured(),
@@ -200,7 +199,6 @@ def dashboard():
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN),
-            has_pdl=linkedin_sourcing.pdl_configured(),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
             has_grok=resume_bot.xai_configured(),
@@ -1351,8 +1349,8 @@ def api_students_sourced_pool():
     if not current_user():
         return jsonify({"error": "Login required"}), 401
     source = (request.args.get("source") or "").strip()
-    if source not in ("pdl", "apify"):
-        return jsonify({"error": "source must be 'pdl' or 'apify'"}), 400
+    if source != "apify":
+        return jsonify({"error": "source must be 'apify'"}), 400
     bachelor_year = _parse_bachelor_year({"bachelor_year": request.args.get("bachelor_year")})
     matches = sourcing_store.get_cached_matches(source, bachelor_year)
     cursor = sourcing_store.get_cursor(source, bachelor_year)
@@ -1440,46 +1438,6 @@ def api_students_search_poll():
     # year (their year's search will then show them for free). Not sent to the browser for this year.
     other = result.pop("other_year_matches", None) or []
     result["banked_other_years"] = sourcing_store.save_matches("apify", None, other, user["id"]) if other else 0
-    return jsonify(result)
-
-
-@app.route("/api/students/pdl-search", methods=["POST", "OPTIONS"])
-def api_students_pdl_search():
-    """Search People Data Labs (free tier: 100 records/month; each RETURNED record
-    costs 1 credit). Synchronous - one quick call returns already-verified
-    India-Bachelor's + US-Master's matches. Login is enforced by the
-    /api/students/ before_request guard.
-
-    The scroll cursor is the TEAM'S shared one (sourcing_store), not the caller's
-    browser: once one recruiter has paged through some records for a year, the
-    next recruiter's search continues from there instead of re-paying to fetch
-    the same records again. If the team already exhausted this search, no PDL
-    call is made at all."""
-    if request.method == "OPTIONS":
-        return make_response("", 200)
-    user = current_user()
-    if not user:
-        return jsonify({"error": "Login required"}), 401
-    data = request.get_json(silent=True) or {}
-    bachelor_year = _parse_bachelor_year(data)
-    cursor = sourcing_store.get_cursor("pdl", bachelor_year)
-    if cursor["exhausted"]:
-        return jsonify({"matches": [], "records_used": 0, "scanned": 0, "skipped": {}, "skipped_examples": [],
-                        "total_matching": None, "next_scroll_token": None, "exhausted": True,
-                        "mode": cursor["mode"] or "strict", "mode_label": "already fully searched by your team", "tried": []})
-    result = linkedin_sourcing.pdl_search(
-        bachelor_year,
-        size=data.get("size") or 25,
-        scroll_token=cursor["scroll_token"],
-        mode=cursor["mode"],
-    )
-    if result.get("error"):
-        return jsonify({"error": result["error"], "tried": result.get("tried") or []}), result.get("code", 500)
-    # Every recruiter's find goes straight into the shared pool, and the cursor moves
-    # forward for the whole team - the next search (by anyone) picks up from here.
-    sourcing_store.save_matches("pdl", bachelor_year, result.get("matches") or [], user["id"])
-    sourcing_store.save_cursor("pdl", bachelor_year, scroll_token=result.get("next_scroll_token"),
-                                mode=result.get("mode"), exhausted=bool(result.get("exhausted")))
     return jsonify(result)
 
 

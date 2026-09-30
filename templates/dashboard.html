@@ -338,7 +338,7 @@
                     <div class="filter-panel" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; margin-bottom: 24px; box-shadow: var(--shadow-card);">
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
                             <span style="font-size:11px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; padding:3px 9px; border-radius:6px;">Live LinkedIn search</span>
-                            <span style="font-size:0.8rem; color:#64748b;">Pick a data source. <b>People Data Labs</b> (free tier) searches its database on the education fields themselves, so nearly every record it returns is already a candidate; it uses 1 of your 100 free monthly records per person returned. <b>Apify</b> scans LinkedIn profiles one page at a time - about $0.20 per 25 profiles and roughly 2 minutes per page. In our live tests about 1 in 10 profiles matched the year you pick and about 1 in 3 was verified for <i>some</i> year: the other years' people are saved to your team pool and show up when you choose their year. Apify's LinkedIn scraper only serves a free Apify account for its first 10 runs, so regular use needs a paid Apify plan. Either way, every result is re-checked against the profile's education before it is shown, and clicking again continues with new people (matches found today are kept).</span>
+                            <span style="font-size:0.8rem; color:#64748b;"><b>Apify</b> scans LinkedIn profiles one page at a time - about $0.20 per 25 profiles and roughly 2 minutes per page. In our live tests about 1 in 10 profiles matched the year you pick and about 1 in 3 was verified for <i>some</i> year: the other years' people are saved to your team pool and show up when you choose their year. Every result is re-checked against the profile's education before it is shown, and clicking again continues with new people (matches found today are kept).</span>
                         </div>
                         <form id="form-student-search" onsubmit="return false;">
                             <!-- Data source: which automated provider to use -->
@@ -348,14 +348,13 @@
                                         🗂️ Data source
                                     </label>
                                     <select id="filter-student-source" class="form-control" style="height:42px; min-width:380px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
-                                        {% if has_pdl %}<option value="pdl">People Data Labs (free tier: 100 records/month)</option>{% endif %}
                                         {% if has_apify %}<option value="apify">Apify LinkedIn (paid: about $0.20 per 25 profiles)</option>{% endif %}
-                                        {% if not has_pdl and not has_apify %}<option value="">No automated source set up yet</option>{% endif %}
+                                        {% if not has_apify %}<option value="">No automated source set up yet</option>{% endif %}
                                     </select>
                                 </div>
-                                {% if not has_pdl and not has_apify %}
+                                {% if not has_apify %}
                                 <div style="font-size:0.8rem; color:#b45309; max-width:520px; line-height:1.4;">
-                                    Automated search needs a data source. The free option: create a free account at peopledatalabs.com, copy the API key and add it as <b>PDL_API_KEY</b> in the server's Environment settings.
+                                    Automated search needs the Apify key: add it as <b>APIFY_API_TOKEN</b> in the server's Environment settings.
                                 </div>
                                 {% endif %}
                             </div>
@@ -381,9 +380,9 @@
                                     </div>
                                 </div>
 
-                                <!-- 2. Search size: what each click costs. Which control shows depends on the data source. -->
+                                <!-- 2. Search size: what each click costs. -->
                                 <div>
-                                    <div id="wrap-depth-apify" style="display:none;">
+                                    <div id="wrap-depth-apify">
                                         <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
                                             🔎 Search depth
                                         </label>
@@ -391,17 +390,6 @@
                                             <option value="3">Quick: 75 profiles (about $0.60)</option>
                                             <option value="6" selected>Standard: 150 profiles (about $1.20)</option>
                                             <option value="12">Deep: 300 profiles (about $2.40)</option>
-                                        </select>
-                                    </div>
-                                    <div id="wrap-depth-pdl">
-                                        <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                            🔎 Records to fetch
-                                        </label>
-                                        <select id="filter-student-pdl-size" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
-                                            <option value="5">5 records (test: 5 free credits)</option>
-                                            <option value="10" selected>10 records (10 free credits)</option>
-                                            <option value="25">25 records (25 free credits)</option>
-                                            <option value="50">50 records (half the monthly free credits)</option>
                                         </select>
                                     </div>
                                 </div>
@@ -1127,7 +1115,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.33.0"></script>
+    <script src="/static/js/app.js?v=5.34.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

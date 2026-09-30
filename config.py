@@ -41,9 +41,6 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 # --- Apify (job scraping) ---
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 
-# --- People Data Labs (structured people search; free tier = 100 records/month) ---
-PDL_API_KEY = os.getenv("PDL_API_KEY", "")
-
 # Free-tier Gemini key for the Resume Optimizer's real AI rewrite (aistudio.google.com/apikey).
 # Optional: when unset, the feature falls back to the deterministic keyword-matching rewrite.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

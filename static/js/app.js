@@ -1691,19 +1691,10 @@ function summarizeStudentSkips(skipped) {
 }
 
 // Verified LinkedIn matches are stored server-side in a shared pool (sourcing_store.py)
-// so every recruiter on the team sees each other's finds and nobody re-pays PDL/Apify to
+// so every recruiter on the team sees each other's finds and nobody re-pays Apify to
 // re-discover the same person. The Sourcing tab reads that pool for free on open; only
 // "Search LinkedIn" spends credits, and even then continues from wherever the TEAM's last
-// search left off (see /api/students/sourced-pool, search-start, pdl-search on the server).
-
-// Show the size control that belongs to the selected data source.
-function syncStudentSourceUi() {
-    const source = document.getElementById('filter-student-source')?.value || '';
-    const apifyWrap = document.getElementById('wrap-depth-apify');
-    const pdlWrap = document.getElementById('wrap-depth-pdl');
-    if (apifyWrap) apifyWrap.style.display = source === 'apify' ? 'block' : 'none';
-    if (pdlWrap) pdlWrap.style.display = source === 'apify' ? 'none' : 'block';
-}
+// search left off (see /api/students/sourced-pool and search-start on the server).
 
 function setPresetFilter(keyword, bachelorYear) {
     const byInput = document.getElementById('filter-student-bachelor-year');
@@ -1734,9 +1725,8 @@ async function loadStudents(runLive = false) {
     }
 
     // 2) Instant and free: everything the WHOLE TEAM has already found for this source
-    // + year, read straight from the shared database - no PDL/Apify call involved.
+    // + year, read straight from the shared database - no Apify call involved.
     let found = [];
-    let poolExhausted = false;
     let poolCounts = {};
     if (source) {
         try {
@@ -1744,7 +1734,6 @@ async function loadStudents(runLive = false) {
             if (poolRes.status === 401) { window.location.href = '/login'; return; }
             const poolData = await poolRes.json().catch(() => ({}));
             found = poolData.matches || [];
-            poolExhausted = !!poolData.exhausted;
             poolCounts = poolData.pool_counts || {};
         } catch (err) {
             console.error('Error loading shared sourcing pool:', err);
@@ -1765,7 +1754,7 @@ async function loadStudents(runLive = false) {
             : '';
         setStudentsSearchStatus((found.length > 0
             ? `Showing <b>${found.length}</b> verified match(es) your team has already found for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to fetch more (it uses your chosen data source's credits; pick the size first).`
-            : `Pick a data source and size, then click <b>Search LinkedIn</b>. People Data Labs uses 1 free monthly record per person returned; Apify costs about $0.20 per 25 profiles scanned.`) + poolLine);
+            : `Pick a search depth, then click <b>Search LinkedIn</b>. Apify costs about $0.20 per 25 profiles scanned.`) + poolLine);
         return;
     }
 
@@ -1797,57 +1786,8 @@ async function loadStudents(runLive = false) {
     let cost = null;
     try {
         if (!source) {
-            studentsEmptyMessage = 'No automated data source is set up yet. Add PDL_API_KEY (free at peopledatalabs.com) in the server settings, or use the Google X-Ray / LinkedIn Search buttons above.';
+            studentsEmptyMessage = 'No automated data source is set up yet. Add APIFY_API_TOKEN in the server settings, or use the Google X-Ray / LinkedIn Search buttons above.';
             setStudentsSearchStatus(`<span style="color:#b45309;">${escapeHtml(studentsEmptyMessage)}</span>`);
-            renderStudentsGrid(state.students);
-            return;
-        }
-
-        // ---- People Data Labs: one quick call, results already filtered on education ----
-        if (source === 'pdl') {
-            const size = parseInt(document.getElementById('filter-student-pdl-size')?.value || '25', 10) || 25;
-            const stepsHtml = (tried) => (tried || []).length
-                ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Search steps tried</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${tried.map(t => `${escapeHtml(t.label)}: ${escapeHtml(t.result)}`).join('<br>')}</div></details>`
-                : '';
-            // The server (not this browser) tracks whether the TEAM has already exhausted
-            // this search, so a teammate finishing it on another machine is honored here too.
-            if (poolExhausted) {
-                setStudentsSearchStatus(`Your team has already fetched every People Data Labs record for ${escapeHtml(by)} (${found.length} verified match(es) shown). Try another year, or switch the data source.`);
-                renderStudentsGrid(state.students);
-                return;
-            }
-            setStudentsSearchStatus('Searching People Data Labs...');
-            if (state.students.length === 0) showSearching(0, 0);
-            const res = await fetch('/api/students/pdl-search', {
-                method: 'POST',
-                headers: jsonHeaders,
-                body: JSON.stringify({ bachelor_year: by, size: size })
-            });
-            if (res.status === 401) { window.location.href = '/login'; return; }
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                studentsEmptyMessage = data.error || 'The People Data Labs search failed.';
-                setStudentsSearchStatus(`<span style="color:#b91c1c;">${escapeHtml(studentsEmptyMessage)}</span>${stepsHtml(data.tried)}`);
-                renderStudentsGrid(state.students);
-                return;
-            }
-            const knownUrls = new Set(found.map(c => c.profile_url));
-            const fresh = (data.matches || []).filter(c => !knownUrls.has(c.profile_url));
-            fresh.forEach(c => found.push(c));
-            state.students = imported.concat(found);
-            const skipText = summarizeStudentSkips(data.skipped || {});
-            const totalText = data.total_matching ? ` People Data Labs reports about ${Number(data.total_matching).toLocaleString()} people matching the search overall.` : '';
-            const modeText = (data.records_used || 0) > 0 && data.mode && data.mode !== 'strict' ?` (relaxed search: ${escapeHtml(data.mode_label || data.mode)} - lower precision)` : '';
-            const examples = data.skipped_examples || [];
-            const detailsHtml = examples.length
-                ? `<details style="margin-top:8px;"><summary style="cursor:pointer; color:#334155; font-weight:600;">Why were some records skipped? (education entries only, no names)</summary><div style="margin-top:6px; font-size:0.78rem; color:#475569;">${examples.map((ex, i) => `<div style="margin-bottom:6px;"><b>Record ${i + 1}: ${escapeHtml(STUDENT_SKIP_LABELS[ex.reason] || ex.reason)}</b><br>${(ex.education || []).map(l => escapeHtml(l)).join('<br>')}</div>`).join('')}</div></details>`
-                : '';
-            setStudentsSearchStatus(`Fetched <b>${data.records_used || 0}</b> record(s) (${data.records_used || 0} free-tier credit(s) used)${modeText}, <b>${fresh.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} across your team). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${totalText} ${data.exhausted ? 'No more records for this search.' : 'Click Search LinkedIn again for the next batch.'}${detailsHtml}${stepsHtml(data.tried)}`);
-            if (found.length === 0) {
-                studentsEmptyMessage = (data.records_used || 0) === 0
-                    ? `People Data Labs has no records for Bachelor's ${by} at an Indian college plus a US Master's, even with the loosest check (no credits were used). Try another year, or use the Google X-Ray / LinkedIn Search buttons above.`
-                    : `People Data Labs returned ${data.records_used || 0} record(s) but none passed the strict check for Bachelor's ${by} in India plus a US Master's. ${data.exhausted ? 'There are no more records for this search.' : 'Click again for the next batch.'}`;
-            }
             renderStudentsGrid(state.students);
             return;
         }
@@ -2507,11 +2447,6 @@ function initStudentsTab() {
     if (byInput) {
         byInput.addEventListener('change', () => loadStudents(false));
     }
-    const sourceSelect = document.getElementById('filter-student-source');
-    if (sourceSelect) {
-        sourceSelect.addEventListener('change', syncStudentSourceUi);
-    }
-    syncStudentSourceUi();
     if (btnExport) {
         btnExport.addEventListener('click', () => exportStudentsCSV());
     }

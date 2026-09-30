@@ -1,6 +1,6 @@
 """Shared, team-wide storage for Sourcing results.
 
-Why this exists: PDL and Apify both charge per record. Without this, every one
+Why this exists: Apify charges per record. Without this, every one
 of the (up to ~30) recruiters who opens Sourcing and clicks Search pays to
 re-scan the same LinkedIn population from page 1. This module makes the FIRST
 search for a given (source, search_year) pay for a scan, and every recruiter
@@ -9,8 +9,8 @@ It also keeps the pagination cursor server-side (per source+year, not per
 browser) so the next search continues where the LAST recruiter's left off
 instead of re-scanning already-seen pages.
 
-Nothing here changes WHAT counts as a match - evaluate_profile /
-evaluate_pdl_person in linkedin_sourcing.py still make that call; this only
+Nothing here changes WHAT counts as a match - evaluate_profile in
+linkedin_sourcing.py still makes that call; this only
 avoids paying twice for the same answer.
 """
 import logging
@@ -20,13 +20,22 @@ from models import get_db_connection, is_postgres
 
 logger = logging.getLogger("sourcing_store")
 
-# Columns copied verbatim from a candidate dict (same shape for both PDL and
-# Apify matches - see evaluate_pdl_person / evaluate_profile).
+# Columns copied verbatim from a candidate dict (see evaluate_profile).
 _CANDIDATE_COLS = [
     "profile_url", "name", "headline", "bachelor_year", "bachelor_degree", "bachelor_college",
     "master_degree", "master_university", "master_year", "location",
     "status_tag", "settlement_badge", "settlement_sub", "quality", "degree",
 ]
+
+
+# People Data Labs was removed as a data source (2026-10-01), but the verified people it found are
+# real and were already paid for, so they stay in the pool: reading the "apify" pool also returns
+# rows saved under the old "pdl" source (deduplicated on profile URL).
+POOL_SOURCES = {"apify": ("apify", "pdl")}
+
+
+def _sources(source: str):
+    return POOL_SOURCES.get(source, (source,))
 
 
 def _year_key(year) -> str:
@@ -43,14 +52,20 @@ def get_cached_matches(source: str, search_year) -> List[Dict]:
     try:
         cur = conn.cursor()
         year_key = _year_key(search_year)
+        srcs = _sources(source)
+        in_clause = ", ".join(["?"] * len(srcs))
         if year_key:
-            cur.execute("SELECT * FROM sourced_candidates WHERE source = ? AND bachelor_year = ? ORDER BY id ASC",
-                        (source, year_key))
+            cur.execute(f"SELECT * FROM sourced_candidates WHERE source IN ({in_clause}) AND bachelor_year = ? ORDER BY id ASC",
+                        (*srcs, year_key))
         else:
-            cur.execute("SELECT * FROM sourced_candidates WHERE source = ? ORDER BY id ASC", (source,))
+            cur.execute(f"SELECT * FROM sourced_candidates WHERE source IN ({in_clause}) ORDER BY id ASC", srcs)
         rows = cur.fetchall()
         out = []
+        seen_urls = set()
         for row in rows:
+            if row["profile_url"] in seen_urls:
+                continue
+            seen_urls.add(row["profile_url"])
             cand = {col: row[col] for col in _CANDIDATE_COLS}
             cand["linkedin_url"] = cand["profile_url"]
             cand["grad_year"] = cand["bachelor_year"]
@@ -113,8 +128,10 @@ def pool_counts(source: str) -> Dict[str, int]:
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT bachelor_year, COUNT(*) AS n FROM sourced_candidates WHERE source = ? "
-                    "AND bachelor_year IS NOT NULL AND bachelor_year <> '' GROUP BY bachelor_year ORDER BY bachelor_year", (source,))
+        srcs = _sources(source)
+        in_clause = ", ".join(["?"] * len(srcs))
+        cur.execute(f"SELECT bachelor_year, COUNT(DISTINCT profile_url) AS n FROM sourced_candidates WHERE source IN ({in_clause}) "
+                    "AND bachelor_year IS NOT NULL AND bachelor_year <> '' GROUP BY bachelor_year ORDER BY bachelor_year", srcs)
         return {str(r["bachelor_year"]): int(r["n"]) for r in cur.fetchall()}
     except Exception as ex:
         logger.error(f"pool_counts failed: {ex}")

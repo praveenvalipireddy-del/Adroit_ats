@@ -302,7 +302,96 @@ def init_db():
     );
     """)
 
+    # 9. Education-based Sourcing (Filter A: Indian college -> US Master's; Filter B: US university
+    # -> Indian undergrad). One row per LinkedIn profile (deduplicated on linkedin_url), its
+    # education entries, the institution alias table used to infer each school's country, the admin
+    # list of schools that couldn't be matched, and an audit log of captures/exports.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS linkedin_profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        linkedin_url TEXT UNIQUE NOT NULL,
+        name TEXT,
+        headline TEXT,
+        location TEXT,
+        current_company TEXT,
+        current_title TEXT,
+        experience_json TEXT,
+        source TEXT NOT NULL,
+        captured_by INTEGER,
+        captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS profile_education (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL,
+        institution_name TEXT,
+        institution_canonical_id TEXT,
+        degree TEXT,
+        degree_level TEXT,
+        field_of_study TEXT,
+        country TEXT,
+        start_year INTEGER,
+        end_year INTEGER,
+        match_method TEXT
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS institution_aliases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        canonical_id TEXT NOT NULL,
+        canonical_name TEXT NOT NULL,
+        alias TEXT NOT NULL,
+        alias_norm TEXT UNIQUE NOT NULL,
+        country TEXT NOT NULL,
+        city TEXT
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS unmapped_institutions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        name_norm TEXT UNIQUE NOT NULL,
+        status TEXT,
+        suggested_canonical_id TEXT,
+        suggested_score INTEGER,
+        seen_count INTEGER DEFAULT 1,
+        first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS capture_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        action TEXT NOT NULL,
+        source TEXT,
+        profile_id INTEGER,
+        details TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS app_meta (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meta_key TEXT UNIQUE NOT NULL,
+        meta_value TEXT
+    );
+    """)
+
     conn.commit()
+
+    for idx_sql in (
+        "CREATE INDEX IF NOT EXISTS ix_profile_education_profile ON profile_education (profile_id)",
+        "CREATE INDEX IF NOT EXISTS ix_profile_education_inst ON profile_education (institution_canonical_id, degree_level)",
+        "CREATE INDEX IF NOT EXISTS ix_institution_aliases_canonical ON institution_aliases (canonical_id)",
+    ):
+        try:
+            cursor.execute(idx_sql)
+            conn.commit()
+        except Exception as ex:
+            print("[WARN] education index:", ex)
 
     # sourced_candidates needs one profile per source at most - added after the CREATE (same
     # statement works on both SQLite and Postgres) so it applies to databases that already
@@ -330,7 +419,53 @@ def init_db():
     # Ensure fresh 24h US IT jobs exist (Localhost & Render)
     ensure_default_jobs(conn)
 
+    # Institution alias list for the education filters (only inserts rows new in this seed version).
+    try:
+        ensure_institution_aliases(conn)
+    except Exception as ex:
+        print("[WARN] institution alias seed:", ex)
+
     conn.close()
+
+
+def ensure_institution_aliases(conn):
+    """Insert institutions_seed.INSTITUTIONS into institution_aliases when the code's SEED_VERSION is
+    newer than the one this database last applied. Only aliases not already present are inserted,
+    so admin-added aliases are kept. Runs once per seed version - not on every restart - so an alias
+    an admin deleted is only re-added if a later seed version changes the list."""
+    import institutions_seed
+    import education_match
+
+    cursor = conn.cursor()
+    cursor.execute("SELECT meta_value FROM app_meta WHERE meta_key = ?", ("institution_seed_version",))
+    row = cursor.fetchone()
+    applied = int(row[0]) if row and str(row[0]).isdigit() else 0
+    if applied >= institutions_seed.SEED_VERSION:
+        return
+
+    cursor.execute("SELECT alias_norm FROM institution_aliases")
+    existing = {r[0] for r in cursor.fetchall()}
+    added = 0
+    for canonical_id, canonical_name, country, city, aliases in institutions_seed.INSTITUTIONS:
+        for alias in [canonical_name] + list(aliases):
+            norm = education_match.normalize(alias)
+            if not norm or norm in existing:
+                continue
+            cursor.execute("""INSERT INTO institution_aliases
+                              (canonical_id, canonical_name, alias, alias_norm, country, city)
+                              VALUES (?, ?, ?, ?, ?, ?)""",
+                           (canonical_id, canonical_name, alias, norm, country, city))
+            existing.add(norm)
+            added += 1
+    if row:
+        cursor.execute("UPDATE app_meta SET meta_value = ? WHERE meta_key = ?",
+                       (str(institutions_seed.SEED_VERSION), "institution_seed_version"))
+    else:
+        cursor.execute("INSERT INTO app_meta (meta_key, meta_value) VALUES (?, ?)",
+                       ("institution_seed_version", str(institutions_seed.SEED_VERSION)))
+    conn.commit()
+    education_match.invalidate_cache()
+    logger.info("Institution aliases: seed v%s applied, %d alias rows added.", institutions_seed.SEED_VERSION, added)
 
 def migrate_db(conn):
     """Automatically adds missing columns to existing SQLite or Postgres tables."""

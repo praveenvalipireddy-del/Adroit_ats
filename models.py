@@ -322,8 +322,10 @@ def init_db():
     if cursor.fetchone()[0] == 0:
         seed_initial_data(conn)
 
-    # Ensure all primary US Bench Consultants always exist (Localhost & Render)
-    ensure_default_consultants(conn)
+    # NOTE: there used to be an ensure_default_consultants(conn) call here that re-inserted a
+    # hardcoded list of consultants on EVERY startup (every Render deploy), so any consultant a
+    # recruiter deleted came straight back. The bench is recruiter-managed data - startup never
+    # recreates candidates.
 
     # Ensure fresh 24h US IT jobs exist (Localhost & Render)
     ensure_default_jobs(conn)
@@ -454,136 +456,6 @@ def migrate_db(conn):
 
     conn.commit()
 
-
-def ensure_default_consultants(conn):
-    """Guarantees that all primary US Bench Consultants exist in the database across all environments."""
-    cursor = conn.cursor()
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    resumes_dir = os.path.join(base_dir, "data", "resumes")
-    tokens_dir = os.path.join(base_dir, "data", "tokens")
-
-    consultants = [
-        {
-            "name": "Valipireddy Praveen",
-            "email": "praveen.valipireddy1998@gmail.com",
-            "phone": "+91 7075828135",
-            "title": "Principal AI Automation & Cloud Architect",
-            "primary_skills": "Python, AI Automations, n8n, Make.com, LangChain, Spring Boot, AWS, Docker",
-            "experience_years": 12,
-            "target_rate": "$90/hr (C2C)",
-            "visa_status": "US Citizen / C2C Eligible",
-            "status": "Available",
-            "location": "Dallas, TX (Hybrid/Remote)",
-            "resume_filename": "Praveen_Valipireddy_Resume.docx",
-            "resume_summary": "12+ years architecting enterprise scale fintech & healthcare cloud services with Spring Boot and AWS. LinkedIn: https://www.linkedin.com/in/valipireddy-praveen/",
-            "gmail_account": "praveen.ai7075@gmail.com",
-            "gmail_token_path": os.path.join(tokens_dir, "token_1.json"),
-            "gmail_app_password": None
-        },
-        {
-            "name": "Sai Teja",
-            "email": "saitejat111@gmail.com",
-            "phone": "+1 (469) 555-0192",
-            "title": "DevOps Engineer",
-            "primary_skills": "DevOps, AWS, Terraform, CI/CD, Kubernetes, Docker, Linux, Bash",
-            "experience_years": 8,
-            "target_rate": "$70/hr (C2C)",
-            "visa_status": "H1B / C2C Eligible",
-            "status": "Available",
-            "location": "Dallas, TX (Open to Relocate)",
-            "resume_filename": "Sai_Teja_Resume.pdf",
-            "resume_summary": "DevOps & Cloud Engineer | AWS, Terraform, CI/CD, Kubernetes. LinkedIn: https://www.linkedin.com/in/saiteja-devops/",
-            "gmail_account": "saitejat111@gmail.com",
-            "gmail_token_path": None,
-            "gmail_app_password": None
-        },
-        {
-            "name": "Karun",
-            "email": "karun.aiengineer@gmail.com",
-            "phone": "+1 (629) 203-4747",
-            "title": "Data Analyst",
-            "primary_skills": "Data Analyst, SQL, Python, PowerBI, Tableau, Excel, Azure AI, Business Intelligence",
-            "experience_years": 6,
-            "target_rate": "$60/hr (C2C)",
-            "visa_status": "OPT / STEM OPT (C2C)",
-            "status": "Available",
-            "location": "Dallas, TX (Hybrid/Remote)",
-            "resume_filename": "Resume_KarunKumar_CRG_JuniorBA.docx",
-            "resume_summary": "Data Analyst & BI Specialist | SQL, Python, PowerBI, Tableau. LinkedIn: https://www.linkedin.com/in/karun-data/",
-            "gmail_account": "karun.aiengineer@gmail.com",
-            "gmail_token_path": None,
-            "gmail_app_password": "rpxipiywgcctdlqz"
-        },
-        {
-            "name": "Thirupathi",
-            "email": "thirupathi.aiengineer@gmail.com",
-            "phone": "+1 (512) 674-8891",
-            "title": "AI Engineer & Snowflake Specialist",
-            "primary_skills": "AI Engineering, Snowflake, Python, LangChain, Azure AI, Vector DBs, SQL",
-            "experience_years": 14,
-            "target_rate": "$90/hr (C2C)",
-            "visa_status": "H1B (Transfer/C2C)",
-            "status": "Available",
-            "location": "Austin, TX (Hybrid/Remote)",
-            "resume_filename": "Thirupathi_AI_Engineer.docx",
-            "resume_summary": "14+ years in data platform engineering, Snowflake enterprise data warehouse, and generative AI agents. LinkedIn: https://www.linkedin.com/in/thirupathi-ai/",
-            "gmail_account": "thirupathi.aiengineer@gmail.com",
-            "gmail_token_path": None,
-            "gmail_app_password": None
-        },
-        {
-            "name": "Vikas Reddy",
-            "email": "vikas.reddy@talent.internal",
-            "phone": "+1 (214) 779-1022",
-            "title": "Cloud DevOps Engineer | AWS, Kubernetes, Terraform",
-            "primary_skills": "AWS, Kubernetes, Terraform, Docker, CI/CD, Helm, Python, Linux",
-            "experience_years": 7,
-            "target_rate": "$85/hr (C2C)",
-            "visa_status": "H1B / C2C Eligible",
-            "status": "Available",
-            "location": "Dallas, TX (Hybrid/Remote)",
-            "resume_filename": "Vikas_Reddy_DevOps.docx",
-            "resume_summary": "7+ years Cloud DevOps architecting multi-region EKS clusters, automated Terraform infrastructure, and GitOps pipelines.",
-            "gmail_account": "vikas.reddy@talent.internal",
-            "gmail_token_path": None,
-            "gmail_app_password": None
-        }
-    ]
-
-    for c in consultants:
-        cursor.execute("SELECT id, resume_path, gmail_app_password FROM candidates WHERE email = ? OR name = ?", (c["email"], c["name"]))
-        row = cursor.fetchone()
-        
-        full_res_path = os.path.join(resumes_dir, c["resume_filename"]) if c["resume_filename"] else None
-        res_exists = full_res_path and os.path.exists(full_res_path)
-        actual_res_path = full_res_path if res_exists else None
-
-        tok_path = c["gmail_token_path"]
-        actual_tok_path = tok_path if tok_path and os.path.exists(tok_path) else None
-
-        if not row:
-            cursor.execute("""
-            INSERT INTO candidates (
-                name, email, phone, title, primary_skills, experience_years,
-                target_rate, visa_status, status, location,
-                resume_filename, resume_path, resume_summary, gmail_account,
-                gmail_token_path, gmail_app_password
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                c["name"], c["email"], c["phone"], c["title"], c["primary_skills"],
-                c["experience_years"], c["target_rate"], c["visa_status"], c["status"],
-                c["location"], c["resume_filename"], actual_res_path, c["resume_summary"],
-                c["gmail_account"], actual_tok_path, c["gmail_app_password"]
-            ))
-        else:
-            cand_id = row[0]
-            # Update resume path and password if available
-            if actual_res_path:
-                cursor.execute("UPDATE candidates SET resume_path = ?, resume_filename = ? WHERE id = ?", (actual_res_path, c["resume_filename"], cand_id))
-            if c["gmail_app_password"] and (not row[2]):
-                cursor.execute("UPDATE candidates SET gmail_app_password = ? WHERE id = ?", (c["gmail_app_password"], cand_id))
-
-    conn.commit()
 
 def ensure_default_jobs(conn):
     """Guarantees that full catalog of 24h US contract jobs is available in the database across environments."""

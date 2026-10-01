@@ -1,6 +1,7 @@
 import sys
 import json
 import base64
+import re
 import mimetypes
 import imaplib
 import time
@@ -165,58 +166,118 @@ def exchange_code_and_save_token(candidate_id: int, auth_code: str, redirect_uri
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# Job sources that are real sites a recruiter would recognise ("posted on LinkedIn"); anything else -
+# e.g. "Manual Paste" for a pasted requirement - is never named in the email.
+_SOURCE_SITES = {"linkedin": "LinkedIn", "dice": "Dice", "indeed": "Indeed", "naukri": "Naukri",
+                 "foundit": "Foundit", "monster": "Monster"}
+_PLACEHOLDER_COMPANIES = {"", "company", "direct client", "direct client / prime vendor", "confidential"}
+
+
+def _source_site(source: str) -> str:
+    s = (source or "").lower()
+    return next((name for key, name in _SOURCE_SITES.items() if key in s), "")
+
+
+def _article(word: str) -> str:
+    return "an" if (word or "").strip()[:1].lower() in "aeiou" else "a"
+
+
+def _is_us_based(candidate: Dict) -> bool:
+    return (candidate.get("country") or "United States").strip().lower() in ("united states", "usa", "us")
+
+
+def _linkedin_of(candidate: Dict) -> str:
+    """A real LinkedIn URL for the consultant, or "" (never a guessed one built from the name)."""
+    for key in ("linkedin_url", "profile_url"):
+        v = (candidate.get(key) or "").strip()
+        if "linkedin.com/in/" in v:
+            return v
+    m = re.search(r'https?://[^\s,"]*linkedin\.com/in/[^\s,"?#]+', candidate.get("resume_summary") or "")
+    return m.group(0) if m else ""
+
+
+def matching_skills(candidate: Dict, job_text: str, emphasis: str = "", limit: int = 4):
+    """The consultant's own skills that the requirement actually mentions (in their order), with
+    any skill named in the recruiter's emphasis note first. Only real overlaps - nothing invented."""
+    skills = [s.strip() for s in (candidate.get("primary_skills") or "").split(",") if s.strip()]
+    text, note = (job_text or "").lower(), (emphasis or "").lower()
+
+    def mentioned(skill, hay):
+        return bool(re.search(r"(?<![a-z0-9])" + re.escape(skill.lower()) + r"(?![a-z0-9])", hay))
+
+    in_job = [s for s in skills if mentioned(s, text)]
+    first = [s for s in in_job if note and mentioned(s, note)]
+    return (first + [s for s in in_job if s not in first])[:limit]
+
+
+def build_subject(candidate: Dict, job: Dict) -> str:
+    """"Application: <role> - <name> (<n> yrs exp[, <US work status>])". A work status is added only
+    for a US-based consultant who has one on file; nothing is assumed."""
+    name = candidate.get("name") or "Consultant"
+    exp = candidate.get("experience_years")
+    bits = [f"{exp} yrs exp"] if exp else []
+    visa = (candidate.get("visa_status") or "").strip()
+    if visa and _is_us_based(candidate):
+        bits.append(visa)
+    return f"Application: {job.get('title') or 'Open Role'} - {name}" + (f" ({', '.join(bits)})" if bits else "")
+
+
 def generate_consultant_pitch(candidate: Dict, job: Dict, custom_notes: str = "") -> str:
-    """
-    Generates a concise, short & sweet 1st-person job application email written
-    directly from the consultant's perspective to the hiring recruiter.
-    """
-    cand_name = candidate.get("name", "Consultant")
-    cand_title = candidate.get("title", "Technical Consultant")
-    cand_skills = candidate.get("primary_skills", "")
-    cand_exp = candidate.get("experience_years") or 6
-    cand_visa = candidate.get("visa_status") or "H1B"
-    cand_phone = candidate.get("phone", "")
-    cand_email = candidate.get("gmail_account") or candidate.get("email", "")
-    cand_linkedin = candidate.get("linkedin_url") or candidate.get("profile_url") or ""
+    """A short first-person application email from the consultant to the hiring recruiter.
 
-    job_title = job.get("title") or "Technical Position"
-    source = job.get("source") or "LinkedIn"
-    recruiter_name = job.get("recruiter_name") or "Hiring Team"
-    if not recruiter_name or recruiter_name.lower() in ["none", "hiring manager", "null"]:
-        recruiter_name = "Hiring Team"
+    Only facts on file are used: no visa/C2C wording for a consultant outside the US, no "H1B"
+    when no status is recorded, the job source only when it's a real site (never "Manual Paste"),
+    and no copy of the pasted requirement - the email names the consultant's skills that the
+    requirement actually mentions. custom_notes is the recruiter's emphasis instruction (e.g.
+    "Emphasize AWS"); it steers which skills come first and is never pasted into the email."""
+    name = candidate.get("name") or "Consultant"
+    title = (candidate.get("title") or "").strip()
+    exp = candidate.get("experience_years")
+    phone = (candidate.get("phone") or "").strip()
+    email_addr = candidate.get("gmail_account") or candidate.get("email") or ""
+    linkedin = _linkedin_of(candidate)
+    us_based = _is_us_based(candidate)
+    visa = (candidate.get("visa_status") or "").strip()
 
-    # Extract 3-4 top concise skills
-    skills_list = [s.strip() for s in cand_skills.split(",") if s.strip()]
-    top_skills = ", ".join(skills_list[:4]) if skills_list else cand_skills
+    job_title = job.get("title") or "this role"
+    company = (job.get("company") or "").strip()
+    company_part = f" at {company}" if company.lower() not in _PLACEHOLDER_COMPANIES else ""
+    site = _source_site(job.get("source"))
+    greeting = job.get("recruiter_name") or "Hiring Team"
+    if greeting.strip().lower() in ("none", "null", "hiring manager", ""):
+        greeting = "Hiring Team"
 
-    # Suitability summary matching requirement
-    if custom_notes and len(custom_notes.strip()) > 10:
-        clean_note = " ".join(custom_notes.strip().split())
-        if len(clean_note) > 120:
-            clean_note = clean_note[:117] + "..."
-        why_suit = f"My hands-on experience in {top_skills} directly aligns with your requirement for {clean_note}."
+    intro = f"I came across your opening for {job_title}{company_part}" + (f" on {site}" if site else "") + " and I am very interested in it."
+
+    who = f"I am {name}"
+    if title and exp:
+        who += f", {_article(title)} {title} with {exp} years of experience"
+    elif title:
+        who += f", {_article(title)} {title}"
+    elif exp:
+        who += f", with {exp} years of experience"
+    if us_based and visa:
+        who += f" ({visa})"
+    who += "."
+
+    job_text = " ".join([job.get("description") or "", job.get("full_description") or "", job.get("title") or ""])
+    matched = matching_skills(candidate, job_text, custom_notes)
+    if matched:
+        fit = f"My hands-on experience in {', '.join(matched[:-1]) + ' and ' + matched[-1] if len(matched) > 1 else matched[0]} matches the key requirements of this role."
     else:
-        why_suit = f"My hands-on experience in {top_skills} directly aligns with your project requirements."
+        all_skills = [s.strip() for s in (candidate.get("primary_skills") or "").split(",") if s.strip()][:4]
+        fit = f"My core skills include {', '.join(all_skills)}." if all_skills else ""
 
-    # First-person direct candidate application
-    body = f"""Hi {recruiter_name},
+    closing = "Please find my resume attached for your review. I am available for an interview at your convenience"
+    closing += " and open to contract (C2C / W2) opportunities." if us_based else " and happy to share any further details you need."
 
-I came across your job posting for {job_title} posted on {source}. I am very interested in this position.
+    signature = [name] + ([title] if title else []) + ([f"Phone: {phone}"] if phone else []) \
+        + ([f"Email: {email_addr}"] if email_addr else []) + ([f"LinkedIn: {linkedin}"] if linkedin else [])
 
-I am {cand_name} with {cand_exp} years of experience as a {cand_title} on {cand_visa} visa. {why_suit}
+    paragraphs = [f"Hi {greeting},", intro, " ".join(x for x in (who, fit) if x), closing,
+                  "Looking forward to hearing from you.", "Best regards,\n" + "\n".join(signature)]
+    return "\n\n".join(paragraphs) + "\n"
 
-Please find my resume attached for your review. I am available immediately for an interview and can join right away on contract / C2C terms.
-
-Looking forward to hearing from you.
-
-Best regards,
-{cand_name}
-{cand_title}
-Phone: {cand_phone}
-Email: {cand_email}
-LinkedIn: {cand_linkedin}
-"""
-    return body
 
 def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None) -> Dict[str, Any]:
     cand = models.get_candidate_by_id(candidate_id)
@@ -240,13 +301,11 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
 
     cand_name = cand.get("name", "Consultant")
     cand_title = cand.get("title", "Specialist")
-    cand_exp = cand.get("experience_years") or 6
-    cand_visa = cand.get("visa_status") or "H1B"
     job_title = job.get("title", "Technical Role")
     company = job.get("company", "Company")
     sender_email = cand.get("gmail_account") or cand.get("email")
 
-    subject = (custom_subject.strip() if custom_subject and custom_subject.strip() else f"Job Application: {job_title} - {cand_name} ({cand_exp} Yrs Exp | {cand_visa})")
+    subject = (custom_subject.strip() if custom_subject and custom_subject.strip() else build_subject(cand, job))
     body_text = (custom_body.strip() if custom_body and custom_body.strip() else generate_consultant_pitch(cand, job, custom_notes))
 
     msg = EmailMessage()

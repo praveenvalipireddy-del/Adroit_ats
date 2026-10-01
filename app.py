@@ -903,7 +903,7 @@ def api_paste_and_draft():
         candidate_id=int(candidate_id),
         job_id=job_id,
         custom_to_email=recruiter_email,
-        custom_notes=custom_notes or raw_jd_text
+        custom_notes=custom_notes
     )
 
     if not result.get("success"):
@@ -957,9 +957,12 @@ def personalize_pitch_with_prompt(cand, job, instruction: str, current_subject: 
     """
     cand_name = cand.get("name", "Consultant")
     cand_title = cand.get("title", "Technical Consultant")
-    cand_exp = cand.get("experience_years") or 6
-    cand_visa = cand.get("visa_status") or "H1B"
-    cand_rate = cand.get("target_rate") or "$90/hr C2C"
+    cand_exp = cand.get("experience_years") or ""
+    # Only facts on file: no invented "H1B" / "$90/hr", and no US work-authorization or C2C wording
+    # for a consultant who isn't based in the US.
+    us_based = gmail_multi_manager._is_us_based(cand)
+    cand_visa = (cand.get("visa_status") or "").strip() if us_based else ""
+    cand_rate = (cand.get("target_rate") or "").strip()
     cand_email = cand.get("gmail_account") or cand.get("email", "")
     cand_phone = cand.get("phone", "")
     job_title = job.get("title") or "Technical Position"
@@ -970,7 +973,7 @@ def personalize_pitch_with_prompt(cand, job, instruction: str, current_subject: 
 
     inst_lower = instruction.lower().strip()
 
-    subject = current_subject or f"Job Application: {job_title} - {cand_name} ({cand_exp} Yrs Exp | {cand_visa})"
+    subject = current_subject or gmail_multi_manager.build_subject(cand, job)
     body = current_body or ""
 
     if not body:
@@ -982,6 +985,14 @@ def personalize_pitch_with_prompt(cand, job, instruction: str, current_subject: 
     import re
     rate_match = re.search(r"\$\d+(?:\/hr)?(?:\s*c2c)?", inst_lower)
     target_rate = rate_match.group(0).upper() if rate_match else cand_rate
+    exp_label = f"{cand_exp} Yrs Exp" if cand_exp else ""
+    meta = " | ".join(x for x in (exp_label, cand_visa) if x)
+    if cand_visa:
+        auth_line = f"I am authorized to work in the US ({cand_visa})" + (f" and open to C2C at {target_rate}" if target_rate else "") + "."
+    elif us_based and target_rate:
+        auth_line = f"My target rate is {target_rate}."
+    else:
+        auth_line = ""
     if rate_match:
         reply_parts.append(f"Updated rate to {target_rate}")
 
@@ -1012,17 +1023,17 @@ def personalize_pitch_with_prompt(cand, job, instruction: str, current_subject: 
     # Generate personalized subject if requested
     if "subject" in inst_lower:
         if skills_found:
-            subject = f"Top {skills_found[0]} Consultant: {cand_name} ({cand_exp} Yrs Exp | {cand_visa}) for {job_title}"
+            subject = f"Top {skills_found[0]} Consultant: {cand_name}" + (f" ({meta})" if meta else "") + f" for {job_title}"
         elif is_urgent:
-            subject = f"Immediate C2C Candidate: {cand_name} ({cand_exp} Yrs Exp) - {job_title}"
+            subject = f"Immediately Available: {cand_name}" + (f" ({exp_label})" if exp_label else "") + f" - {job_title}"
 
     # Build personalized body
     if is_short:
         body = f"""Hi {recruiter_name},
 
-I am applying for the {job_title} role at {company}. I bring over {cand_exp} years of hands-on expertise specializing in {', '.join(skills_found) if skills_found else cand.get('primary_skills', 'enterprise solutions')}.
+I am applying for the {job_title} role at {company}. {f"I bring {cand_exp} years of hands-on expertise" if cand_exp else "My hands-on expertise is"} in {', '.join(skills_found) if skills_found else cand.get('primary_skills') or 'this area'}.
 
-I am authorized to work on {cand_visa} (C2C open at {target_rate}) and available for an immediate technical interview. My resume is attached for your review.
+{(auth_line + " ") if auth_line else ""}I am available for a technical interview at your convenience. My resume is attached for your review.
 
 Looking forward to connecting!
 
@@ -1032,12 +1043,11 @@ Best regards,
     elif is_bullets:
         body = f"""Hi {recruiter_name},
 
-I am writing to express my interest in the {job_title} opening at {company}. With {cand_exp}+ years of experience in technical architecture and implementation, I am a great fit for your team.
+I am writing to express my interest in the {job_title} opening at {company}.{f" I bring {cand_exp} years of hands-on experience." if cand_exp else ""}
 
 Key Highlights:
-• Core Expertise: {', '.join(skills_found) if skills_found else cand.get('primary_skills', 'Full-stack development')}
-• Work Authorization: {cand_visa} (Open for C2C at {target_rate})
-• Availability: Immediate for interviews and project onboarding
+• Core Expertise: {', '.join(skills_found) if skills_found else cand.get('primary_skills') or 'see resume'}{chr(10) + "• Work Authorization: " + cand_visa + (" (open for C2C at " + target_rate + ")" if target_rate else "") if cand_visa else ""}
+• Availability: open to interviews at your convenience
 {f'• Recruiter Note: {instruction}' if instruction and not skills_found else ''}
 
 My resume is attached for your review. Please let me know a convenient time for a brief discussion.
@@ -1047,14 +1057,14 @@ Best regards,
 {cand_phone} | {cand_email}"""
     else:
         # Standard personalized refinement
-        skill_str = f"with deep hands-on expertise in {', '.join(skills_found)}" if skills_found else f"specializing in {cand.get('primary_skills', 'software engineering')}"
+        skill_str = f"with deep hands-on expertise in {', '.join(skills_found)}" if skills_found else (f"specializing in {cand.get('primary_skills')}" if cand.get('primary_skills') else "")
         body = f"""Hi {recruiter_name},
 
 I hope this note finds you well.
 
-I came across your opening for the {job_title} position at {company} and wanted to reach out directly. I bring over {cand_exp} years of enterprise experience {skill_str}.
+I came across your opening for the {job_title} position at {company} and wanted to reach out directly.{f" I bring {cand_exp} years of experience {skill_str}." if cand_exp else (f" I am a professional {skill_str}." if skill_str else "")}
 
-I am authorized to work in the US on {cand_visa} and available on C2C ({target_rate}). I am open to discussing how my background aligns with your project goals.
+{(auth_line + " ") if auth_line else ""}I am open to discussing how my background aligns with your project goals.
 
 Please find my updated resume attached. I look forward to hearing from you.
 

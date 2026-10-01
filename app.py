@@ -2037,6 +2037,111 @@ def api_education_live_poll():
     return jsonify(result)
 
 
+def _tracker_profile(profile_id):
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, tracking_status FROM linkedin_profiles WHERE id = ?", (profile_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _tracker_thread(profile_id):
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT c.id, c.kind, c.comment, c.created_at, c.user_id, u.name AS author
+                       FROM sourcing_comments c LEFT JOIN users u ON u.id = c.user_id
+                       WHERE c.profile_id = ? ORDER BY c.id DESC""", (profile_id,))
+        return [{"id": r["id"], "kind": r["kind"], "text": r["comment"], "author": r["author"] or "",
+                 "user_id": r["user_id"], "at": str(r["created_at"] or "")[:16]} for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+@app.route("/api/sourcing/profiles/<int:profile_id>/comments", methods=["GET", "POST", "OPTIONS"])
+def api_sourcing_comments(profile_id):
+    """Sourcing tracker: a sourced candidate's status history + comments (team-wide). POST adds a comment."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    prof = _tracker_profile(profile_id)
+    if not prof:
+        return jsonify({"error": "Candidate not found"}), 404
+    if request.method == "POST":
+        text = ((request.get_json(silent=True) or {}).get("comment") or "").strip()
+        if not text:
+            return jsonify({"error": "Write a comment first."}), 400
+        if len(text) > 2000:
+            return jsonify({"error": "Comments are limited to 2,000 characters."}), 400
+        conn = models.get_db_connection()
+        try:
+            conn.cursor().execute("INSERT INTO sourcing_comments (profile_id, user_id, kind, comment) VALUES (?, ?, 'comment', ?)",
+                                  (profile_id, user["id"], text))
+            conn.commit()
+        finally:
+            conn.close()
+    return jsonify({"status": prof.get("tracking_status") or "New", "thread": _tracker_thread(profile_id),
+                    "statuses": education_filters.STATUSES})
+
+
+@app.route("/api/sourcing/comments/<int:comment_id>", methods=["DELETE", "OPTIONS"])
+def api_sourcing_comment_delete(comment_id):
+    """Delete a comment - only its author or an admin. Status-change records can't be deleted."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, user_id, kind, profile_id FROM sourcing_comments WHERE id = ?", (comment_id,))
+        row = cur.fetchone()
+        if not row or row["kind"] != "comment":
+            return jsonify({"error": "Comment not found"}), 404
+        if row["user_id"] != user["id"] and "Admin" not in user.get("role", ""):
+            return jsonify({"error": "Only the person who wrote it (or an admin) can delete a comment."}), 403
+        cur.execute("DELETE FROM sourcing_comments WHERE id = ?", (comment_id,))
+        conn.commit()
+        profile_id = row["profile_id"]
+    finally:
+        conn.close()
+    return jsonify({"success": True, "thread": _tracker_thread(profile_id)})
+
+
+@app.route("/api/sourcing/profiles/<int:profile_id>/status", methods=["POST", "OPTIONS"])
+def api_sourcing_status(profile_id):
+    """Set a sourced candidate's tracking status; the change is recorded in its thread."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    status = ((request.get_json(silent=True) or {}).get("status") or "").strip()
+    if status not in education_filters.STATUSES:
+        return jsonify({"error": "Unknown status."}), 400
+    prof = _tracker_profile(profile_id)
+    if not prof:
+        return jsonify({"error": "Candidate not found"}), 404
+    old = prof.get("tracking_status") or "New"
+    if old != status:
+        conn = models.get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE linkedin_profiles SET tracking_status = ? WHERE id = ?", (status, profile_id))
+            cur.execute("INSERT INTO sourcing_comments (profile_id, user_id, kind, comment) VALUES (?, ?, 'status', ?)",
+                        (profile_id, user["id"], f"Status: {old} \u2192 {status}"))
+            conn.commit()
+        finally:
+            conn.close()
+    return jsonify({"status": status, "thread": _tracker_thread(profile_id)})
+
+
 @app.route("/api/education/unmapped", methods=["GET"])
 def api_education_unmapped():
     """Admin list: school names from LinkedIn profiles that didn't match the institution list."""

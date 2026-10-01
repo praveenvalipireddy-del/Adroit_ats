@@ -88,7 +88,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.42.0" in page.content(), "cache-buster not bumped to 5.42.0")
+        check("app.js?v=5.43.0" in page.content(), "cache-buster not bumped to 5.43.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")
@@ -103,7 +103,7 @@ try:
         check("No saved candidates" in page.inner_text("#edu-status"), f"passout 2023 should be empty: {page.inner_text('#edu-status')}")
         page.select_option("#filter-student-bachelor-year", "2017")
         page.wait_for_function("document.getElementById('edu-status').innerText.includes('5 candidates')")
-        check(page.locator("#edu-results tr").count() == 5, "passout 2017 rows")
+        check(page.locator("#edu-results tr[data-pid]").count() == 5, "passout 2017 rows")
         page.select_option("#filter-student-bachelor-year", "All")
         page.wait_for_function("document.getElementById('edu-status').innerText.includes('27 candidates')")
         for gone in ("Education Filters", "FREE - TEAM DATABASE", "Year range applies", "Find more candidates", "Searches every LinkedIn"):
@@ -133,12 +133,12 @@ try:
         page.click(".edu-inst-option")
         page.wait_for_function("document.getElementById('edu-status').innerText.includes('from Jawaharlal Nehru Technological University Hyderabad')")
         check("27" in page.inner_text("#edu-status"), f"status: {page.inner_text('#edu-status')}")
-        check(page.locator("#edu-results tr").count() == 25, "page 1 should show 25 rows")
+        check(page.locator("#edu-results tr[data-pid]").count() == 25, "page 1 should show 25 rows")
         check(page.inner_text("#edu-page-info") == "Page 1 of 2", f"pager: {page.inner_text('#edu-page-info')}")
-        row = page.inner_text("#edu-results tr:first-child")
+        row = page.inner_text("#edu-results tr[data-pid]:first-child")
         check("UT Dallas" in row or "University of Texas at Dallas" in row, f"US Master's column missing: {row!r}")
         check("Edu UI Admin" in row and "Test Corp" in row, f"captured by / company column: {row!r}")
-        href = page.get_attribute("#edu-results tr:first-child a", "href")
+        href = page.get_attribute("#edu-results tr[data-pid]:first-child a", "href")
         check(href and href.startswith("https://www.linkedin.com/in/jn-"), f"LinkedIn link: {href}")
         page.screenshot(path=shot)
 
@@ -154,7 +154,7 @@ try:
 
         page.click("#btn-edu-next")
         page.wait_for_function("document.getElementById('edu-page-info').textContent === 'Page 2 of 2'")
-        check(page.locator("#edu-results tr").count() == 2, "page 2 should show 2 rows")
+        check(page.locator("#edu-results tr[data-pid]").count() == 2, "page 2 should show 2 rows")
 
         # year range: 2015 + i%5 == 2017 -> i in {2,7,12,17,22} -> 5 people
         page.fill("#edu-year-from", "2017")

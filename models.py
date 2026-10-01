@@ -386,6 +386,18 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # Sourcing tracker: recruiters' comments on a sourced candidate (and a record of every status
+    # change, kind = 'status'). Team-wide, like the rest of Sourcing.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sourcing_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL,
+        user_id INTEGER,
+        kind TEXT NOT NULL DEFAULT 'comment',
+        comment TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS app_meta (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -400,6 +412,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS ix_profile_education_profile ON profile_education (profile_id)",
         "CREATE INDEX IF NOT EXISTS ix_profile_education_inst ON profile_education (institution_canonical_id, degree_level)",
         "CREATE INDEX IF NOT EXISTS ix_institution_aliases_canonical ON institution_aliases (canonical_id)",
+        "CREATE INDEX IF NOT EXISTS ix_sourcing_comments_profile ON sourcing_comments (profile_id)",
     ):
         try:
             cursor.execute(idx_sql)
@@ -572,7 +585,8 @@ def migrate_db(conn):
 
     # Education-filter tables (added after their first deploy)
     for table, new_cols in (("linkedin_profiles", {"education_complete": "INTEGER DEFAULT 0",
-                                                   "verified_bachelor_year": "INTEGER"}),
+                                                   "verified_bachelor_year": "INTEGER",
+                                                   "tracking_status": "TEXT"}),
                             ("profile_education", {"institution_norm": "TEXT"})):
         existing_cols = get_existing_cols(table)
         for col, c_type in new_cols.items():

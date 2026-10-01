@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initResumeBot();
     initStudentsTab();
     initEducationFilters();
+    initSourcingTracker();
     checkUrlAuthParams();
 });
 
@@ -3565,7 +3566,7 @@ function eduSetStatus(html) {
 
 function eduParams(page) {
     const p = new URLSearchParams({ filter: eduState.filter, page: String(page || 1), page_size: '25' });
-    const fields = [['location', 'edu-location'], ['keyword', 'edu-keyword']];
+    const fields = [['location', 'edu-location'], ['keyword', 'edu-keyword'], ['status', 'edu-status-filter']];
     if (eduState.filter === 'P') {
         p.set('passout_year', document.getElementById('filter-student-bachelor-year')?.value || 'All');
     } else {
@@ -3615,16 +3616,30 @@ async function eduSearch(page) {
     }
     eduSetStatus(`<b>${data.total}</b> candidate${data.total === 1 ? '' : 's'} with ${what}.`);
     const td = 'padding:10px 12px; border-bottom:1px solid #f1f5f9; vertical-align:top; color:#0f172a;';
+    const statusOptions = (cur) => TRK_STATUSES.map(s => `<option${s === cur ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
     document.getElementById('edu-results').innerHTML = data.results.map(r => `
-        <tr>
+        <tr data-pid="${r.id}">
             <td style="${td} font-weight:600;"><a href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer" title="Open LinkedIn profile" style="color:#1d4ed8; text-decoration:none;">${escapeHtml(r.name)} <span style="font-size:11px;">↗</span></a></td>
             <td style="${td}">${escapeHtml(r.headline)}</td>
             <td style="${td}">${escapeHtml(r.current_company)}</td>
             <td style="${td}">${escapeHtml(r.location)}</td>
             <td style="${td}">${escapeHtml(r.indian_college)}</td>
             <td style="${td}">${escapeHtml(r.us_masters)}</td>
-            <td style="${td}">${escapeHtml(r.captured_by)}</td>
-            <td style="${td} white-space:nowrap;">${escapeHtml(r.captured_at)}</td>
+            <td style="${td}"><select class="trk-status" data-id="${r.id}" data-current="${escapeHtml(r.status)}" style="${trkStatusStyle(r.status)}">${statusOptions(r.status)}</select></td>
+            <td style="${td}" class="trk-comments">${trkCommentCell(r)}</td>
+            <td style="${td} white-space:nowrap; font-size:12px; color:#475569;">${escapeHtml(r.captured_by)}<br>${escapeHtml(r.captured_at)}</td>
+        </tr>
+        <tr id="trk-row-${r.id}" style="display:none;">
+            <td colspan="9" style="padding:10px 0; background:#f8fafc; border-bottom:1px solid #e2e8f0;">
+                <div class="trk-panel" style="position:sticky; left:0; box-sizing:border-box; padding:0 14px;">
+                <div style="font-size:12px; font-weight:700; color:#334155; margin-bottom:4px;">Comments on ${escapeHtml(r.name)}</div>
+                <div id="trk-thread-${r.id}"></div>
+                <div style="display:flex; gap:8px; margin-top:8px; align-items:flex-start;">
+                    <textarea id="trk-new-${r.id}" rows="2" maxlength="2000" placeholder="e.g. Called - interested, expects $60/hr, H1B, available in 2 weeks" style="flex:1; border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; resize:vertical;"></textarea>
+                    <button type="button" class="trk-save" data-id="${r.id}" style="height:38px; padding:0 14px; border:none; border-radius:8px; background:#2563eb; color:#ffffff; font-weight:700; cursor:pointer;">Save comment</button>
+                </div>
+                </div>
+            </td>
         </tr>`).join('');
     wrap.style.display = 'block';
     pager.style.display = data.pages > 1 ? 'flex' : 'none';
@@ -3741,4 +3756,136 @@ async function mapUnmappedInstitution(id, payload) {
     showToast(`Linked to ${data.canonical_name} - ${data.entries_updated} education entr${data.entries_updated === 1 ? 'y' : 'ies'} updated.`, 'success');
     eduState.institutions = { A: null, B: null };   // counts changed
     loadUnmappedInstitutions();
+}
+
+// ---- Sourcing tracker: per-candidate status + comments (team-wide) ----
+const TRK_STATUSES = ['New', 'Contacted', 'Interested', 'Not interested', 'Added to bench'];
+const TRK_COLORS = {
+    'New': ['#f1f5f9', '#334155'], 'Contacted': ['#eff6ff', '#1d4ed8'], 'Interested': ['#ecfdf5', '#047857'],
+    'Not interested': ['#fef2f2', '#b91c1c'], 'Added to bench': ['#f5f3ff', '#6d28d9'],
+};
+
+function trkStatusStyle(status) {
+    const [bg, fg] = TRK_COLORS[status] || TRK_COLORS['New'];
+    return `background:${bg}; color:${fg}; border:1px solid ${fg}33; border-radius:6px; padding:4px 6px; font-size:12px; font-weight:700; cursor:pointer;`;
+}
+
+function trkCommentCell(r) {
+    const latest = r.latest_comment;
+    const snippet = latest
+        ? `<div style="font-size:12px; color:#334155; max-width:260px;">"${escapeHtml(latest.text.length > 90 ? latest.text.slice(0, 90) + '...' : latest.text)}"<br><span style="color:#94a3b8;">${escapeHtml(latest.author)} · ${escapeHtml(latest.at)}</span></div>`
+        : '';
+    const label = r.comment_count ? `💬 ${r.comment_count}` : '💬 Add';
+    return `${snippet}<button type="button" class="trk-open" data-id="${r.id}" style="margin-top:4px; padding:3px 8px; font-size:12px; font-weight:700; border:1px solid #cbd5e1; border-radius:6px; background:#ffffff; color:#1d4ed8; cursor:pointer;">${label}</button>`;
+}
+
+function trkRenderThread(profileId, thread) {
+    const box = document.getElementById(`trk-thread-${profileId}`);
+    if (!box) return;
+    const me = window.CURRENT_USER || {};
+    if (!thread.length) {
+        box.innerHTML = '<div style="color:#64748b; font-size:12px;">No comments yet.</div>';
+        return;
+    }
+    box.innerHTML = thread.map(c => c.kind === 'status'
+        ? `<div style="font-size:12px; color:#64748b; margin:4px 0;">🔄 ${escapeHtml(c.text)} <span style="color:#94a3b8;">- ${escapeHtml(c.author)}, ${escapeHtml(c.at)}</span></div>`
+        : `<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin:6px 0;">
+               <div style="font-size:12px; color:#64748b; margin-bottom:3px;"><b style="color:#0f172a;">${escapeHtml(c.author)}</b> · ${escapeHtml(c.at)}
+               ${(me.admin || me.id === c.user_id) ? `<button type="button" class="trk-del" data-cid="${c.id}" data-id="${profileId}" title="Delete comment" style="float:right; border:none; background:none; color:#b91c1c; cursor:pointer; font-size:12px;">Delete</button>` : ''}</div>
+               <div style="font-size:13px; color:#0f172a; white-space:pre-wrap;">${escapeHtml(c.text)}</div>
+           </div>`).join('');
+}
+
+function trkUpdateCell(profileId, thread) {
+    const row = document.querySelector(`#edu-results tr[data-pid="${profileId}"]`);
+    if (!row) return;
+    const comments = thread.filter(c => c.kind === 'comment');
+    const latest = comments[0];
+    row.querySelector('.trk-comments').innerHTML = trkCommentCell({
+        id: profileId, comment_count: comments.length,
+        latest_comment: latest ? { text: latest.text, author: latest.author, at: latest.at } : null,
+    });
+}
+
+async function trkToggle(profileId) {
+    const row = document.getElementById(`trk-row-${profileId}`);
+    if (!row) return;
+    const open = row.style.display !== 'none';
+    row.style.display = open ? 'none' : '';
+    if (open) return;
+    // The table can be wider than the screen (it scrolls sideways); keep the comment panel the width
+    // of the visible area and pinned to its left edge so it is never cut off.
+    const wrap = document.getElementById('edu-results-wrap');
+    const panel = row.querySelector('.trk-panel');
+    if (wrap && panel) panel.style.width = `${wrap.clientWidth}px`;
+    const box = document.getElementById(`trk-thread-${profileId}`);
+    if (box) box.innerHTML = '<div style="color:#64748b; font-size:12px;">Loading...</div>';
+    const res = await fetch(`/api/sourcing/profiles/${profileId}/comments`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { if (box) box.textContent = data.error || 'Could not load comments.'; return; }
+    trkRenderThread(profileId, data.thread || []);
+    document.getElementById(`trk-new-${profileId}`)?.focus();
+}
+
+async function trkSave(profileId) {
+    const input = document.getElementById(`trk-new-${profileId}`);
+    const text = (input?.value || '').trim();
+    if (!text) { showToast('Write a comment first.', 'warning'); return; }
+    const res = await fetch(`/api/sourcing/profiles/${profileId}/comments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ comment: text }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Could not save the comment.', 'error'); return; }
+    input.value = '';
+    trkRenderThread(profileId, data.thread || []);
+    trkUpdateCell(profileId, data.thread || []);
+    showToast('Comment saved.', 'success');
+}
+
+async function trkDelete(commentId, profileId) {
+    if (!confirm('Delete this comment?')) return;
+    const res = await fetch(`/api/sourcing/comments/${commentId}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Could not delete.', 'error'); return; }
+    trkRenderThread(profileId, data.thread || []);
+    trkUpdateCell(profileId, data.thread || []);
+}
+
+async function trkSetStatus(select) {
+    const profileId = select.getAttribute('data-id');
+    const previous = select.getAttribute('data-current');
+    const status = select.value;
+    const res = await fetch(`/api/sourcing/profiles/${profileId}/status`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        select.value = previous;
+        showToast(data.error || 'Could not change the status.', 'error');
+        return;
+    }
+    select.setAttribute('data-current', status);
+    select.setAttribute('style', trkStatusStyle(status));
+    const row = document.getElementById(`trk-row-${profileId}`);
+    if (row && row.style.display !== 'none') trkRenderThread(profileId, data.thread || []);
+    showToast(`Status: ${status}`, 'success');
+}
+
+function initSourcingTracker() {
+    const tbody = document.getElementById('edu-results');
+    if (!tbody) return;
+    tbody.addEventListener('change', (e) => {
+        if (e.target.classList.contains('trk-status')) trkSetStatus(e.target);
+    });
+    tbody.addEventListener('click', (e) => {
+        const open = e.target.closest('.trk-open');
+        if (open) { trkToggle(open.getAttribute('data-id')); return; }
+        const save = e.target.closest('.trk-save');
+        if (save) { trkSave(save.getAttribute('data-id')); return; }
+        const del = e.target.closest('.trk-del');
+        if (del) trkDelete(del.getAttribute('data-cid'), del.getAttribute('data-id'));
+    });
+    document.getElementById('edu-status-filter')?.addEventListener('change', () => {
+        if (eduState.filter === 'P' || eduState.selected[eduState.filter]) eduSearch(1);
+    });
 }

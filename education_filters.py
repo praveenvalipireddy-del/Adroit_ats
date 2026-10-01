@@ -34,6 +34,8 @@ FILTERS = {
     "B": {"chosen_level": "Masters", "chosen_country": "USA", "other_level": "Bachelors", "other_country": "India"},
 }
 MAX_PAGE_SIZE = 100
+# Sourcing tracker statuses (a profile with no status yet is "New").
+STATUSES = ["New", "Contacted", "Interested", "Not interested", "Added to bench"]
 MAX_EXPORT_ROWS = 10000
 
 
@@ -82,9 +84,12 @@ def parse_params(args: Dict) -> Dict:
         page_size = max(1, min(int(args.get("page_size") or 25), MAX_PAGE_SIZE))
     except (TypeError, ValueError):
         raise FilterError("Invalid page.")
+    status = str(args.get("status") or "").strip()
+    if status and status not in STATUSES:
+        raise FilterError("Unknown status.")
     return {"filter": f, "institution_id": inst, "year_from": y_from, "year_to": y_to,
             "location": str(args.get("location") or "").strip(), "keyword": str(args.get("keyword") or "").strip(),
-            "page": page, "page_size": page_size}
+            "status": status, "page": page, "page_size": page_size}
 
 
 def member_ids(institution_id: Optional[str]) -> Optional[List[str]]:
@@ -146,6 +151,11 @@ def _where(p: Dict):
         clauses = [f"""(({edu_sql}) OR EXISTS (SELECT 1 FROM profile_verifications v WHERE v.profile_id = p.id
                         AND v.filter_key = ? AND v.institution_id IN ({", ".join(["?"] * len(members))}){vyears}))"""]
         params = [*edu_params, p["filter"], *members, *vparams]
+    if p.get("status") == "New":
+        clauses.append("(p.tracking_status IS NULL OR p.tracking_status = '' OR p.tracking_status = 'New')")
+    elif p.get("status"):
+        clauses.append("p.tracking_status = ?")
+        params.append(p["status"])
     if p["location"]:
         clauses.append("LOWER(COALESCE(p.location, '')) LIKE ?")
         params.append(_like(p["location"]))
@@ -192,6 +202,17 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
     by_profile: Dict[int, List[Dict]] = {}
     for e in cur.fetchall():
         by_profile.setdefault(e["profile_id"], []).append(dict(e))
+    # Tracker: comment count + latest comment per profile (newest first)
+    cur.execute(f"""SELECT c.profile_id, c.comment, c.created_at, u.name AS author FROM sourcing_comments c
+                    LEFT JOIN users u ON u.id = c.user_id
+                    WHERE c.kind = 'comment' AND c.profile_id IN ({", ".join(["?"] * len(ids))})
+                    ORDER BY c.id DESC""", ids)
+    comments: Dict[int, Dict] = {}
+    for c in cur.fetchall():
+        d = comments.setdefault(c["profile_id"], {"count": 0, "latest": None})
+        d["count"] += 1
+        if d["latest"] is None:
+            d["latest"] = {"text": c["comment"], "author": c["author"] or "", "at": str(c["created_at"] or "")[:16]}
 
     out = []
     for r in rows:
@@ -233,12 +254,15 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
             "linkedin_url": r["linkedin_url"],
             "captured_by": r["captured_by_name"] or ("Sourcing search" if not r["captured_by"] else f"User #{r['captured_by']}"),
             "captured_at": str(r["captured_at"] or "")[:10],
+            "status": r.get("tracking_status") or "New",
+            "comment_count": (comments.get(r["id"]) or {}).get("count", 0),
+            "latest_comment": (comments.get(r["id"]) or {}).get("latest"),
         })
     return out
 
 
 _SELECT = """SELECT p.id, p.name, p.headline, p.current_title, p.current_company, p.location, p.linkedin_url,
-                    p.captured_by, p.captured_at, p.verified_bachelor_year, u.name AS captured_by_name
+                    p.captured_by, p.captured_at, p.verified_bachelor_year, p.tracking_status, u.name AS captured_by_name
              FROM linkedin_profiles p LEFT JOIN users u ON u.id = p.captured_by"""
 
 
@@ -267,6 +291,7 @@ EXPORT_COLUMNS = [
     ("location", "Location"), ("indian_college", "Indian College (Bachelor's year)"),
     ("us_masters", "US University - Master's (year)"), ("linkedin_url", "LinkedIn URL"),
     ("captured_by", "Captured By"), ("captured_at", "Captured Date"),
+    ("status", "Status"), ("latest_comment_text", "Latest Comment"), ("comment_count", "Comments"),
 ]
 
 
@@ -282,13 +307,16 @@ def build_xlsx(rows: List[Dict], title: str) -> bytes:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1D4ED8")
     for r in rows:
+        latest = r.get("latest_comment")
+        r = dict(r, latest_comment_text=(f"{latest['text']} ({latest['author']}, {latest['at']})" if latest else ""))
         ws.append([r.get(key, "") for key, _ in EXPORT_COLUMNS])
         link = ws.cell(row=ws.max_row, column=[k for k, _ in EXPORT_COLUMNS].index("linkedin_url") + 1)
         if link.value:
             link.hyperlink = link.value
             link.font = Font(color="1D4ED8", underline="single")
     widths = {"name": 24, "headline": 40, "current_company": 26, "location": 26, "indian_college": 46,
-              "us_masters": 56, "linkedin_url": 48, "captured_by": 20, "captured_at": 14}
+              "us_masters": 56, "linkedin_url": 48, "captured_by": 20, "captured_at": 14,
+              "status": 16, "latest_comment_text": 60, "comment_count": 11}
     for i, (key, _) in enumerate(EXPORT_COLUMNS, start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = widths.get(key, 20)
     ws.freeze_panes = "A2"

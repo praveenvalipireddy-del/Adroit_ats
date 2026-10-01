@@ -18,6 +18,10 @@ Filter B - "US University -> Indian Undergrad": a Masters entry at the chosen US
 import io
 from typing import Dict, List, Optional
 
+from institutions_seed import GROUPS
+
+_GROUPS = {g[0]: {"id": g[0], "name": g[1], "country": g[2], "words": g[3], "members": g[4]} for g in GROUPS}
+
 FILTERS = {
     "A": {"chosen_level": "Bachelors", "chosen_country": "India", "other_level": "Masters", "other_country": "USA"},
     "B": {"chosen_level": "Masters", "chosen_country": "USA", "other_level": "Bachelors", "other_country": "India"},
@@ -62,17 +66,33 @@ def parse_params(args: Dict) -> Dict:
             "page": page, "page_size": page_size}
 
 
+def member_ids(institution_id: str) -> List[str]:
+    """A group ("JNTU - any campus") stands for all of its member institutions."""
+    group = _GROUPS.get(institution_id)
+    return list(group["members"]) if group else [institution_id]
+
+
+def display_name(conn, institution_id: str) -> str:
+    if institution_id in _GROUPS:
+        return _GROUPS[institution_id]["name"]
+    cur = conn.cursor()
+    cur.execute("SELECT MIN(canonical_name) FROM institution_aliases WHERE canonical_id = ?", (institution_id,))
+    row = cur.fetchone()
+    return (row[0] if row else None) or institution_id
+
+
 def _like(text: str) -> str:
     return "%" + text.lower().replace("\\", "").replace("%", "").replace("_", "") + "%"
 
 
 def _where(p: Dict):
     spec = FILTERS[p["filter"]]
+    members = member_ids(p["institution_id"])
     clauses = ["""EXISTS (SELECT 1 FROM profile_education c WHERE c.profile_id = p.id AND c.degree_level = ?
-                   AND c.institution_canonical_id = ? AND c.country = ?{years})""",
+                   AND c.institution_canonical_id IN ({members}) AND c.country = ?{years})""",
                """EXISTS (SELECT 1 FROM profile_education o WHERE o.profile_id = p.id AND o.degree_level = ?
                    AND o.country = ?)"""]
-    params = [spec["chosen_level"], p["institution_id"], spec["chosen_country"]]
+    params = [spec["chosen_level"], *members, spec["chosen_country"]]
     years = ""
     if p["year_from"]:
         years += " AND c.end_year >= ?"
@@ -80,7 +100,7 @@ def _where(p: Dict):
     if p["year_to"]:
         years += " AND c.end_year <= ?"
         params.append(p["year_to"])
-    clauses[0] = clauses[0].format(years=years)
+    clauses[0] = clauses[0].format(years=years, members=", ".join(["?"] * len(members)))
     params += [spec["other_level"], spec["other_country"]]
     if p["location"]:
         clauses.append("LOWER(COALESCE(p.location, '')) LIKE ?")
@@ -117,6 +137,7 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
     if not rows:
         return []
     spec = FILTERS[p["filter"]]
+    members = member_ids(p["institution_id"])
     ids = [r["id"] for r in rows]
     cur = conn.cursor()
     cur.execute(f"""SELECT e.profile_id, e.institution_name, e.institution_canonical_id, e.degree, e.degree_level,
@@ -131,7 +152,7 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
     out = []
     for r in rows:
         edu = by_profile.get(r["id"], [])
-        chosen = [e for e in edu if e["degree_level"] == spec["chosen_level"] and e["institution_canonical_id"] == p["institution_id"]
+        chosen = [e for e in edu if e["degree_level"] == spec["chosen_level"] and e["institution_canonical_id"] in members
                   and e["country"] == spec["chosen_country"] and _in_range(e["end_year"], p)]
         other = [e for e in edu if e["degree_level"] == spec["other_level"] and e["country"] == spec["other_country"]]
         indian, us = (chosen, other) if p["filter"] == "A" else (other, chosen)
@@ -235,4 +256,21 @@ def institutions_for(conn, filter_key: str) -> List[Dict]:
     for r in cur.fetchall():
         if r["cid"] in insts:
             insts[r["cid"]]["profiles"] = int(r["n"])
-    return sorted(insts.values(), key=lambda d: (-d["profiles"], d["name"]))
+    out = sorted(insts.values(), key=lambda d: (-d["profiles"], d["name"]))
+    # "Any campus" groups go first; their count is distinct people across all member campuses.
+    groups = []
+    for g in _GROUPS.values():
+        if g["country"] != country:
+            continue
+        members = [m for m in g["members"] if m in insts]
+        if not members:
+            continue
+        cur.execute(f"""SELECT COUNT(DISTINCT c.profile_id) FROM profile_education c
+                        WHERE c.country = ? AND c.degree_level = ? AND c.institution_canonical_id IN ({", ".join(["?"] * len(members))})
+                          AND EXISTS (SELECT 1 FROM profile_education o WHERE o.profile_id = c.profile_id
+                                      AND o.degree_level = ? AND o.country = ?)""",
+                    (country, level, *members, spec["other_level"], spec["other_country"]))
+        groups.append({"id": g["id"], "name": g["name"], "city": "", "aliases": list(g["words"]),
+                       "profiles": int(cur.fetchone()[0]), "group": True,
+                       "members": [insts[m]["name"] for m in members]})
+    return groups + out

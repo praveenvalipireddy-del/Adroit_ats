@@ -1799,9 +1799,7 @@ def api_education_export_xlsx():
     try:
         rows = education_filters.export_rows(conn, params)
         cur = conn.cursor()
-        cur.execute("SELECT MIN(canonical_name) FROM institution_aliases WHERE canonical_id = ?", (params["institution_id"],))
-        found = cur.fetchone()
-        inst_name = (found[0] if found else None) or params["institution_id"]
+        inst_name = education_filters.display_name(conn, params["institution_id"])
         label = ("Filter A: Indian college -> US Master's" if params["filter"] == "A"
                  else "Filter B: US university -> Indian undergrad") + f" | {inst_name}"
         if params["year_from"] or params["year_to"]:

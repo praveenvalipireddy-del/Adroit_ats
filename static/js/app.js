@@ -3298,7 +3298,9 @@ function eduRenderInstList(query) {
     } else {
         list.innerHTML = hits.map(i => `
             <div class="edu-inst-option" role="option" data-id="${escapeHtml(i.id)}" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; gap:10px;">
-                <span><b style="color:#0f172a;">${escapeHtml(i.name)}</b>${i.city ? `<span style="color:#64748b;"> - ${escapeHtml(i.city)}</span>` : ''}${(i.aliases || []).length ? `<br><span style="color:#94a3b8; font-size:11px;">${escapeHtml(i.aliases.slice(0, 4).join(', '))}</span>` : ''}</span>
+                <span><b style="color:#0f172a;">${escapeHtml(i.name)}</b>${i.group ? ' <span style="font-size:10px; font-weight:800; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; border-radius:4px; padding:1px 5px;">ALL CAMPUSES</span>' : ''}${i.city ? `<span style="color:#64748b;"> - ${escapeHtml(i.city)}</span>` : ''}${i.group
+                    ? `<br><span style="color:#94a3b8; font-size:11px;">Includes: ${escapeHtml((i.members || []).join('; '))}</span>`
+                    : ((i.aliases || []).length ? `<br><span style="color:#94a3b8; font-size:11px;">${escapeHtml(i.aliases.slice(0, 4).join(', '))}</span>` : '')}</span>
                 <span style="color:${i.profiles ? '#047857' : '#94a3b8'}; font-size:12px; white-space:nowrap;">${i.profiles} candidate${i.profiles === 1 ? '' : 's'}</span>
             </div>`).join('');
     }

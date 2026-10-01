@@ -88,7 +88,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.36.0" in page.content(), "cache-buster not bumped to 5.36.0")
+        check("app.js?v=5.37.0" in page.content(), "cache-buster not bumped to 5.37.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")
@@ -121,6 +121,16 @@ try:
         href = page.get_attribute("#edu-results tr:first-child a", "href")
         check(href and href.startswith("https://www.linkedin.com/in/jn-"), f"LinkedIn link: {href}")
         page.screenshot(path=shot)
+
+        # "any campus" group: typing "jntu" offers it first, labelled, and it searches every campus
+        page.fill("#edu-inst-input", "jntu")
+        page.wait_for_selector(".edu-inst-option")
+        grp = page.inner_text(".edu-inst-option")
+        check(grp.startswith("JNTU - any campus") and "ALL CAMPUSES" in grp and "Includes:" in grp and "27 candidates" in grp,
+              f"group option: {grp!r}")
+        page.click(".edu-inst-option")
+        page.wait_for_function("document.getElementById('edu-status').innerText.includes('JNTU - any campus')")
+        check("27" in page.inner_text("#edu-status"), f"group status: {page.inner_text('#edu-status')}")
 
         page.click("#btn-edu-next")
         page.wait_for_function("document.getElementById('edu-page-info').textContent === 'Page 2 of 2'")

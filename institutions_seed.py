@@ -204,3 +204,23 @@ INSTITUTIONS = [
     ("us-southern-arkansas", "Southern Arkansas University", USA, "Magnolia", []),
     ("us-portland-state", "Portland State University", USA, "Portland", []),
 ]
+
+# "Any campus" choices for the filters' college box. Not stored in the database: choosing a group
+# simply searches all of its member institutions. Members are listed explicitly (never matched by
+# name pattern), so e.g. IIIT Hyderabad is NOT part of "IIT (any)".
+# (group_id, display_name, country, search_words, [member canonical_ids])
+GROUPS = [
+    ("group-jntu", "JNTU - any campus", INDIA, ["JNTU", "Jawaharlal Nehru Technological University"],
+     ["in-jntu-hyderabad", "in-jntu-kakinada", "in-jntu-anantapur", "in-jntu-unspecified"]),
+    ("group-iit", "IIT - any Indian Institute of Technology", INDIA, ["IIT", "Indian Institute of Technology"],
+     ["in-iit-bombay", "in-iit-delhi", "in-iit-madras", "in-iit-kanpur", "in-iit-kharagpur", "in-iit-roorkee",
+      "in-iit-guwahati", "in-iit-hyderabad", "in-iit-bhu"]),
+    ("group-nit", "NIT - any National Institute of Technology", INDIA, ["NIT", "National Institute of Technology"],
+     ["in-nit-warangal", "in-nit-trichy", "in-nit-surathkal", "in-nit-calicut", "in-nit-rourkela"]),
+    ("group-ut", "University of Texas - any campus", USA, ["UT", "University of Texas"],
+     ["us-ut-dallas", "us-ut-arlington", "us-utsa"]),
+    ("group-tamu", "Texas A&M - any campus", USA, ["Texas A&M", "TAMU"],
+     ["us-tamu", "us-tamu-commerce", "us-tamu-kingsville"]),
+    ("group-suny", "SUNY - any campus", USA, ["SUNY", "State University of New York"],
+     ["us-buffalo", "us-stony-brook", "us-binghamton"]),
+]

@@ -116,6 +116,36 @@ check(names("B", "us-ut-dallas") == ["One Testcase"], f"B/UTD: {names('B', 'us-u
 check(names("B", "us-northeastern") == ["Three Testcase"], "B/Northeastern")
 check(names("B", "us-ut-dallas", year_from=2020, year_to=2020) == [], "B/UTD 2020 (p1's MS is 2021)")
 
+# ---- "any campus" groups (JNTU / IIT / NIT, UT / Texas A&M / SUNY)
+li.ingest_profiles(li.ApifyProfileProvider().to_profiles([
+    item("t-p8", "Eight", [edu("JNTU Kakinada", "B.Tech", end=2018), edu("UTSA", "MS", end=2021)]),
+    item("t-p9", "Nine", [edu("JNTU", "BE", end=2014), edu("University of North Texas", "MS", end=2017)]),
+]), "apify", ADMIN_ID)
+check(names("A", "group-jntu") == ["Eight Testcase", "Five Testcase", "Nine Testcase", "One Testcase"],
+      f"JNTU any campus: {names('A', 'group-jntu')} (JNTUH + JNTUK + bare JNTU; dual degree and non-US MS excluded)")
+check(names("A", "group-jntu", year_from=2018, year_to=2020) == ["Eight Testcase", "One Testcase"], "JNTU group + years")
+check(names("A", "in-jntu-kakinada") == ["Eight Testcase"], "a single campus still works on its own")
+check(names("B", "group-ut") == ["Eight Testcase", "One Testcase"], f"UT any campus: {names('B', 'group-ut')}")
+check(names("A", "group-iit") == [], "IIT group: the only IIT entry is a Master's, so Filter A finds nobody")
+lst = client.get("/api/education/institutions", query_string={"filter": "A"}).get_json()["institutions"]
+check(lst[0]["id"].startswith("group-") and all(not x.get("group") for x in lst[3:]), "groups should be listed first")
+grp = next((x for x in lst if x["id"] == "group-jntu"), None)
+check(grp and grp["group"] and grp["profiles"] == 4 and "Jawaharlal Nehru Technological University Kakinada" in grp["members"]
+      and "JNTU" in grp["aliases"], f"JNTU group entry: {grp}")
+check(not any(x["id"] in ("group-ut", "group-tamu", "group-suny") for x in lst), "US groups must not appear in Filter A")
+lst_b = client.get("/api/education/institutions", query_string={"filter": "B"}).get_json()["institutions"]
+check(not any(x["id"] in ("group-jntu", "group-iit", "group-nit") for x in lst_b), "Indian groups must not appear in Filter B")
+r = client.get("/api/education/export-xlsx", query_string={"filter": "A", "institution_id": "group-jntu"})
+check(r.status_code == 200 and "JNTU" in r.headers.get("Content-Disposition", "") and load_workbook(io.BytesIO(r.data))["Candidates"].max_row == 5,
+      f"group export: {r.status_code} {r.headers.get('Content-Disposition')}")
+import institutions_seed  # noqa: E402
+seed_ids = {i[0] for i in institutions_seed.INSTITUTIONS}
+for g in institutions_seed.GROUPS:
+    missing = [m for m in g[4] if m not in seed_ids]
+    check(not missing, f"group {g[0]} lists unknown institutions {missing}")
+    check(all(m.startswith("in-" if g[2] == "India" else "us-") for m in g[4]), f"group {g[0]} mixes countries")
+check("in-iiit-hyderabad" not in dict((g[0], g[4]) for g in institutions_seed.GROUPS)["group-iit"], "IIIT is not an IIT")
+
 # ---- result columns
 r = client.get("/api/education/search", query_string={"filter": "A", "institution_id": "in-osmania"}).get_json()["results"][0]
 check("Osmania University (2015)" == r["indian_college"], f"indian_college column: {r['indian_college']}")
@@ -140,9 +170,9 @@ check(client.get("/api/education/search", query_string={"filter": "A", "institut
 insts = client.get("/api/education/institutions", query_string={"filter": "A"}).get_json()["institutions"]
 jntuh = next((i for i in insts if i["id"] == "in-jntu-hyderabad"), None)
 check(jntuh and "JNTUH" in jntuh["aliases"] and jntuh["profiles"] == 2, f"A list JNTUH entry: {jntuh}")
-check(all(i["id"].startswith("in-") for i in insts), "Filter A list must only hold Indian institutions")
+check(all(i["id"].startswith("in-") or i.get("group") for i in insts), "Filter A list must only hold Indian institutions")
 insts_b = client.get("/api/education/institutions", query_string={"filter": "B"}).get_json()["institutions"]
-check(insts_b and all(i["id"].startswith("us-") for i in insts_b), "Filter B list must only hold US institutions")
+check(insts_b and all(i["id"].startswith("us-") or i.get("group") for i in insts_b), "Filter B list must only hold US institutions")
 
 # ---- Excel export (logged with the recruiter id)
 r = client.get("/api/education/export-xlsx", query_string={"filter": "A", "institution_id": "in-jntu-hyderabad"})
@@ -158,7 +188,8 @@ conn = models.get_db_connection()
 cur = conn.cursor()
 cur.execute("SELECT user_id, details FROM capture_log WHERE action = 'export_xlsx'")
 logs = [tuple(x) for x in cur.fetchall()]
-check(len(logs) == 1 and logs[0][0] == REC_ID and logs[0][1].startswith("2 rows"), f"export log: {logs}")
+check(len(logs) == 2 and all(l[0] == REC_ID for l in logs) and logs[0][1].startswith("4 rows") and logs[1][1].startswith("2 rows"),
+      f"export log: {logs}")
 cur.execute("SELECT COUNT(*) FROM capture_log WHERE action = 'capture' AND user_id = ?", (REC_ID,))
 check(cur.fetchone()[0] == 6, "each captured profile should be logged with the recruiter id")
 conn.close()

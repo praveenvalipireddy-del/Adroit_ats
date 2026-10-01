@@ -1109,7 +1109,7 @@ def get_candidate_by_id(candidate_id, user_id=None, is_admin=False):
     conn.close()
     return dict(row) if row else None
 
-def create_candidate(name, email, phone="", title="Technical Consultant", primary_skills="", experience_years=5, target_rate="$90/hr (C2C)", visa_status="C2C Eligible", status="Available", location="United States (Remote)", country="United States", resume_filename=None, resume_path=None, resume_text=None, resume_summary="", gmail_account=None, gmail_token_path=None, assigned_user_id=1):
+def create_candidate(name, email, phone="", title="Technical Consultant", primary_skills="", experience_years=None, target_rate="", visa_status="", status="Available", location="", country="United States", resume_filename=None, resume_path=None, resume_text=None, resume_summary="", gmail_account=None, gmail_token_path=None, assigned_user_id=1):
     if isinstance(primary_skills, (list, tuple, set)):
         primary_skills = ", ".join(str(s) for s in primary_skills)
     else:

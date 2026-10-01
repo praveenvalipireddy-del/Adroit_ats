@@ -532,7 +532,7 @@
                                 <thead>
                                     <tr style="background: #f8fafc; color: #475569; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;">
                                         <th style="padding: 14px 18px;">Candidate</th>
-                                        <th style="padding: 14px 18px;">Target Rate</th>
+                                        <th style="padding: 14px 18px;">Rate / Salary</th>
                                         <th style="padding: 14px 18px;">Work Auth / Visa</th>
                                         <th style="padding: 14px 18px;">Experience</th>
                                         <th style="padding: 14px 18px;">Location</th>
@@ -861,11 +861,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label>Total Experience (Years)</label>
-                            <input type="number" id="c-exp" name="experience" class="form-control" value="8">
+                            <input type="number" id="c-exp" name="experience" class="form-control" min="0" placeholder="e.g. 5">
                         </div>
                         <div class="form-group">
-                            <label>Target Rate ($/hr C2C) *</label>
-                            <input type="text" id="c-rate" name="rate" class="form-control" value="$90/hr (C2C)" placeholder="$90/hr (C2C)">
+                            <label id="c-rate-label">Target Rate ($/hr) *</label>
+                            <input type="text" id="c-rate" name="rate" class="form-control" placeholder="e.g. $65/hr (C2C)">
                         </div>
                         <div class="form-group">
                             <label>Country *</label>
@@ -878,8 +878,8 @@
                         </div>
                     </div>
                     <div class="form-row">
-                        <div class="form-group">
-                            <label id="c-visa-label">Visa Status *</label>
+                        <div class="form-group" id="c-visa-group">
+                            <label id="c-visa-label">Visa / Work Authorization *</label>
                             <select id="c-visa" name="visa_status" class="form-control" required>
                                 <option value="" disabled selected>-- Select country first --</option>
                             </select>
@@ -1101,7 +1101,7 @@
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.43.0"></script>
+    <script src="/static/js/app.js?v=5.44.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

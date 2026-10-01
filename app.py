@@ -52,6 +52,14 @@ def current_user():
     return session.get("user")
 
 
+def _int_or_none(value):
+    """A whole number from a form field, or None when it's empty / not a number (never a made-up default)."""
+    try:
+        return int(str(value).strip()) if str(value or "").strip() else None
+    except ValueError:
+        return None
+
+
 def can_access_candidate(user, candidate_id) -> bool:
     """Admins can act on any consultant; a recruiter only on consultants assigned to them."""
     try:
@@ -256,10 +264,10 @@ def api_consultants():
             phone = request.form.get("phone", "").strip()
             title = request.form.get("title", "Technical Consultant").strip()
             skills = request.form.get("skills", "").strip()
-            exp = int(request.form.get("experience", 5))
-            rate = request.form.get("rate", "$90/hr (C2C)").strip()
-            visa = request.form.get("visa_status", "C2C Eligible").strip()
-            location = request.form.get("location", "United States (Remote)").strip()
+            exp = _int_or_none(request.form.get("experience"))
+            rate = (request.form.get("rate") or "").strip()
+            visa = (request.form.get("visa_status") or "").strip()
+            location = (request.form.get("location") or "").strip()
             country = request.form.get("country", "United States").strip()
             summary = request.form.get("summary", "").strip()
 
@@ -292,10 +300,10 @@ def api_consultants():
             phone = data.get("phone", "").strip()
             title = data.get("title", "Technical Consultant").strip()
             skills = data.get("skills", "").strip()
-            exp = int(data.get("experience", 5))
-            rate = data.get("rate", "$90/hr (C2C)").strip()
-            visa = data.get("visa_status", "C2C Eligible").strip()
-            location = data.get("location", "United States (Remote)").strip()
+            exp = _int_or_none(data.get("experience"))
+            rate = (data.get("rate") or "").strip()
+            visa = (data.get("visa_status") or "").strip()
+            location = (data.get("location") or "").strip()
             country = data.get("country", "United States").strip()
             summary = data.get("summary", "").strip()
             resume_filename = data.get("resume_filename")
@@ -313,6 +321,8 @@ def api_consultants():
                 try: assigned_user_id = int(req_assigned)
                 except: pass
 
+        if country == "India":
+            visa = ""   # no visa / relocation question for India-based consultants
         cand_id = models.create_candidate(
             name=name,
             email=email,

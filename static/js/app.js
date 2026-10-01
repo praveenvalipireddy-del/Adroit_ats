@@ -198,7 +198,7 @@ function populateConsultantDropdowns() {
     if (pdSelect) {
         pdSelect.innerHTML = state.consultants.map(c => 
             `<option value="${c.id}" ${c.id === state.activeConsultantId ? 'selected' : ''}>
-                ${escapeHtml(c.name)} (${escapeHtml(c.title || 'Consultant')}) - ${escapeHtml(c.target_rate || '$90/hr')}
+                ${escapeHtml(c.name)} (${escapeHtml(c.title || 'Consultant')})${c.target_rate ? ' - ' + escapeHtml(c.target_rate) : ''}
             </option>`
         ).join('');
     }
@@ -235,7 +235,7 @@ function updateActiveConsultantUI() {
 
     const rateBadge = document.getElementById('active-rate-badge');
     if (rateBadge) {
-        rateBadge.innerText = active.target_rate || '$90/hr C2C';
+        rateBadge.innerText = active.target_rate || '';
     }
 }
 
@@ -284,10 +284,10 @@ function renderConsultantsGrid() {
             </div>
 
             <div class="cand-meta-row">
-                <span class="meta-chip green">${escapeHtml(c.target_rate || '$90/hr C2C')}</span>
-                <span class="meta-chip">${escapeHtml(c.visa_status || 'C2C Eligible')}</span>
-                <span class="meta-chip">${c.experience_years || 5}+ Yrs Exp</span>
-                <span class="meta-chip">${escapeHtml(c.location || 'United States')}</span>
+                <span class="meta-chip green">${escapeHtml(c.target_rate || '—')}</span>
+                <span class="meta-chip">${escapeHtml(c.visa_status || (c.country === 'India' ? 'India-based' : 'Visa not set'))}</span>
+                <span class="meta-chip">${c.experience_years ? c.experience_years + '+ Yrs Exp' : 'Exp not set'}</span>
+                <span class="meta-chip">${escapeHtml(c.location || c.country || '—')}</span>
             </div>
 
             ${c.recruiter_name ? `
@@ -392,11 +392,11 @@ function renderConsultantsGrid() {
     });
 }
 
-// Real, distinct option sets: a US-based consultant's work-authorization categories don't
-// apply to someone still in India (they have no US visa process to describe yet), and vice
-// versa. Never falls back to a shared default - each market gets only what's true for it.
-const US_VISA_OPTIONS = ["US Citizen", "Green Card (C2C)", "H1B (Transfer/C2C)", "OPT/CPT", "C2C Eligible"];
-const INDIA_VISA_OPTIONS = ["Open to US Relocation (H1B/L1 Sponsorship Needed)", "Not Seeking US Relocation (India-Based Roles Only)", "Has a Valid US Visa Already (specify in summary)"];
+// US-based consultants: one option per real US status (H1B and H1B Transfer, OPT, STEM OPT and CPT
+// are different statuses). India-based consultants have no visa question at all - the field is
+// hidden and nothing is saved for it. Older saved values (e.g. "OPT/CPT") stay selectable as
+// "(previously saved)" instead of being dropped.
+const US_VISA_OPTIONS = ["US Citizen", "Green Card", "H1B", "H1B Transfer", "H4 EAD", "L1", "L2", "OPT", "STEM OPT", "CPT", "TN", "B1/B2"];
 
 function syncVisaOptionsForCountry(currentValue = '') {
     const countrySelect = document.getElementById('c-country');
@@ -405,16 +405,30 @@ function syncVisaOptionsForCountry(currentValue = '') {
     if (!visaSelect) return;
     const country = countrySelect ? countrySelect.value : '';
 
-    if (!country) {
-        visaSelect.innerHTML = `<option value="" disabled selected>-- Select country first --</option>`;
-        if (visaLabel) visaLabel.innerText = 'Visa Status *';
+    const visaGroup = document.getElementById('c-visa-group');
+    const rateLabel = document.getElementById('c-rate-label');
+    const rateInput = document.getElementById('c-rate');
+    const india = country === 'India';
+    // India: salaries, not $/hr C2C rates; and no visa / relocation question.
+    if (rateLabel) rateLabel.innerText = india ? 'Expected Salary (CTC)' : 'Target Rate ($/hr) *';
+    if (rateInput) rateInput.placeholder = india ? 'e.g. ₹12 LPA' : 'e.g. $65/hr (C2C)';
+    if (visaGroup) visaGroup.style.display = india ? 'none' : '';
+    visaSelect.required = !india;
+    if (india) {
+        visaSelect.innerHTML = '<option value="" selected></option>';
         return;
     }
 
-    const options = country === 'India' ? INDIA_VISA_OPTIONS : US_VISA_OPTIONS;
-    if (visaLabel) visaLabel.innerText = country === 'India' ? 'Relocation / Sponsorship Status *' : 'Visa Status *';
+    if (!country) {
+        visaSelect.innerHTML = `<option value="" disabled selected>-- Select country first --</option>`;
+        if (visaLabel) visaLabel.innerText = 'Visa / Work Authorization *';
+        return;
+    }
 
-    let html = `<option value="" disabled ${!currentValue ? 'selected' : ''}>-- Select ${country === 'India' ? 'relocation status' : 'visa / work authorization'} --</option>`;
+    const options = US_VISA_OPTIONS;
+    if (visaLabel) visaLabel.innerText = 'Visa / Work Authorization *';
+
+    let html = `<option value="" disabled ${!currentValue ? 'selected' : ''}>-- Select visa / work authorization --</option>`;
     html += options.map(o => `<option value="${escapeHtml(o)}" ${o === currentValue ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('');
     // A saved value from before this consultant's Country was last changed (or from the old
     // removed "Outside USA" option) won't match either list - keep it as its own option
@@ -441,8 +455,8 @@ function openConsultantModal(cand = null) {
         document.getElementById('c-phone').value = cand.phone || '';
         document.getElementById('c-title').value = cand.title || '';
         document.getElementById('c-skills').value = cand.primary_skills || '';
-        document.getElementById('c-exp').value = cand.experience_years || 5;
-        document.getElementById('c-rate').value = cand.target_rate || '$90/hr (C2C)';
+        document.getElementById('c-exp').value = cand.experience_years || '';
+        document.getElementById('c-rate').value = cand.target_rate || '';
         document.getElementById('c-location').value = cand.location || 'United States';
         document.getElementById('c-country').value = cand.country || 'United States';
         syncVisaOptionsForCountry(cand.visa_status || '');
@@ -1472,7 +1486,7 @@ function initModals() {
                         phone: document.getElementById('c-phone').value.trim(),
                         title: document.getElementById('c-title').value.trim(),
                         primary_skills: document.getElementById('c-skills').value.trim(),
-                        experience_years: parseInt(document.getElementById('c-exp').value) || 5,
+                        experience_years: parseInt(document.getElementById('c-exp').value) || null,
                         target_rate: document.getElementById('c-rate').value.trim(),
                         visa_status: document.getElementById('c-visa').value.trim(),
                         location: document.getElementById('c-location').value.trim(),
@@ -2817,16 +2831,16 @@ function renderConsultantsTable() {
             </td>
             <td style="padding: 14px 18px;">
                 <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.78rem; font-weight: 700; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">
-                    ${escapeHtml(c.target_rate || '$90/hr C2C')}
+                    ${escapeHtml(c.target_rate || '—')}
                 </span>
             </td>
             <td style="padding: 14px 18px;">
                 <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.78rem; font-weight: 600; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;">
-                    ${escapeHtml(c.visa_status || 'C2C Eligible')}
+                    ${escapeHtml(c.visa_status || (c.country === 'India' ? 'India-based' : 'Visa not set'))}
                 </span>
             </td>
             <td style="padding: 14px 18px; font-weight: 600; color: #334155;">
-                ${c.experience_years || 5}+ Yrs
+                ${c.experience_years ? c.experience_years + '+ Yrs' : '—'}
             </td>
             <td style="padding: 14px 18px; color: #64748b; font-size: 0.85rem;">
                 <span title="${(c.country || 'United States') === 'India' ? 'India market' : 'US market'}">${(c.country || 'United States') === 'India' ? '🇮🇳' : '🇺🇸'}</span>

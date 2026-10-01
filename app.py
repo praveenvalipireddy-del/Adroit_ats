@@ -1546,6 +1546,12 @@ def api_students_search_poll():
     if raw_items:
         try:
             linkedin_ingest.ingest_profiles(linkedin_ingest.ApifyProfileProvider().to_profiles(raw_items), "apify", user["id"])
+            vconn = models.get_db_connection()
+            try:
+                linkedin_ingest.mark_verified(vconn, (result.get("new_matches") or []) + other)
+                vconn.commit()
+            finally:
+                vconn.close()
         except Exception as ex:
             logger.warning(f"Education filters: could not store scanned profiles: {ex}")
     return jsonify(result)

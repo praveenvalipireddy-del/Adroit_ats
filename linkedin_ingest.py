@@ -254,6 +254,52 @@ def import_sourced_pool(conn=None) -> Dict:
             conn.close()
 
 
+def mark_verified(conn, matches) -> int:
+    """Record the Bachelor's year the LinkedIn search VERIFIED for each match (evaluate_profile: an
+    Indian college's Bachelor's ending that year + a non-Indian, non-foreign Master's, person in the
+    USA). The Passout tab lists these people even when their college isn't on the college list -
+    otherwise people the recruiter paid to verify were hidden (4 verified for 2019, 1 shown).
+    Caller commits."""
+    cur = conn.cursor()
+    n = 0
+    for m in matches or []:
+        url = canonical_linkedin_url((m or {}).get("profile_url") or (m or {}).get("linkedin_url"))
+        year = _int_year((m or {}).get("bachelor_year"))
+        if url and year:
+            cur.execute("UPDATE linkedin_profiles SET verified_bachelor_year = ? WHERE linkedin_url = ?", (year, url))
+            n += 1
+    return n
+
+
+def sync_verified_years(conn=None) -> int:
+    """Fill verified_bachelor_year from the team's verified pool (sourced_candidates) for profiles
+    that don't have it yet. Free, idempotent; runs at startup so existing results show too."""
+    import models
+    own = conn is None
+    conn = conn or models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT profile_url, bachelor_year FROM sourced_candidates WHERE bachelor_year IS NOT NULL AND bachelor_year <> ''")
+        verified = {}
+        for r in cur.fetchall():
+            url, year = canonical_linkedin_url(r[0]), _int_year(r[1])
+            if url and year:
+                verified[url] = year
+        if not verified:
+            return 0
+        cur.execute("SELECT id, linkedin_url FROM linkedin_profiles WHERE verified_bachelor_year IS NULL")
+        todo = [(r[0], verified[r[1]]) for r in cur.fetchall() if r[1] in verified]
+        for pid, year in todo:
+            cur.execute("UPDATE linkedin_profiles SET verified_bachelor_year = ? WHERE id = ?", (year, pid))
+        conn.commit()
+        if todo:
+            logger.info("Education filters: marked %d profile(s) with their search-verified Bachelor's year.", len(todo))
+        return len(todo)
+    finally:
+        if own:
+            conn.close()
+
+
 def rematch_institution(conn, name_norm: str) -> int:
     """After an admin maps a school name, apply it to every stored education entry with that name.
     Returns rows updated. Caller commits."""

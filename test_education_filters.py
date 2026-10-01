@@ -289,6 +289,52 @@ check("raw_items" not in (r.get_json() or {}), "raw scanned profiles must not be
 check(names("A", "in-vit") == ["Live Testcase"], "a profile scanned by a live search (not a match for its year) should be in Filter A")
 check(names("B", "us-njit") == ["Live Testcase"], "...and in Filter B")
 
+# ---- Passout shows EVERYONE the paid search verified for the year, even when their college and
+# university aren't on the college list (reported: search said 4 verified for 2019, table showed 1).
+hidden = item("t-hidden", "Hidden", [edu("Sri Example Institute of Engineering Testpur", "B.Tech", end=2019),
+                                     edu("Example State University Testville", "Master of Science - MS", end=2021)])
+hidden_match = {"profile_url": "https://www.linkedin.com/in/t-hidden.example.invalid", "bachelor_year": "2019",
+                "name": "Hidden Testcase", "bachelor_college": "Sri Example Institute of Engineering Testpur",
+                "master_university": "Example State University Testville"}
+
+
+def fake_poll_verified(run_id, dataset_id, bachelor_year, offset, matched_so_far, target=None):
+    return {"status": "SUCCEEDED", "done": True, "next_offset": 1, "scanned_new": 1, "new_matches": [hidden_match],
+            "other_year_matches": [], "skipped": {}, "raw_items": [hidden]}
+
+
+before_p2019 = passout(2019)
+linkedin_sourcing.poll_search = fake_poll_verified
+try:
+    login(REC_ID, "Filter Test Recruiter", "Recruiter")
+    r = client.post("/api/students/search-poll", json={"run_id": "AbCdEfGhIjKlMnOpQ", "dataset_id": "QpOnMlKjIhGfEdCbA", "bachelor_year": 2019})
+finally:
+    linkedin_sourcing.poll_search = real_poll
+check(r.status_code == 200, f"search-poll (verified): {r.status_code}")
+after_p2019 = passout(2019)
+check("Hidden Testcase" in after_p2019 and set(before_p2019) <= set(after_p2019),
+      f"a search-verified person with unlisted colleges must appear in Passout 2019: {after_p2019}")
+check("Hidden Testcase" in passout("All") and "Hidden Testcase" not in passout(2018), "verified year respected (All yes, 2018 no)")
+row = next((x for x in client.get("/api/education/search", query_string={"filter": "P", "passout_year": 2019}).get_json()["results"]
+           if x["name"] == "Hidden Testcase"), None) or {}
+check(row.get("indian_college", "") and row["indian_college"] == "Sri Example Institute of Engineering Testpur (2019)"
+      and row.get("us_masters", "").startswith("Example State University Testville - Master of Science"), f"verified row columns: {row}")
+check("Hidden Testcase" not in names("A", "group-jntu") and "Hidden Testcase" not in names("B", "us-ut-dallas"),
+      "Filters A/B stay strict (specific recognised colleges only)")
+
+# people verified BEFORE this fix (already in the pool and in the profiles table) are picked up at startup
+li.ingest_profiles(li.ApifyProfileProvider().to_profiles([item("t-older", "Older", [
+    edu("Example Engineering College Oldtown", "BE", end=2017), edu("Example Tech University Oldcity", "MS", end=2019)])]), "apify", REC_ID)
+check("Older Testcase" not in passout(2017), "not verified yet -> not shown")
+conn = models.get_db_connection()
+cur = conn.cursor()
+cur.execute("""INSERT INTO sourced_candidates (source, search_year, profile_url, name, bachelor_year)
+               VALUES ('apify', '2017', 'https://www.linkedin.com/in/T-Older.example.invalid/', 'Older Testcase', '2017')""")
+conn.commit()
+conn.close()
+models.init_db()
+check("Older Testcase" in passout(2017), "startup should mark earlier search-verified people (URL case/slash differences ignored)")
+
 if failures:
     print(f"FAIL: {len(failures)} check(s) failed:")
     for f in failures:

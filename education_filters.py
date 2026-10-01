@@ -123,6 +123,11 @@ def _where(p: Dict):
     inst_sql = f"AND c.institution_canonical_id IN ({', '.join(['?'] * len(members))}) " if members else ""
     clauses[0] = clauses[0].format(years=years, inst=inst_sql)
     params += [spec["other_level"], spec["other_country"]]
+    if p["filter"] == "P":
+        # Everyone the paid LinkedIn search verified for these years, plus college-list matches.
+        edu_sql, edu_params = " AND ".join(clauses), params
+        clauses = [f"((p.verified_bachelor_year >= ? AND p.verified_bachelor_year <= ?) OR ({edu_sql}))"]
+        params = [p["year_from"], p["year_to"], *edu_params]
     if p["location"]:
         clauses.append("LOWER(COALESCE(p.location, '')) LIKE ?")
         params.append(_like(p["location"]))
@@ -176,6 +181,14 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
         chosen = [e for e in edu if e["degree_level"] == spec["chosen_level"] and (members is None or e["institution_canonical_id"] in members)
                   and e["country"] == spec["chosen_country"] and _in_range(e["end_year"], p)]
         other = [e for e in edu if e["degree_level"] == spec["other_level"] and e["country"] == spec["other_country"]]
+        vy = r.get("verified_bachelor_year")
+        if p["filter"] == "P" and vy and _in_range(vy, p):
+            # Search-verified person whose college/university isn't on the college list: show the
+            # entries the search verified (Bachelor's ending that year; a Master's not from India).
+            if not chosen:
+                chosen = [e for e in edu if e["degree_level"] == "Bachelors" and e["end_year"] == vy and e["country"] != "USA"]
+            if not other:
+                other = [e for e in edu if e["degree_level"] == "Masters" and e["country"] != "India"]
         # A and Passout choose on the Indian Bachelor's side; B chooses on the US Master's side.
         indian, us = (other, chosen) if p["filter"] == "B" else (chosen, other)
         out.append({
@@ -194,7 +207,7 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
 
 
 _SELECT = """SELECT p.id, p.name, p.headline, p.current_title, p.current_company, p.location, p.linkedin_url,
-                    p.captured_by, p.captured_at, u.name AS captured_by_name
+                    p.captured_by, p.captured_at, p.verified_bachelor_year, u.name AS captured_by_name
              FROM linkedin_profiles p LEFT JOIN users u ON u.id = p.captured_by"""
 
 

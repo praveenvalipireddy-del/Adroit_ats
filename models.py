@@ -436,6 +436,7 @@ def init_db():
     try:
         import linkedin_ingest
         linkedin_ingest.import_sourced_pool(conn)
+        linkedin_ingest.sync_verified_years(conn)
     except Exception as ex:
         print("[WARN] education filters pool import:", ex)
 
@@ -558,7 +559,8 @@ def migrate_db(conn):
                 pass
 
     # Education-filter tables (added after their first deploy)
-    for table, new_cols in (("linkedin_profiles", {"education_complete": "INTEGER DEFAULT 0"}),
+    for table, new_cols in (("linkedin_profiles", {"education_complete": "INTEGER DEFAULT 0",
+                                                   "verified_bachelor_year": "INTEGER"}),
                             ("profile_education", {"institution_norm": "TEXT"})):
         existing_cols = get_existing_cols(table)
         for col, c_type in new_cols.items():

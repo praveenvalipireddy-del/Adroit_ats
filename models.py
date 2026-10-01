@@ -532,7 +532,10 @@ def migrate_db(conn):
         "is_24h": "INTEGER DEFAULT 1",
         "is_seed_example": "INTEGER DEFAULT 0",
         "scraped_at": "TEXT",
-        "country": "TEXT DEFAULT 'United States'"
+        "country": "TEXT DEFAULT 'United States'",
+        # Full job description read from the posting on demand (Resume Optimizer); the scraped
+        # one-line summary stays in `description`.
+        "full_description": "TEXT"
     }
     for col, c_type in job_new_cols.items():
         if col.lower() not in j_cols:
@@ -1274,6 +1277,14 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
             f.pop("_relevance", None)
 
     return filtered
+
+def save_job_full_description(job_id, text):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE jobs SET full_description = ? WHERE id = ?", (text, job_id))
+    conn.commit()
+    conn.close()
+
 
 def get_job_by_id(job_id):
     conn = get_db_connection()

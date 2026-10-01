@@ -41,6 +41,24 @@ from werkzeug.serving import make_server  # noqa: E402
 us_job_scrapers.run_multi_source_us_scrape = lambda *a, **k: {"jobs": [], "count": 0}
 india_job_scrapers.run_multi_source_india_scrape = lambda *a, **k: {"jobs": [], "count": 0}
 
+# Posting reads are stubbed (no network): the Dice test posting "has" a full description, the
+# LinkedIn one is gone. Counts calls so the test can prove the 2nd click is served from the DB.
+import job_description_fetch  # noqa: E402
+
+DICE_FULL = ("FULL DICE DESCRIPTION (test fixture)\nResponsibilities:\n- Build Power BI dashboards\n- Write complex SQL\n"
+             "Requirements: 5+ years SQL and Python. " + "Detail. " * 30)
+fetch_calls = []
+
+
+def _fake_fetch(url):
+    fetch_calls.append(url)
+    if url and "00000000-0000-4000-8000-000000000001" in url:
+        return DICE_FULL, ""
+    return None, "The posting is no longer available."
+
+
+job_description_fetch.fetch_full_description = _fake_fetch
+
 EMAIL, PASSWORD = "jobs-opt-admin@example.invalid", "JobsOpt-Test-1"
 admin = models.create_user("Jobs Opt Admin", EMAIL, PASSWORD, role="Admin")
 admin_id = admin["id"] if isinstance(admin, dict) else admin
@@ -70,9 +88,14 @@ pasted_id = models.save_or_update_scraped_job({
     "description": FULL_JD, "matched_skills": "Data Analyst", "match_score": 95})
 scraped_id = models.save_or_update_scraped_job({
     "title": "Data Analyst Scraped Test", "company": "Test Corp", "location": "Dallas, TX", "job_type": "Contract",
-    "salary": "$55/hr", "source": "Dice", "url": "https://www.dice.com/job-detail/test-only-example",
+    "salary": "$55/hr", "source": "Dice", "url": "https://www.dice.com/job-detail/00000000-0000-4000-8000-000000000001",
     "description": "Dice US Contract Requisition: Data Analyst Scraped Test at Test Corp (Dallas, TX). Pay Rate: $55/hr",
     "matched_skills": "Data Analyst", "match_score": 90})
+gone_id = models.save_or_update_scraped_job({
+    "title": "Data Analyst Gone Test", "company": "Gone Corp", "location": "Remote", "source": "LinkedIn (Live 24h)",
+    "url": "https://www.linkedin.com/jobs/view/data-analyst-gone-test-9999999999", "description": "Summary only (test).",
+    "matched_skills": "Data Analyst", "match_score": 90})
+gone_id = gone_id["id"] if isinstance(gone_id, dict) else gone_id
 pasted_id = pasted_id["id"] if isinstance(pasted_id, dict) else pasted_id
 scraped_id = scraped_id["id"] if isinstance(scraped_id, dict) else scraped_id
 
@@ -115,7 +138,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.39.0" in page.content(), "cache-buster not bumped to 5.39.0")
+        check("app.js?v=5.40.0" in page.content(), "cache-buster not bumped to 5.40.0")
 
         # 1. Browse Jobs on Karun (not the first consultant)
         page.click("a.nav-item[data-tab=candidates]")
@@ -145,17 +168,32 @@ try:
         check("filled in" in note and "Data Analyst Pasted Test" in note, f"full-JD note: {note!r}")
         page.screenshot(path=shot)
 
-        # 3b. scraped posting -> summary + link, amber note asking for the full description
+        # 3b. Dice posting -> the full description is read from the posting and filled in
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_selector(f".job-row[data-job-id='{scraped_id}']")
         page.click(f".job-row[data-job-id='{scraped_id}'] .btn-optimize-job")
         page.wait_for_selector("#tab-resumebot.active", timeout=5000)
-        jd = page.input_value("#resumebot-jd-text")
-        check("Data Analyst Scraped Test - Test Corp" in jd and "Posting: https://www.dice.com/job-detail/test-only-example" in jd,
-              f"scraped JD prefill: {jd!r}")
+        page.wait_for_function("document.getElementById('resumebot-jd-text').value.startsWith('FULL DICE DESCRIPTION')", timeout=10000)
         note = page.inner_text("#resumebot-jd-note")
-        check("Only a short summary" in note and "open the posting" in note, f"summary note: {note!r}")
-        check(page.get_attribute("#resumebot-jd-note a", "href") == "https://www.dice.com/job-detail/test-only-example", "posting link in note")
+        check("Full job description read from the posting" in note, f"fetched-JD note: {note!r}")
+        check(page.get_attribute("#resumebot-jd-note a", "href") == "https://www.dice.com/job-detail/00000000-0000-4000-8000-000000000001",
+              "posting link in note")
+        check(not page.is_disabled("#btn-run-resume-optimization"), "Optimize button must be enabled again after reading")
+        page.screenshot(path=shot)
+        # second click: served from the database, no second read of the posting
+        page.click("a.nav-item[data-tab=jobs]")
+        page.click(f".job-row[data-job-id='{scraped_id}'] .btn-optimize-job")
+        page.wait_for_function("document.getElementById('resumebot-jd-text').value.startsWith('FULL DICE DESCRIPTION')", timeout=10000)
+        check(len(fetch_calls) == 1, f"the posting should be read once, then reused: {fetch_calls}")
+
+        # 3c. LinkedIn posting that can't be read -> summary stays, amber note with the reason
+        page.click("a.nav-item[data-tab=jobs]")
+        page.click(f".job-row[data-job-id='{gone_id}'] .btn-optimize-job")
+        page.wait_for_function("document.getElementById('resumebot-jd-note').innerText.includes('no longer available')", timeout=10000)
+        jd = page.input_value("#resumebot-jd-text")
+        check("Data Analyst Gone Test - Gone Corp" in jd and "Summary only (test)." in jd, f"summary kept on failure: {jd!r}")
+        check("Only a short summary" in page.inner_text("#resumebot-jd-note"), "paste instruction on failure")
+        check(not page.is_disabled("#btn-run-resume-optimization"), "Optimize button re-enabled after a failed read")
         page.wait_for_timeout(500)
         browser.close()
 finally:
@@ -170,4 +208,4 @@ if failures:
         print("  -", f)
     print("screenshot:", shot)
     sys.exit(1)
-print(f"PASS: Browse Jobs selects the clicked consultant; Resume column after Recruiter Email opens the optimizer pre-filled (full JD / summary + note); no AI call. Screenshot: {shot}")
+print(f"PASS: Browse Jobs selects the clicked consultant; Optimize Resume fills the full JD (pasted / read from posting once / honest fallback); no AI call. Screenshot: {shot}")

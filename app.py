@@ -24,6 +24,7 @@ import education_match
 import gmail_multi_manager
 import us_job_scrapers
 import india_job_scrapers
+import job_description_fetch
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
 logging.basicConfig(level=logging.INFO)
@@ -703,6 +704,30 @@ def api_trigger_india_scrape():
     })
 
 # --- In-Table Quick Email & Contact Update API ---
+
+@app.route("/api/jobs/<int:job_id>/full-description", methods=["POST", "OPTIONS"])
+def api_job_full_description(job_id):
+    """Full job description for the Resume Optimizer. Pasted requirements already have it; for a
+    LinkedIn/Dice posting it is read from that one public posting (free, on demand) and saved, so
+    the next recruiter gets it instantly. Never invented: an unreadable posting returns 422."""
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    job = models.get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if (job.get("full_description") or "").strip():
+        return jsonify({"description": job["full_description"], "cached": True})
+    if job.get("source") == "Manual Paste" and (job.get("description") or "").strip():
+        return jsonify({"description": job["description"], "cached": True})
+    text, reason = job_description_fetch.fetch_full_description(job.get("url"))
+    if not text:
+        return jsonify({"error": reason}), 422
+    models.save_job_full_description(job_id, text)
+    return jsonify({"description": text, "cached": False})
+
 
 @app.route("/api/jobs/update-email", methods=["POST", "OPTIONS"])
 def api_update_job_email():

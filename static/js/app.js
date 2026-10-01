@@ -3219,6 +3219,9 @@ async function submitCopilotDraftToGmail() {
 // A pasted requirement ("Manual Paste") keeps the full job description. Scraped postings only keep a
 // one-line summary, so for those the recruiter is asked to paste the full description from the posting.
 const FULL_JD_MIN_CHARS = 400;
+// LinkedIn / Dice postings: the server reads the full description from the posting (free).
+const JD_AUTO_FETCH_RE = /^https?:\/\/([a-z0-9-]+\.)*(linkedin\.com\/jobs|dice\.com\/job-detail)\//i;
+let jdFetchCounter = 0;
 
 function openResumeOptimizerForJob(jobId, candidateId) {
     const job = (state.jobs || []).find(j => j.id === jobId);
@@ -3233,22 +3236,47 @@ function openResumeOptimizerForJob(jobId, candidateId) {
     }
 
     const desc = (job.description || '').trim();
-    const isFull = job.source === 'Manual Paste' || desc.length >= FULL_JD_MIN_CHARS;
+    const full = (job.full_description || '').trim()
+        || ((job.source === 'Manual Paste' || desc.length >= FULL_JD_MIN_CHARS) ? desc : '');
     const header = [job.title, job.company].filter(Boolean).join(' - ') + (job.location ? ` (${job.location})` : '');
+    const summary = [header, desc, job.url ? `Posting: ${job.url}` : ''].filter(Boolean).join('\n\n');
     const jdBox = document.getElementById('resumebot-jd-text');
-    if (jdBox) jdBox.value = isFull ? desc : [header, desc, job.url ? `Posting: ${job.url}` : ''].filter(Boolean).join('\n\n');
-
     const note = document.getElementById('resumebot-jd-note');
-    if (note) {
-        note.style.display = 'block';
-        if (isFull) {
-            note.style.color = '#047857';
-            note.innerHTML = `Job description filled in from <b>${escapeHtml(header)}</b>. Review it, then click Optimize.`;
+    const postingLink = job.url
+        ? `<a href="${escapeHtml(job.url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; font-weight:600;">open the posting ↗</a>`
+        : 'open the posting';
+    const setNote = (color, html) => { if (note) { note.style.display = 'block'; note.style.color = color; note.innerHTML = html; } };
+    const askToPaste = (why) => setNote('#b45309', `${why ? escapeHtml(why) + ' ' : ''}Only a short summary is saved for <b>${escapeHtml(header)}</b>. For a good result, ${postingLink}, copy the full job description and paste it into the box above.`);
+    const fetchToken = ++jdFetchCounter;
+
+    if (full) {
+        if (jdBox) jdBox.value = full;
+        setNote('#047857', `Full job description filled in for <b>${escapeHtml(header)}</b>. Review it, then click Optimize.`);
+    } else {
+        if (jdBox) jdBox.value = summary;
+        if (JD_AUTO_FETCH_RE.test(job.url || '')) {
+            setNote('#475569', `Reading the full job description from the posting for <b>${escapeHtml(header)}</b>...`);
+            const optBtn = document.getElementById('btn-run-resume-optimization');
+            if (optBtn) optBtn.disabled = true;
+            fetch(`/api/jobs/${job.id}/full-description`, { method: 'POST' })
+                .then(r => r.json().then(d => ({ ok: r.ok, d })).catch(() => ({ ok: false, d: {} })))
+                .then(({ ok, d }) => {
+                    if (fetchToken !== jdFetchCounter) return;   // the recruiter moved on to another job
+                    if (ok && d.description) {
+                        job.full_description = d.description;
+                        if (jdBox && jdBox.value === summary) jdBox.value = d.description;   // never overwrite their edits
+                        setNote('#047857', `Full job description read from the posting (${postingLink}). Review it, then click Optimize.`);
+                    } else {
+                        askToPaste(d.error || 'The full description could not be read automatically.');
+                    }
+                })
+                .catch(() => { if (fetchToken === jdFetchCounter) askToPaste('The full description could not be read automatically.'); })
+                .finally(() => {
+                    const b = document.getElementById('btn-run-resume-optimization');
+                    if (b && fetchToken === jdFetchCounter) b.disabled = false;
+                });
         } else {
-            note.style.color = '#b45309';
-            note.innerHTML = `Only a short summary is saved for <b>${escapeHtml(header)}</b>. For a good result, `
-                + (job.url ? `<a href="${escapeHtml(job.url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; font-weight:600;">open the posting ↗</a>` : 'open the posting')
-                + ', copy the full job description and paste it into the box above.';
+            askToPaste('');
         }
     }
     if (jdBox) jdBox.scrollIntoView({ behavior: 'smooth', block: 'center' });

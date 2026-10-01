@@ -1191,6 +1191,49 @@ def get_resume_file(candidate_id):
         return None
     return {"filename": row["filename"], "data": bytes(row["data"])}
 
+RESUMES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "resumes")
+
+
+def find_resume_file(cand, persist=True):
+    """(filename, bytes) of a consultant's original resume (.docx/.pdf/.txt), or None.
+
+    Looked up in the database first, then on disk: the stored resume_path (an absolute path from
+    whichever server saved it - it changes between deploys / Docker vs native), then the same file
+    name in THIS server's data/resumes. Only files inside data/resumes are read. A file found on
+    disk only is copied into the database (persist=True) so it survives Render's disk wipe.
+    Used by the Resume Optimizer AND Gmail drafts, so both always find the same resume."""
+    from werkzeug.utils import secure_filename
+
+    rec = get_resume_file(cand["id"])
+    if rec and rec.get("data"):
+        return rec.get("filename") or "resume", rec["data"]
+    root = os.path.realpath(RESUMES_DIR)
+    paths = []
+    if cand.get("resume_path"):
+        paths.append(cand["resume_path"])
+    for name in (cand.get("resume_path"), cand.get("resume_filename")):
+        base = secure_filename(os.path.basename(name or ""))
+        if base:
+            paths.append(os.path.join(RESUMES_DIR, base))
+    for path in paths:
+        if os.path.splitext(path.lower())[1] not in (".docx", ".pdf", ".txt"):
+            continue
+        real = os.path.realpath(path)
+        if real.startswith(root + os.sep) and os.path.isfile(real):
+            try:
+                with open(real, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                continue
+            if persist and data:
+                try:
+                    save_resume_file(cand["id"], os.path.basename(real), data)
+                except Exception as ex:
+                    logger.warning("Could not copy resume file into the database: %s", ex)
+            return os.path.basename(real), data
+    return None
+
+
 def _parse_db_timestamp(value):
     """Best-effort parse of a jobs.scraped_at value into a timezone-aware UTC datetime.
     SQLite's CURRENT_TIMESTAMP yields a naive UTC string ('YYYY-MM-DD HH:MM:SS[.ffffff]');

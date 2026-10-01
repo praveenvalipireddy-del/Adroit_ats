@@ -1214,33 +1214,8 @@ def api_resume_bot_optimize():
 
 
 def _stored_resume_file(cand):
-    """(filename, bytes) of a consultant's original resume file (.docx/.pdf/.txt): from the
-    database, or - for consultants created before that table existed - from the resumes folder.
-    Only files inside RESUMES_DIR are read. None when there isn't one."""
-    rec = models.get_resume_file(cand["id"])
-    if rec and rec.get("data"):
-        return rec.get("filename") or "resume", rec["data"]
-    root = os.path.realpath(RESUMES_DIR)
-    candidates = []
-    if cand.get("resume_path"):
-        candidates.append(cand["resume_path"])
-    # The stored absolute path is from whichever server saved it (it changes between deploys /
-    # Docker vs native), so also look for the same file name in this server's resumes folder.
-    for name in (cand.get("resume_path"), cand.get("resume_filename")):
-        base = secure_filename(os.path.basename(name or ""))
-        if base:
-            candidates.append(os.path.join(RESUMES_DIR, base))
-    for path in candidates:
-        if os.path.splitext(path.lower())[1] not in (".docx", ".pdf", ".txt"):
-            continue
-        real = os.path.realpath(path)
-        if real.startswith(root + os.sep) and os.path.isfile(real):
-            try:
-                with open(real, "rb") as fh:
-                    return os.path.basename(real), fh.read()
-            except OSError:
-                continue
-    return None
+    """(filename, bytes) of a consultant's original resume file - see models.find_resume_file."""
+    return models.find_resume_file(cand)
 
 
 def _stored_docx_bytes(cand):

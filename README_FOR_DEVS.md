@@ -91,3 +91,20 @@ server {
 3. `live_job_scraper.py`: Real-time multi-source scraper for **LinkedIn** (24h Contract filter `f_TPR=r86400&f_JT=C`), **Indeed**, and **Dice**.
 4. `models.py`: Database access layer (Users, Candidates, Jobs, Pipeline stages, Audit activity logs).
 5. `apify_service.py`: Indeed live actor connector.
+
+---
+
+## 🎓 Education Filters (Sourcing tab)
+
+**What recruiters get:** two searches over the team's saved LinkedIn profiles, at the top of the Sourcing tab. They are free (no Apify credits) and shared by the whole team.
+- **Filter A - Indian College → US Master's:** pick an Indian college (type a name or short form, e.g. `JNTUH`, `Osmania`). Shows people with a Bachelor's there **and** a Master's from any US university.
+- **Filter B - US University → Indian Undergrad:** pick a US university (e.g. `UT Dallas`, `UNT`). Shows people with a Master's there **and** a Bachelor's from any Indian college.
+- Optional: year range (applies to the degree at the chosen school; entries with no year are left out when a range is set), location, and skill/title/company keyword. 25 per page; **⬇ Excel** downloads every match (up to 10,000). Each download is logged with the recruiter's id.
+
+**Where the profiles come from:** every profile an Apify "Search LinkedIn" run scans is saved with its full education list (not only that year's matches). Existing Sourcing results are imported automatically at startup. Profiles are deduplicated on the LinkedIn URL.
+
+**How a school's country is known:** from the college list (`institutions_seed.py`, table `institution_aliases`). Matching is exact first, then a close-spelling match (rapidfuzz) that never accepts a different campus. A school that isn't recognised gets no country, so it never counts in either filter. It is listed under **Admin & Settings → Colleges not recognised**, where an admin links it to the right college (or adds a new one). Every saved profile with that name then counts immediately.
+
+**Setup:** nothing extra. Tables are created on startup and `rapidfuzz` is in `requirements.txt`. To add colleges for everyone, edit `institutions_seed.py` and bump `SEED_VERSION`.
+
+**Code:** `education_match.py` (name/degree matching), `linkedin_ingest.py` (providers + storage), `education_filters.py` (Filter A/B, Excel), routes under `/api/education/*` in `app.py`. Tests: `test_education_match.py`, `test_education_filters.py`, `test_education_filters_browser.py`.

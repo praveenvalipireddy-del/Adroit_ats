@@ -313,6 +313,73 @@
                         </div>
                     </div>
 
+                    <!-- Education filters: Filter A (Indian college -> US Master's) / Filter B (US university -> Indian undergrad).
+                         Reads the team's saved LinkedIn profiles only - free, no Apify credits. -->
+                    <div id="edu-panel" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:22px; margin-bottom:24px; box-shadow:var(--shadow-card);">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+                            <h3 style="margin:0; font-size:1.1rem; color:#0f172a;">🎓 Education Filters</h3>
+                            <span style="font-size:11px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; color:#047857; background:#ecfdf5; border:1px solid #a7f3d0; padding:3px 9px; border-radius:6px;">Free - team database</span>
+                        </div>
+                        <p style="margin:0 0 14px; font-size:0.8rem; color:#64748b;">Searches every LinkedIn profile your team's Sourcing searches have already saved (no Apify credits). A school only counts once it is recognised as Indian or US; unrecognised schools are listed for admins under Admin &amp; Settings.</p>
+
+                        <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+                            <button type="button" class="edu-tab" data-filter="A" style="padding:8px 14px; border-radius:8px; border:1px solid #2563eb; background:#2563eb; color:#ffffff; font-weight:700; font-size:13px; cursor:pointer;">Filter A: Indian College → US Master's</button>
+                            <button type="button" class="edu-tab" data-filter="B" style="padding:8px 14px; border-radius:8px; border:1px solid #cbd5e1; background:#ffffff; color:#334155; font-weight:700; font-size:13px; cursor:pointer;">Filter B: US University → Indian Undergrad</button>
+                        </div>
+
+                        <form id="form-edu-search" onsubmit="return false;" style="display:grid; grid-template-columns:minmax(260px, 2fr) 110px 110px minmax(140px, 1fr) minmax(140px, 1fr) auto auto; gap:10px; align-items:end;">
+                            <div style="position:relative;">
+                                <label id="edu-inst-label" for="edu-inst-input" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Indian college (Bachelor's)</label>
+                                <input type="text" id="edu-inst-input" autocomplete="off" placeholder="Type a college, e.g. JNTUH, Osmania, VIT" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #93c5fd; border-radius:8px; padding:0 12px; font-size:13px; box-sizing:border-box;">
+                                <div id="edu-inst-list" role="listbox" style="display:none; position:absolute; z-index:50; left:0; right:0; top:100%; margin-top:4px; max-height:300px; overflow-y:auto; background:#ffffff; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 10px 25px rgba(15,23,42,0.15);"></div>
+                            </div>
+                            <div>
+                                <label for="edu-year-from" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Year from</label>
+                                <input type="number" id="edu-year-from" min="1980" max="2100" placeholder="Any" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
+                            </div>
+                            <div>
+                                <label for="edu-year-to" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Year to</label>
+                                <input type="number" id="edu-year-to" min="1980" max="2100" placeholder="Any" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
+                            </div>
+                            <div>
+                                <label for="edu-location" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Location</label>
+                                <input type="text" id="edu-location" placeholder="e.g. Texas" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
+                            </div>
+                            <div>
+                                <label for="edu-keyword" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Skill / title / company</label>
+                                <input type="text" id="edu-keyword" placeholder="e.g. Java, Data Engineer" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
+                            </div>
+                            <button type="button" id="btn-edu-search" class="btn btn-primary" style="height:42px; font-weight:700; padding:0 18px; border:none; border-radius:8px; background:linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color:#ffffff; cursor:pointer;">Search</button>
+                            <button type="button" id="btn-edu-export" class="btn btn-secondary" disabled style="height:42px; font-weight:700; padding:0 14px; border:1px solid #059669; border-radius:8px; background:#ecfdf5; color:#047857; cursor:pointer;">⬇ Excel</button>
+                        </form>
+                        <div style="font-size:0.75rem; color:#94a3b8; margin-top:6px;" id="edu-year-hint">Year range applies to the Bachelor's at the chosen college. With a range set, entries with no year are left out.</div>
+
+                        <div id="edu-status" style="margin-top:14px; font-size:0.85rem; color:#334155;"></div>
+                        <div id="edu-results-wrap" style="display:none; margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; overflow-x:auto;">
+                            <table id="edu-table" style="width:100%; border-collapse:collapse; text-align:left; font-size:0.83rem; min-width:1150px;">
+                                <thead>
+                                    <tr style="background:#f8fafc; color:#475569; border-bottom:1px solid #e2e8f0;">
+                                        <th style="padding:10px 12px;">Name</th>
+                                        <th style="padding:10px 12px;">Headline / Current Title</th>
+                                        <th style="padding:10px 12px;">Current Company</th>
+                                        <th style="padding:10px 12px;">Location</th>
+                                        <th style="padding:10px 12px;">Indian College (year)</th>
+                                        <th style="padding:10px 12px;">US University - Master's (year)</th>
+                                        <th style="padding:10px 12px;">LinkedIn</th>
+                                        <th style="padding:10px 12px;">Captured By</th>
+                                        <th style="padding:10px 12px;">Captured</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="edu-results"></tbody>
+                            </table>
+                        </div>
+                        <div id="edu-pager" style="display:none; margin-top:10px; align-items:center; gap:10px; font-size:0.85rem; color:#334155;">
+                            <button type="button" id="btn-edu-prev" class="btn btn-secondary" style="padding:6px 12px;">‹ Prev</button>
+                            <span id="edu-page-info"></span>
+                            <button type="button" id="btn-edu-next" class="btn btn-secondary" style="padding:6px 12px;">Next ›</button>
+                        </div>
+                    </div>
+
                     <!-- Sourcing Talent Pool Quick Metrics -->
                     <div class="stats-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
                         <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow-card);">
@@ -832,6 +899,29 @@
                             </table>
                         </div>
                     </div>
+
+                    <!-- Education filters: school names from LinkedIn profiles that weren't recognised. Mapping one
+                         makes every saved profile with that name count in Filter A / B. -->
+                    <div id="unmapped-panel" style="margin-top:24px; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; box-shadow:var(--shadow-card);">
+                        <div style="padding:16px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
+                            <h3 style="font-size:1.05rem; font-weight:600; margin:0; color:#0f172a;">Colleges not recognised (Education Filters)</h3>
+                            <p style="margin:4px 0 0; font-size:0.8rem; color:#64748b;">These school names came from LinkedIn profiles but don't match the college list, so those profiles don't appear in Filter A / B yet. Link each one to the right college, or add it as a new one. Only map a name when you are sure which college it is.</p>
+                        </div>
+                        <div id="unmapped-status" style="padding:12px 20px; font-size:0.85rem; color:#64748b;">Loading...</div>
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%; border-collapse:collapse; text-align:left; font-size:0.85rem; min-width:900px;">
+                                <thead>
+                                    <tr style="background:#f8fafc; color:#475569; border-bottom:1px solid #e2e8f0;">
+                                        <th style="padding:10px 16px;">School name on LinkedIn</th>
+                                        <th style="padding:10px 16px;">Profiles</th>
+                                        <th style="padding:10px 16px;">Closest match (not applied)</th>
+                                        <th style="padding:10px 16px;">Link to</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="unmapped-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
                 {% endif %}
 
@@ -1115,7 +1205,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.34.0"></script>
+    <script src="/static/js/app.js?v=5.35.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

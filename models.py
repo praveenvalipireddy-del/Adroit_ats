@@ -318,6 +318,7 @@ def init_db():
         experience_json TEXT,
         source TEXT NOT NULL,
         captured_by INTEGER,
+        education_complete INTEGER DEFAULT 0,
         captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -327,6 +328,7 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         profile_id INTEGER NOT NULL,
         institution_name TEXT,
+        institution_norm TEXT,
         institution_canonical_id TEXT,
         degree TEXT,
         degree_level TEXT,
@@ -405,6 +407,11 @@ def init_db():
 
     # Apply schema migrations for missing columns in existing databases
     migrate_db(conn)
+    try:
+        cursor.execute("CREATE INDEX IF NOT EXISTS ix_profile_education_norm ON profile_education (institution_norm)")
+        conn.commit()
+    except Exception as ex:
+        print("[WARN] education index:", ex)
 
     # Seed initial data if tables are empty
     cursor.execute("SELECT COUNT(*) FROM users")
@@ -424,6 +431,13 @@ def init_db():
         ensure_institution_aliases(conn)
     except Exception as ex:
         print("[WARN] institution alias seed:", ex)
+
+    # Copy Sourcing results not yet in the education-filter tables (free, no API calls).
+    try:
+        import linkedin_ingest
+        linkedin_ingest.import_sourced_pool(conn)
+    except Exception as ex:
+        print("[WARN] education filters pool import:", ex)
 
     conn.close()
 
@@ -539,6 +553,17 @@ def migrate_db(conn):
                 cursor.execute(f"ALTER TABLE applications ADD COLUMN {col} {c_type}")
             except Exception:
                 pass
+
+    # Education-filter tables (added after their first deploy)
+    for table, new_cols in (("linkedin_profiles", {"education_complete": "INTEGER DEFAULT 0"}),
+                            ("profile_education", {"institution_norm": "TEXT"})):
+        existing_cols = get_existing_cols(table)
+        for col, c_type in new_cols.items():
+            if existing_cols and col not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {c_type}")
+                except Exception:
+                    pass
 
     # Ensure default Admin account has password_hash and 'Admin' role
     try:

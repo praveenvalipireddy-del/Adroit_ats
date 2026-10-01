@@ -535,6 +535,7 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
         "scanned_new": len(raw_items),
         "new_matches": matches,
         "other_year_matches": other_years,       # saved to the pool by the route; not shown for this year's search
+        "raw_items": raw_items,                  # every scanned profile -> education filters (route pops it; never sent to the browser)
         "skipped": skipped,
         "cost_usd": run.get("usageTotalUsd"),
         "stopped_early": aborted,

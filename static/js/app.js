@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initModals();
     initResumeBot();
     initStudentsTab();
+    initEducationFilters();
     checkUrlAuthParams();
 });
 
@@ -99,6 +100,7 @@ function switchTab(rawTabId) {
         if (typeof window.refreshResumeBotSource === 'function') window.refreshResumeBotSource(true);
     } else if (paneKey === 'team') {
         loadRecruiters();
+        loadUnmappedInstitutions();
     } else if (paneKey === 'students') {
         if (!state.students || state.students.length === 0) {
             loadStudents();
@@ -3252,3 +3254,258 @@ async function browseJobsForCandidate(candidateId, candidateTitle, candidateCoun
     }, 200);
 }
 
+// =========================================================================
+// Education Filters (Sourcing): Filter A = Indian college -> US Master's,
+// Filter B = US university -> Indian undergrad. Reads the team's saved
+// LinkedIn profiles via /api/education/* - free, never calls Apify.
+// =========================================================================
+const eduState = {
+    filter: 'A',
+    institutions: { A: null, B: null },
+    selected: { A: null, B: null },
+    page: 1,
+    pages: 1,
+    lastParams: null,
+};
+
+const EDU_TEXT = {
+    A: { label: "Indian college (Bachelor's)", placeholder: 'Type a college, e.g. JNTUH, Osmania, VIT',
+         hint: "Year range applies to the Bachelor's at the chosen college. With a range set, entries with no year are left out." },
+    B: { label: "US university (Master's)", placeholder: 'Type a university, e.g. UT Dallas, UNT, NJIT',
+         hint: "Year range applies to the Master's at the chosen university. With a range set, entries with no year are left out." },
+};
+
+async function eduLoadInstitutions(filter) {
+    if (eduState.institutions[filter]) return eduState.institutions[filter];
+    const res = await fetch(`/api/education/institutions?filter=${filter}`);
+    if (res.status === 401) { window.location.href = '/login'; return []; }
+    const data = await res.json().catch(() => ({}));
+    eduState.institutions[filter] = data.institutions || [];
+    return eduState.institutions[filter];
+}
+
+function eduRenderInstList(query) {
+    const list = document.getElementById('edu-inst-list');
+    if (!list) return;
+    const insts = eduState.institutions[eduState.filter] || [];
+    const q = (query || '').trim().toLowerCase();
+    const hits = insts.filter(i => !q
+        || i.name.toLowerCase().includes(q)
+        || (i.city || '').toLowerCase().includes(q)
+        || (i.aliases || []).some(a => a.toLowerCase().includes(q))).slice(0, 15);
+    if (!hits.length) {
+        list.innerHTML = `<div style="padding:10px 12px; color:#64748b; font-size:13px;">No college in the list matches "${escapeHtml(query)}".</div>`;
+    } else {
+        list.innerHTML = hits.map(i => `
+            <div class="edu-inst-option" role="option" data-id="${escapeHtml(i.id)}" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; gap:10px;">
+                <span><b style="color:#0f172a;">${escapeHtml(i.name)}</b>${i.city ? `<span style="color:#64748b;"> - ${escapeHtml(i.city)}</span>` : ''}${(i.aliases || []).length ? `<br><span style="color:#94a3b8; font-size:11px;">${escapeHtml(i.aliases.slice(0, 4).join(', '))}</span>` : ''}</span>
+                <span style="color:${i.profiles ? '#047857' : '#94a3b8'}; font-size:12px; white-space:nowrap;">${i.profiles} candidate${i.profiles === 1 ? '' : 's'}</span>
+            </div>`).join('');
+    }
+    list.style.display = 'block';
+}
+
+function eduSelectInstitution(id) {
+    const inst = (eduState.institutions[eduState.filter] || []).find(i => i.id === id);
+    if (!inst) return;
+    eduState.selected[eduState.filter] = inst;
+    const input = document.getElementById('edu-inst-input');
+    if (input) input.value = inst.name;
+    const list = document.getElementById('edu-inst-list');
+    if (list) list.style.display = 'none';
+    eduSearch(1);
+}
+
+async function eduSwitchFilter(filter) {
+    eduState.filter = filter;
+    document.querySelectorAll('.edu-tab').forEach(btn => {
+        const on = btn.getAttribute('data-filter') === filter;
+        btn.style.background = on ? '#2563eb' : '#ffffff';
+        btn.style.color = on ? '#ffffff' : '#334155';
+        btn.style.borderColor = on ? '#2563eb' : '#cbd5e1';
+    });
+    const t = EDU_TEXT[filter];
+    const label = document.getElementById('edu-inst-label');
+    const input = document.getElementById('edu-inst-input');
+    const hint = document.getElementById('edu-year-hint');
+    if (label) label.textContent = t.label;
+    if (input) { input.placeholder = t.placeholder; input.value = eduState.selected[filter] ? eduState.selected[filter].name : ''; }
+    if (hint) hint.textContent = t.hint;
+    document.getElementById('edu-results-wrap').style.display = 'none';
+    document.getElementById('edu-pager').style.display = 'none';
+    document.getElementById('btn-edu-export').disabled = true;
+    eduSetStatus('');
+    await eduLoadInstitutions(filter);
+    if (eduState.selected[filter]) eduSearch(1);
+}
+
+function eduSetStatus(html) {
+    const el = document.getElementById('edu-status');
+    if (el) el.innerHTML = html;
+}
+
+function eduParams(page) {
+    const inst = eduState.selected[eduState.filter];
+    const p = new URLSearchParams({ filter: eduState.filter, institution_id: inst ? inst.id : '', page: String(page || 1), page_size: '25' });
+    for (const [key, id] of [['year_from', 'edu-year-from'], ['year_to', 'edu-year-to'], ['location', 'edu-location'], ['keyword', 'edu-keyword']]) {
+        const v = (document.getElementById(id)?.value || '').trim();
+        if (v) p.set(key, v);
+    }
+    return p;
+}
+
+async function eduSearch(page) {
+    const inst = eduState.selected[eduState.filter];
+    if (!inst) {
+        eduSetStatus(`<span style="color:#b45309;">Pick ${eduState.filter === 'A' ? 'an Indian college' : 'a US university'} from the list first.</span>`);
+        return;
+    }
+    const params = eduParams(page);
+    eduSetStatus('Searching...');
+    const res = await fetch('/api/education/search?' + params.toString());
+    if (res.status === 401) { window.location.href = '/login'; return; }
+    const data = await res.json().catch(() => ({}));
+    const wrap = document.getElementById('edu-results-wrap');
+    const pager = document.getElementById('edu-pager');
+    const exportBtn = document.getElementById('btn-edu-export');
+    if (!res.ok) {
+        eduSetStatus(`<span style="color:#b91c1c;">${escapeHtml(data.error || 'Search failed.')}</span>`);
+        wrap.style.display = 'none'; pager.style.display = 'none'; exportBtn.disabled = true;
+        return;
+    }
+    eduState.page = data.page; eduState.pages = data.pages; eduState.lastParams = params;
+    const other = eduState.filter === 'A' ? "a US Master's" : "an Indian Bachelor's";
+    if (!data.total) {
+        eduSetStatus(`No saved profiles match <b>${escapeHtml(inst.name)}</b> + ${other} with these filters. New Apify searches add profiles here automatically.`);
+        wrap.style.display = 'none'; pager.style.display = 'none'; exportBtn.disabled = true;
+        return;
+    }
+    eduSetStatus(`<b>${data.total}</b> candidate${data.total === 1 ? '' : 's'} with ${eduState.filter === 'A' ? "a Bachelor's" : "a Master's"} from <b>${escapeHtml(inst.name)}</b> and ${other}.`);
+    const td = 'padding:10px 12px; border-bottom:1px solid #f1f5f9; vertical-align:top; color:#0f172a;';
+    document.getElementById('edu-results').innerHTML = data.results.map(r => `
+        <tr>
+            <td style="${td} font-weight:600;">${escapeHtml(r.name)}</td>
+            <td style="${td}">${escapeHtml(r.headline)}</td>
+            <td style="${td}">${escapeHtml(r.current_company)}</td>
+            <td style="${td}">${escapeHtml(r.location)}</td>
+            <td style="${td}">${escapeHtml(r.indian_college)}</td>
+            <td style="${td}">${escapeHtml(r.us_masters)}</td>
+            <td style="${td}"><a href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; font-weight:600;">Open ↗</a></td>
+            <td style="${td}">${escapeHtml(r.captured_by)}</td>
+            <td style="${td} white-space:nowrap;">${escapeHtml(r.captured_at)}</td>
+        </tr>`).join('');
+    wrap.style.display = 'block';
+    pager.style.display = data.pages > 1 ? 'flex' : 'none';
+    document.getElementById('edu-page-info').textContent = `Page ${data.page} of ${data.pages}`;
+    document.getElementById('btn-edu-prev').disabled = data.page <= 1;
+    document.getElementById('btn-edu-next').disabled = data.page >= data.pages;
+    exportBtn.disabled = false;
+}
+
+function eduExportExcel() {
+    if (!eduState.lastParams) return;
+    const p = new URLSearchParams(eduState.lastParams);
+    p.delete('page'); p.delete('page_size');
+    const a = document.createElement('a');
+    a.href = '/api/education/export-xlsx?' + p.toString();
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    showToast('Preparing Excel file...', 'info');
+}
+
+function initEducationFilters() {
+    if (!document.getElementById('edu-panel')) return;
+    document.querySelectorAll('.edu-tab').forEach(btn => btn.addEventListener('click', () => eduSwitchFilter(btn.getAttribute('data-filter'))));
+    const input = document.getElementById('edu-inst-input');
+    const list = document.getElementById('edu-inst-list');
+    input.addEventListener('focus', async () => {
+        await eduLoadInstitutions(eduState.filter);
+        const sel = eduState.selected[eduState.filter];
+        eduRenderInstList(sel && input.value === sel.name ? '' : input.value);
+    });
+    input.addEventListener('input', async () => { await eduLoadInstitutions(eduState.filter); eduRenderInstList(input.value); });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            const first = list.querySelector('.edu-inst-option');
+            if (first) { e.preventDefault(); eduSelectInstitution(first.getAttribute('data-id')); }
+        } else if (e.key === 'Escape') {
+            list.style.display = 'none';
+        }
+    });
+    list.addEventListener('mousedown', (e) => {
+        const opt = e.target.closest('.edu-inst-option');
+        if (opt) { e.preventDefault(); eduSelectInstitution(opt.getAttribute('data-id')); }
+    });
+    input.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none'; }, 150));
+    document.getElementById('btn-edu-search').addEventListener('click', () => eduSearch(1));
+    document.getElementById('btn-edu-export').addEventListener('click', eduExportExcel);
+    document.getElementById('btn-edu-prev').addEventListener('click', () => eduSearch(Math.max(1, eduState.page - 1)));
+    document.getElementById('btn-edu-next').addEventListener('click', () => eduSearch(Math.min(eduState.pages, eduState.page + 1)));
+    ['edu-year-from', 'edu-year-to', 'edu-location', 'edu-keyword'].forEach(id => {
+        document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); eduSearch(1); } });
+    });
+}
+
+// ---- Admin: school names that didn't match the college list ----
+async function loadUnmappedInstitutions() {
+    const body = document.getElementById('unmapped-body');
+    const status = document.getElementById('unmapped-status');
+    if (!body) return;
+    const res = await fetch('/api/education/unmapped');
+    if (!res.ok) { status.textContent = 'Could not load the list.'; return; }
+    const data = await res.json().catch(() => ({}));
+    const items = data.items || [];
+    const options = (data.institutions || []).map(i => `<option value="${escapeHtml(i.canonical_id)}">${escapeHtml(i.country)}: ${escapeHtml(i.name)}</option>`).join('');
+    status.textContent = items.length
+        ? `${items.length} school name(s) need a decision.`
+        : 'Nothing to review - every school name on saved profiles is recognised.';
+    const td = 'padding:10px 16px; border-bottom:1px solid #f1f5f9; vertical-align:top; color:#0f172a;';
+    body.innerHTML = items.map(it => `
+        <tr data-id="${it.id}">
+            <td style="${td} font-weight:600;">${escapeHtml(it.name)}</td>
+            <td style="${td}">${String(it.profiles || 0)}</td>
+            <td style="${td} color:#64748b;">${it.suggested_name ? escapeHtml(it.suggested_name) : '-'}</td>
+            <td style="${td}">
+                <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                    <select class="unmapped-pick" style="height:34px; max-width:330px; border:1px solid #cbd5e1; border-radius:6px; padding:0 6px; background:#fff; color:#0f172a;">
+                        <option value="">Existing college...</option>${options}
+                    </select>
+                    <button type="button" class="btn btn-primary unmapped-map" style="padding:6px 10px;">Link</button>
+                    <span style="color:#94a3b8;">or new:</span>
+                    <input type="text" class="unmapped-new-name" value="${escapeHtml(it.name)}" style="height:34px; width:220px; border:1px solid #cbd5e1; border-radius:6px; padding:0 8px; color:#0f172a;">
+                    <select class="unmapped-new-country" style="height:34px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; color:#0f172a;">
+                        <option value="">Country...</option><option>India</option><option>USA</option><option>Other</option>
+                    </select>
+                    <input type="text" class="unmapped-new-city" placeholder="City" style="height:34px; width:110px; border:1px solid #cbd5e1; border-radius:6px; padding:0 8px; color:#0f172a;">
+                    <button type="button" class="btn btn-secondary unmapped-create" style="padding:6px 10px;">Add new</button>
+                </div>
+            </td>
+        </tr>`).join('');
+    body.querySelectorAll('tr').forEach(row => {
+        const id = row.getAttribute('data-id');
+        row.querySelector('.unmapped-map').addEventListener('click', () => {
+            const cid = row.querySelector('.unmapped-pick').value;
+            if (!cid) { showToast('Pick a college from the list first.', 'error'); return; }
+            mapUnmappedInstitution(id, { canonical_id: cid });
+        });
+        row.querySelector('.unmapped-create').addEventListener('click', () => {
+            const name = row.querySelector('.unmapped-new-name').value.trim();
+            const country = row.querySelector('.unmapped-new-country').value;
+            if (!name || !country) { showToast('A new college needs a name and a country.', 'error'); return; }
+            mapUnmappedInstitution(id, { new_name: name, country, city: row.querySelector('.unmapped-new-city').value.trim() });
+        });
+    });
+}
+
+async function mapUnmappedInstitution(id, payload) {
+    const res = await fetch(`/api/education/unmapped/${id}/map`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Could not save.', 'error'); return; }
+    showToast(`Linked to ${data.canonical_name} - ${data.entries_updated} education entr${data.entries_updated === 1 ? 'y' : 'ies'} updated.`, 'success');
+    eduState.institutions = { A: null, B: null };   // counts changed
+    loadUnmappedInstitutions();
+}

@@ -18,6 +18,9 @@ import resume_bot
 import apify_service
 import linkedin_sourcing
 import sourcing_store
+import linkedin_ingest
+import education_filters
+import education_match
 import gmail_multi_manager
 import us_job_scrapers
 import india_job_scrapers
@@ -1438,6 +1441,14 @@ def api_students_search_poll():
     # year (their year's search will then show them for free). Not sent to the browser for this year.
     other = result.pop("other_year_matches", None) or []
     result["banked_other_years"] = sourcing_store.save_matches("apify", None, other, user["id"]) if other else 0
+    # EVERY scanned profile (not just this year's matches) has a full, already-paid-for education
+    # list: store it for the education filters (Filter A / B). No extra API call.
+    raw_items = result.pop("raw_items", None) or []
+    if raw_items:
+        try:
+            linkedin_ingest.ingest_profiles(linkedin_ingest.ApifyProfileProvider().to_profiles(raw_items), "apify", user["id"])
+        except Exception as ex:
+            logger.warning(f"Education filters: could not store scanned profiles: {ex}")
     return jsonify(result)
 
 
@@ -1720,3 +1731,182 @@ def api_admin_reassign_candidate(candidate_id):
         f"Reassigned candidate '{cand['name']}' to recruiter '{target_user['name']}'"
     )
     return jsonify({"success": True, "message": f"Candidate reassigned to {target_user['name']}."})
+
+
+# --- Education filters (Sourcing: Filter A = Indian college -> US Master's, Filter B = US university
+# -> Indian undergrad). Reads the team-wide education tables only - no Apify / paid calls. ---
+
+def _edu_user():
+    user = current_user()
+    if not user:
+        return None, (jsonify({"error": "Login required"}), 401)
+    return user, None
+
+
+def _edu_admin():
+    user = current_user()
+    if not user:
+        return None, (jsonify({"error": "Login required"}), 401)
+    if "Admin" not in user.get("role", ""):
+        return None, (jsonify({"error": "Admin permission required."}), 403)
+    return user, None
+
+
+@app.route("/api/education/institutions", methods=["GET"])
+def api_education_institutions():
+    """Autocomplete list for one filter: A -> Indian colleges, B -> US universities."""
+    user, err = _edu_user()
+    if err:
+        return err
+    f = (request.args.get("filter") or "").strip().upper()
+    if f not in education_filters.FILTERS:
+        return jsonify({"error": "filter must be 'A' or 'B'"}), 400
+    conn = models.get_db_connection()
+    try:
+        insts = education_filters.institutions_for(conn, f)
+    finally:
+        conn.close()
+    return jsonify({"institutions": insts})
+
+
+@app.route("/api/education/search", methods=["GET"])
+def api_education_search():
+    user, err = _edu_user()
+    if err:
+        return err
+    try:
+        params = education_filters.parse_params(request.args)
+    except education_filters.FilterError as ex:
+        return jsonify({"error": str(ex)}), 400
+    conn = models.get_db_connection()
+    try:
+        return jsonify(education_filters.search(conn, params))
+    finally:
+        conn.close()
+
+
+@app.route("/api/education/export-xlsx", methods=["GET"])
+def api_education_export_xlsx():
+    """Excel download of every row the current filter matches (up to 10,000). Logged with the recruiter id."""
+    user, err = _edu_user()
+    if err:
+        return err
+    try:
+        params = education_filters.parse_params(request.args)
+    except education_filters.FilterError as ex:
+        return jsonify({"error": str(ex)}), 400
+    conn = models.get_db_connection()
+    try:
+        rows = education_filters.export_rows(conn, params)
+        cur = conn.cursor()
+        cur.execute("SELECT MIN(canonical_name) FROM institution_aliases WHERE canonical_id = ?", (params["institution_id"],))
+        found = cur.fetchone()
+        inst_name = (found[0] if found else None) or params["institution_id"]
+        label = ("Filter A: Indian college -> US Master's" if params["filter"] == "A"
+                 else "Filter B: US university -> Indian undergrad") + f" | {inst_name}"
+        if params["year_from"] or params["year_to"]:
+            label += f" | years {params['year_from'] or '...'}-{params['year_to'] or '...'}"
+        if params["location"]:
+            label += f" | location: {params['location']}"
+        if params["keyword"]:
+            label += f" | keyword: {params['keyword']}"
+        cur.execute("INSERT INTO capture_log (user_id, action, source, profile_id, details) VALUES (?, ?, ?, ?, ?)",
+                    (user["id"], "export_xlsx", "education_filter", None, f"{len(rows)} rows | {label}"))
+        conn.commit()
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Exported Excel", "Sourcing", 0, f"{len(rows)} candidates - {label}")
+    data = education_filters.build_xlsx(rows, label)
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", f"Filter_{params['filter']}_{inst_name}").strip("_")[:80]
+    return send_file(io.BytesIO(data), as_attachment=True, download_name=f"{slug}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/api/education/unmapped", methods=["GET"])
+def api_education_unmapped():
+    """Admin list: school names from LinkedIn profiles that didn't match the institution list."""
+    user, err = _edu_admin()
+    if err:
+        return err
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT u.id, u.name, u.name_norm, u.status, u.suggested_canonical_id, u.seen_count,
+                              (SELECT MIN(a.canonical_name) FROM institution_aliases a
+                               WHERE a.canonical_id = u.suggested_canonical_id) AS suggested_name,
+                              (SELECT COUNT(DISTINCT e.profile_id) FROM profile_education e
+                               WHERE e.institution_norm = u.name_norm) AS profiles
+                       FROM unmapped_institutions u ORDER BY u.seen_count DESC, u.id DESC LIMIT 500""")
+        items = [dict(r) for r in cur.fetchall()]
+        cur.execute("""SELECT canonical_id, MIN(canonical_name) AS name, MIN(country) AS country
+                       FROM institution_aliases GROUP BY canonical_id ORDER BY MIN(country), MIN(canonical_name)""")
+        institutions = [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+    return jsonify({"items": items, "institutions": institutions})
+
+
+@app.route("/api/education/unmapped/<int:item_id>/map", methods=["POST", "OPTIONS"])
+def api_education_unmapped_map(item_id):
+    """Map an unmatched school name to an existing institution, or create a new institution for it.
+    The name becomes an alias, and every stored education entry with that name is updated."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user, err = _edu_admin()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, name_norm FROM unmapped_institutions WHERE id = ?", (item_id,))
+        item = cur.fetchone()
+        if not item:
+            return jsonify({"error": "Not found"}), 404
+        item = dict(item)
+        canonical_id = (data.get("canonical_id") or "").strip()
+        if canonical_id:
+            cur.execute("SELECT canonical_name, country, city FROM institution_aliases WHERE canonical_id = ? LIMIT 1",
+                        (canonical_id,))
+            inst = cur.fetchone()
+            if not inst:
+                return jsonify({"error": "Unknown institution"}), 400
+            canonical_name, country, city = inst["canonical_name"], inst["country"], inst["city"]
+        else:
+            canonical_name = (data.get("new_name") or "").strip()
+            country = (data.get("country") or "").strip()
+            city = (data.get("city") or "").strip()
+            if not canonical_name or country not in ("India", "USA", "Other"):
+                return jsonify({"error": "A new institution needs a name and a country (India, USA or Other)."}), 400
+            canonical_id = "custom-" + re.sub(r"[^a-z0-9]+", "-", canonical_name.lower()).strip("-")[:60]
+            cur.execute("SELECT 1 FROM institution_aliases WHERE canonical_id = ?", (canonical_id,))
+            if cur.fetchone():
+                return jsonify({"error": "That institution already exists - pick it from the list instead."}), 400
+            name_norm = education_match.normalize(canonical_name)
+            cur.execute("SELECT 1 FROM institution_aliases WHERE alias_norm = ?", (name_norm,))
+            if cur.fetchone():
+                return jsonify({"error": "That name already belongs to an institution - pick it from the list instead."}), 400
+            if name_norm != item["name_norm"]:
+                cur.execute("""INSERT INTO institution_aliases (canonical_id, canonical_name, alias, alias_norm, country, city)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (canonical_id, canonical_name, canonical_name, name_norm, country, city))
+        cur.execute("SELECT canonical_id FROM institution_aliases WHERE alias_norm = ?", (item["name_norm"],))
+        existing = cur.fetchone()
+        if existing and existing[0] != canonical_id:
+            conn.rollback()
+            return jsonify({"error": "That name is already an alias of another institution."}), 400
+        if not existing:
+            cur.execute("""INSERT INTO institution_aliases (canonical_id, canonical_name, alias, alias_norm, country, city)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (canonical_id, canonical_name, item["name"], item["name_norm"], country, city))
+        cur.execute("DELETE FROM unmapped_institutions WHERE id = ?", (item_id,))
+        conn.commit()
+        education_match.invalidate_cache()
+        updated = linkedin_ingest.rematch_institution(conn, item["name_norm"])
+        conn.commit()
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Mapped Institution", "Sourcing", item_id,
+                        f"'{item['name']}' -> {canonical_name} ({country}); {updated} education entries updated")
+    return jsonify({"success": True, "canonical_id": canonical_id, "canonical_name": canonical_name,
+                    "entries_updated": updated})

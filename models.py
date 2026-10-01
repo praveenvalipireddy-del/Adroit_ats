@@ -1022,8 +1022,7 @@ def get_dashboard_stats(user_id=None, is_admin=False):
 def get_candidates(user_id=None, is_admin=False):
     """
     Returns candidate list. 
-    If not is_admin and user_id provided: returns only candidates assigned to that user.
-    If is_admin and user_id provided: returns candidates filtered by that specific user.
+    If user_id provided (recruiter, or admin filtering by one recruiter): only candidates assigned to that user.
     If is_admin and user_id is None: returns all candidates across the agency.
     """
     conn = get_db_connection()
@@ -1033,11 +1032,11 @@ def get_candidates(user_id=None, is_admin=False):
     FROM candidates c
     LEFT JOIN users u ON c.assigned_user_id = u.id
     """
-    if not is_admin and user_id:
-        query += " WHERE (c.assigned_user_id = ? OR c.assigned_user_id = 1 OR c.assigned_user_id IS NULL)"
-        cursor.execute(query + " ORDER BY c.id ASC", (user_id,))
-    elif is_admin and user_id:
-        query += " WHERE (c.assigned_user_id = ? OR c.assigned_user_id = 1 OR c.assigned_user_id IS NULL)"
+    if user_id:
+        # A recruiter sees only the consultants assigned to them (and an admin filtering by one
+        # recruiter sees only that recruiter's). This used to also include every consultant owned by
+        # user #1 (the admin) and unassigned ones, so the admin's bench showed up in every recruiter's login.
+        query += " WHERE c.assigned_user_id = ?"
         cursor.execute(query + " ORDER BY c.id ASC", (user_id,))
     else:
         cursor.execute(query + " ORDER BY c.id ASC")

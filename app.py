@@ -50,6 +50,16 @@ models.init_db()
 def current_user():
     return session.get("user")
 
+
+def can_access_candidate(user, candidate_id) -> bool:
+    """Admins can act on any consultant; a recruiter only on consultants assigned to them."""
+    try:
+        cid = int(candidate_id)
+    except (TypeError, ValueError):
+        return False
+    is_admin = "Admin" in (user or {}).get("role", "")
+    return bool(user) and models.get_candidate_by_id(cid, user_id=user["id"], is_admin=is_admin) is not None
+
 @app.before_request
 def require_login_for_student_api():
     """Every /api/students/* route (search, paid LinkedIn search, add-to-bench,
@@ -396,6 +406,8 @@ def api_consultant_upload_resume(candidate_id):
     user = current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
 
     if "resume_file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
@@ -443,6 +455,8 @@ def api_set_consultant_app_password(candidate_id):
     user = current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
 
     data = request.json or {}
     gmail_account = data.get("gmail_account", "").strip()
@@ -480,6 +494,11 @@ def api_set_consultant_app_password(candidate_id):
 
 @app.route("/api/consultants/<int:candidate_id>/connect-gmail")
 def api_connect_candidate_gmail(candidate_id):
+    user = current_user()
+    if not user:
+        return redirect(url_for("login"))
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
     redirect_uri = f"{request.host_url.rstrip('/')}/api/auth/google/callback"
     auth_url, verifier = gmail_multi_manager.get_auth_url(candidate_id, redirect_uri=redirect_uri)
     if not auth_url:
@@ -527,6 +546,11 @@ def api_google_auth_callback():
 
 @app.route("/api/consultants/<int:candidate_id>/gmail-status")
 def api_candidate_gmail_status(candidate_id):
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
     status = gmail_multi_manager.is_candidate_connected(candidate_id)
     return jsonify(status)
 
@@ -813,6 +837,8 @@ def api_paste_and_draft():
 
     if not candidate_id:
         return jsonify({"error": "Candidate ID is required"}), 400
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
     if not raw_jd_text and not job_title:
         return jsonify({"error": "Please provide requirement text or job title"}), 400
 
@@ -877,6 +903,8 @@ def api_create_outreach_draft():
 
     if not candidate_id or not job_id:
         return jsonify({"error": "candidate_id and job_id are required"}), 400
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
 
     custom_subject = data.get("custom_subject")
     custom_body = data.get("custom_body")
@@ -1030,6 +1058,8 @@ def api_ai_personalize_draft():
 
     if not candidate_id or not job_id:
         return jsonify({"error": "candidate_id and job_id are required"}), 400
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
 
     cand = models.get_candidate_by_id(int(candidate_id))
     job = models.get_job_by_id(int(job_id))

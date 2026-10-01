@@ -286,30 +286,10 @@
                 
                 <!-- TAB 5: US BENCH SOURCING & STUDENTS (2018 - 2026) -->
                 <div class="tab-pane" id="tab-students">
-                    <div class="view-header" style="margin-bottom: 24px;">
+                    <div class="view-header" style="margin-bottom: 18px;">
                         <div class="view-title">
-                            <h2>🎓 US Bench Sourcing: India Bachelor's (≤2020) + USA Master's</h2>
-                            <p>Recruiter Pipeline: Engineers who completed Bachelor's in India in that EXACT year (e.g. 2020) (4–10+ yrs tech experience) and pursued Master's in the USA (OPT / STEM OPT / H1B)</p>
-                            <p style="margin-top:6px; font-size:0.8rem; color:#64748b;">
-                                <strong>How it works:</strong> "Search LinkedIn" below scans real LinkedIn profiles of people in the USA who studied at Indian colleges (JNTU, Osmania, VIT, SRM, Manipal, Amrita, Anna, VTU, BITS, IITs/NITs and more) and reads each profile's Education section. A profile is shown only if its Bachelor's is from an Indian college and ended in exactly the year you select, and it lists a Master's from a non-Indian school. Profiles that don't list a year are skipped, never guessed.
-                            </p>
-                        </div>
-                        <div class="view-actions" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                            <button type="button" id="btn-open-live-xray" class="btn btn-primary" style="display:flex; align-items:center; gap:8px; background:linear-gradient(135deg, #4f46e5, #06b6d4); border:none; font-weight:700; box-shadow:0 4px 14px rgba(79,70,229,0.4);">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                                🔍 Google X-Ray (opens Google)
-                            </button>
-                            <button type="button" id="btn-open-live-linkedin" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px; background:rgba(10,102,194,0.2); color:#38bdf8; border:1px solid rgba(10,102,194,0.5);">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.2V10.9H6.46M7.83 6.27a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/></svg>
-                                💼 LinkedIn Search (opens LinkedIn)
-                            </button>
-                            <button type="button" id="btn-open-quick-import" class="btn btn-success" style="display:flex; align-items:center; gap:8px; background:linear-gradient(135deg, #10b981, #059669); border:none; font-weight:700; box-shadow:0 4px 14px rgba(16,185,129,0.35);">
-                                <span>➕</span> Quick Import Candidate
-                            </button>
-                            <button type="button" id="btn-export-students-csv" class="btn btn-secondary" style="display:flex; align-items:center; gap:8px; border:1px solid #2d3348;">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                Export CSV
-                            </button>
+                            <h2>🎓 Sourcing</h2>
+                            <p>Find candidates with an Indian Bachelor's and a US Master's.</p>
                         </div>
                     </div>
 
@@ -327,25 +307,25 @@
                             <button type="button" class="edu-tab" data-filter="B" style="padding:8px 14px; border-radius:8px; border:1px solid #cbd5e1; background:#ffffff; color:#334155; font-weight:700; font-size:13px; cursor:pointer;">Filter B: US University → Indian Undergrad</button>
                         </div>
 
-                        <form id="form-edu-search" onsubmit="return false;" style="display:grid; grid-template-columns:minmax(260px, 2fr) 110px 110px minmax(140px, 1fr) minmax(140px, 1fr) auto auto; gap:10px; align-items:end;">
-                            <div style="position:relative;">
+                        <form id="form-edu-search" onsubmit="return false;" style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;">
+                            <div style="position:relative; flex:2 1 260px;">
                                 <label id="edu-inst-label" for="edu-inst-input" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Indian college (Bachelor's)</label>
                                 <input type="text" id="edu-inst-input" autocomplete="off" placeholder="Type a college, e.g. JNTUH, Osmania, VIT" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #93c5fd; border-radius:8px; padding:0 12px; font-size:13px; box-sizing:border-box;">
                                 <div id="edu-inst-list" role="listbox" style="display:none; position:absolute; z-index:50; left:0; right:0; top:100%; margin-top:4px; max-height:300px; overflow-y:auto; background:#ffffff; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 10px 25px rgba(15,23,42,0.15);"></div>
                             </div>
-                            <div>
+                            <div style="flex:0 0 100px;">
                                 <label for="edu-year-from" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Year from</label>
                                 <input type="number" id="edu-year-from" min="1980" max="2100" placeholder="Any" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
                             </div>
-                            <div>
+                            <div style="flex:0 0 100px;">
                                 <label for="edu-year-to" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Year to</label>
                                 <input type="number" id="edu-year-to" min="1980" max="2100" placeholder="Any" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
                             </div>
-                            <div>
+                            <div style="flex:1 1 140px;">
                                 <label for="edu-location" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Location</label>
                                 <input type="text" id="edu-location" placeholder="e.g. Texas" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
                             </div>
-                            <div>
+                            <div style="flex:1 1 160px;">
                                 <label for="edu-keyword" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Skill / title / company</label>
                                 <input type="text" id="edu-keyword" placeholder="e.g. Java, Data Engineer" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; box-sizing:border-box;">
                             </div>
@@ -380,113 +360,36 @@
                         </div>
                     </div>
 
-                    <!-- Sourcing Talent Pool Quick Metrics -->
-                    <div class="stats-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
-                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow-card);">
-                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Talent Sourcing Pool</div>
-                            <div style="font-size: 1.6rem; font-weight: 800; color: #2563eb; margin-top: 6px;">2015–2023 Cohorts</div>
-                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">India Bachelor's + USA Master's</div>
-                        </div>
-                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow-card);">
-                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Experienced Tech Candidates</div>
-                            <div style="font-size: 1.6rem; font-weight: 800; color: #059669; margin-top: 6px;">4–10+ Yrs Exp</div>
-                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Immediate C2C & Full-Time Bench</div>
-                        </div>
-                        <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow-card);">
-                            <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Bench Onboarded</div>
-                            <div style="font-size: 1.6rem; font-weight: 800; color: #7c3aed; margin-top: 6px;" id="stat-students-onboarded">{{ candidates|length }}</div>
-                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Active in ATS Bench Roster</div>
-                        </div>
-                    </div>
-
-                    <!-- Search & Filter Controls -->
-                    <!-- Simplified to a single filter for now: Bachelor's Passout Year (India). -->
-                    <!-- More filters (Technology/Role, Visa Pathway, US University, US Region) will be reintroduced later. -->
-                    <div class="filter-panel" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; margin-bottom: 24px; box-shadow: var(--shadow-card);">
-                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
-                            <span style="font-size:11px; font-weight:800; letter-spacing:0.5px; text-transform:uppercase; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; padding:3px 9px; border-radius:6px;">Live LinkedIn search</span>
-                            <span style="font-size:0.8rem; color:#64748b;"><b>Apify</b> scans LinkedIn profiles one page at a time - about $0.20 per 25 profiles and roughly 2 minutes per page. In our live tests about 1 in 10 profiles matched the year you pick and about 1 in 3 was verified for <i>some</i> year: the other years' people are saved to your team pool and show up when you choose their year. Every result is re-checked against the profile's education before it is shown, and clicking again continues with new people (matches found today are kept).</span>
-                        </div>
-                        <form id="form-student-search" onsubmit="return false;">
-                            <!-- Data source: which automated provider to use -->
-                            <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px;">
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        🗂️ Data source
-                                    </label>
-                                    <select id="filter-student-source" class="form-control" style="height:42px; min-width:380px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
-                                        {% if has_apify %}<option value="apify">Apify LinkedIn (paid: about $0.20 per 25 profiles)</option>{% endif %}
-                                        {% if not has_apify %}<option value="">No automated source set up yet</option>{% endif %}
-                                    </select>
-                                </div>
-                                {% if not has_apify %}
-                                <div style="font-size:0.8rem; color:#b45309; max-width:520px; line-height:1.4;">
-                                    Automated search needs the Apify key: add it as <b>APIFY_API_TOKEN</b> in the server's Environment settings.
-                                </div>
-                                {% endif %}
+                    <!-- Find more candidates: the paid Apify LinkedIn search. Data source (Apify) and depth (150 profiles)
+                         are fixed so recruiters only choose the passout year. Every scanned profile also feeds the
+                         Education Filters above. -->
+                    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:14px; padding:20px 22px; margin-bottom:16px; box-shadow:var(--shadow-card);">
+                        <h3 style="margin:0 0 4px; font-size:1.05rem; color:#0f172a;">🔍 Find more candidates on LinkedIn</h3>
+                        <p style="margin:0 0 14px; font-size:0.8rem; color:#64748b;">Scans up to 150 LinkedIn profiles of people in the USA with an Indian Bachelor's in the chosen year and a US Master's. <b>Paid (Apify): at most about $1.20 per click</b>, and it stops early once 15 matches are found. Every profile it scans is also added to the Education Filters.</p>
+                        <form id="form-student-search" onsubmit="return false;" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+                            <input type="hidden" id="filter-student-source" value="{{ 'apify' if has_apify else '' }}">
+                            <input type="hidden" id="filter-student-depth" value="6">
+                            <div>
+                                <label for="filter-student-bachelor-year" style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">Passout Year (India)</label>
+                                <select id="filter-student-bachelor-year" class="form-control" style="width:180px; height:42px; background:#ffffff; color:#1d4ed8; border:1px solid #93c5fd; border-radius:8px; padding:0 10px; font-size:13px; font-weight:700; cursor:pointer;">
+                                    <option value="2023" selected>2023</option>
+                                    <option value="2022">2022</option>
+                                    <option value="2021">2021</option>
+                                    <option value="2020">2020</option>
+                                    <option value="2019">2019</option>
+                                    <option value="2018">2018</option>
+                                    <option value="2017">2017</option>
+                                    <option value="2016">2016</option>
+                                    <option value="2015">2015</option>
+                                    <option value="All">All years (2015 - 2023)</option>
+                                </select>
                             </div>
-                            <div style="display: grid; grid-template-columns: 240px 300px 140px 1fr; gap: 12px; align-items: flex-end;">
-                                <!-- 1. Strict Bachelor's Passout Year Filter (India) -->
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                        🎓 Passout Year (India)
-                                    </label>
-                                    <div style="position:relative;">
-                                        <select id="filter-student-bachelor-year" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#1d4ed8; border:1px solid #93c5fd; border-radius:8px; padding:0 10px; font-size:13px; font-weight:700; cursor:pointer;" onfocus="this.style.borderColor='#2563eb'; this.style.boxShadow='0 0 0 3px rgba(37,99,235,0.15)';" onblur="this.style.borderColor='#93c5fd'; this.style.boxShadow='none';">
-                                            <option value="2023" selected>2023 (Strict Match)</option>
-                                            <option value="2022">2022 (Strict Match)</option>
-                                            <option value="2021">2021 (Strict Match)</option>
-                                            <option value="2020">2020 (Strict Match)</option>
-                                            <option value="2019">2019 (Strict Match)</option>
-                                            <option value="2018">2018 (Strict Match)</option>
-                                            <option value="2017">2017 (Strict Match)</option>
-                                            <option value="2016">2016 (Strict Match)</option>
-                                            <option value="2015">2015 (Strict Match)</option>
-                                            <option value="All">All Years (2015 - 2023)</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <!-- 2. Search size: what each click costs. -->
-                                <div>
-                                    <div id="wrap-depth-apify">
-                                        <label style="display:block; font-size:11px; font-weight:700; color:#334155; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
-                                            🔎 Search depth
-                                        </label>
-                                        <select id="filter-student-depth" class="form-control" style="width:100%; height:42px; background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; font-weight:600; cursor:pointer;">
-                                            <option value="3">Quick: 75 profiles (about $0.60)</option>
-                                            <option value="6" selected>Standard: 150 profiles (about $1.20)</option>
-                                            <option value="12">Deep: 300 profiles (about $2.40)</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <!-- 3. Search Button -->
-                                <div>
-                                    <button type="button" id="btn-apply-student-filter" class="btn btn-primary" style="width:100%; height:42px; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border:none; border-radius:8px; color:#ffffff; box-shadow:0 3px 10px rgba(37, 99, 235, 0.25); cursor:pointer;">
-                                        <span>🔍 Search LinkedIn</span>
-                                    </button>
-                                </div>
-
-                                <!-- 3. Honesty note: this is a real live search, not instant canned data -->
-                                <div style="font-size:0.78rem; color:#64748b; line-height:1.4;">
-                                    Each result is checked against the profile's real education entries: Indian Bachelor's ending in the selected year, plus a Master's from a non-Indian school (please glance at the Master's school to confirm it is in the USA). Visa/work-authorization status is not on LinkedIn, so confirm it with the candidate. More filters (technology/role, visa pathway, US university, US region) are coming soon.
-                                </div>
-                            </div>
-
-                            <!-- Quick Preset Filter Chips: year-only, matching the single active filter -->
-                            <div style="display:flex; gap:8px; margin-top:16px; align-items:center; flex-wrap:wrap;">
-                                <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Quick Presets:</span>
-                                <button type="button" onclick="setPresetFilter(null, '2020')" class="btn-preset active" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; cursor:pointer; font-weight:700;">
-                                    🎓 2020 Passouts
-                                </button>
-                                <button type="button" onclick="setPresetFilter(null, '2019')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; cursor:pointer; font-weight:700;">
-                                    🎓 2019 Passouts
-                                </button>
-                                <button type="button" onclick="setPresetFilter(null, '2018')" class="btn-preset" style="font-size:11px; padding:5px 12px; border-radius:16px; background:#f8fafc; color:#334155; border:1px solid #e2e8f0; cursor:pointer; font-weight:700;">
-                                    🎓 2018 Passouts
-                                </button>
-                            </div>
+                            <button type="button" id="btn-apply-student-filter" class="btn btn-primary" {% if not has_apify %}disabled{% endif %} style="height:42px; padding:0 18px; font-weight:700; font-size:13px; border:none; border-radius:8px; background:linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color:#ffffff; cursor:pointer;">
+                                <span>🔍 Search LinkedIn (up to $1.20)</span>
+                            </button>
+                            {% if not has_apify %}
+                            <span style="font-size:0.8rem; color:#b45309;">LinkedIn search is off: add <b>APIFY_API_TOKEN</b> in the server settings.</span>
+                            {% endif %}
                         </form>
                     </div>
 
@@ -1205,7 +1108,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.35.0"></script>
+    <script src="/static/js/app.js?v=5.36.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

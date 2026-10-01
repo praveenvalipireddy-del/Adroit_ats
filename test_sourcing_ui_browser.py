@@ -75,7 +75,7 @@ try:
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
 
-        check("app.js?v=5.35.0" in page.content(), "cache-buster not bumped to app.js?v=5.34.0")
+        check("app.js?v=5.36.0" in page.content(), "cache-buster not bumped to app.js?v=5.36.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.select_option("#filter-student-bachelor-year", "2019")
@@ -84,10 +84,21 @@ try:
             "document.querySelector('#students-table-body').innerText.includes('Test Pool Person From Apify')",
             timeout=15000)
 
-        options = page.eval_on_selector_all("#filter-student-source option", "els => els.map(e => [e.value, e.textContent.trim()])")
-        check(options == [["apify", "Apify LinkedIn (paid: about $0.20 per 25 profiles)"]], f"data-source options: {options}")
-        check(page.is_visible("#filter-student-depth"), "Apify search-depth control is not visible")
-        check(page.query_selector("#filter-student-pdl-size") is None, "PDL records-to-fetch control still on the page")
+        # Clean layout: no source dropdown / depth selector / old header, stats or buttons.
+        check(page.get_attribute("#filter-student-source", "type") == "hidden"
+              and page.get_attribute("#filter-student-source", "value") == "apify", "data source should be a fixed hidden 'apify'")
+        check(page.get_attribute("#filter-student-depth", "type") == "hidden"
+              and page.get_attribute("#filter-student-depth", "value") == "6", "depth should be fixed at 6 pages (150 profiles)")
+        for gone in ("#btn-open-live-xray", "#btn-open-live-linkedin", "#btn-open-quick-import", "#btn-export-students-csv",
+                     "#stat-students-onboarded", "#filter-student-pdl-size", ".btn-preset"):
+            check(page.query_selector(gone) is None, f"{gone} should be removed from Sourcing")
+        pane = page.inner_text("#tab-students")
+        for gone_text in ("US Bench Sourcing", "Talent Sourcing Pool", "Experienced Tech Candidates", "Google X-Ray", "Data source", "Search depth"):
+            check(gone_text.lower() not in pane.lower(), f"Sourcing still shows {gone_text!r}")
+        check("Search LinkedIn (up to $1.20)" in page.inner_text("#btn-apply-student-filter"), "search button should state its cost")
+        order = page.evaluate("""() => { const e = document.getElementById('edu-panel'), f = document.getElementById('form-student-search');
+                                         return !!(e.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING); }""")
+        check(order, "Education Filters should come before the LinkedIn search")
 
         table = page.inner_text("#students-table-body")
         check("Test Pool Person From PDL" in table, "person found earlier by PDL is missing from the pool")
@@ -99,6 +110,18 @@ try:
         check("People Data Labs" not in status, f"status line mentions PDL: {status}")
 
         page.screenshot(path=os.path.join(tmp_dir, "sourcing.png"), full_page=False)
+
+        # Clicking Search sends year 2019 with the fixed depth. The request is aborted by the route
+        # above, so it never reaches the server (and never Apify).
+        with page.expect_request("**/api/students/search-start**") as req_info:
+            page.click("#btn-apply-student-filter")
+        sent = req_info.value.post_data_json or {}
+        check(sent.get("bachelor_year") == "2019" and int(sent.get("pages") or 0) == 1,
+              f"search request should ask for 2019, one page at a time: {sent}")
+        page.wait_for_timeout(800)   # let the route handler record the aborted request
+        blocked_search = [u for u in blocked if "search-start" in u]
+        check(len(blocked_search) >= 1, "the search-start request should have been intercepted")
+        blocked[:] = [u for u in blocked if "search-start" not in u]   # expected, intercepted on purpose
         browser.close()
 finally:
     server.shutdown()
@@ -112,4 +135,4 @@ if failures:
         print("  -", f)
     print("screenshot:", os.path.join(tmp_dir, "sourcing.png"))
     sys.exit(1)
-print(f"PASS: Sourcing tab in Edge - Apify-only source, depth control shown, pool incl. PDL-found people, no JS errors, no paid calls. Screenshot: {os.path.join(tmp_dir, 'sourcing.png')}")
+print(f"PASS: Sourcing tab in Edge - clean layout (no old header/stats/buttons/source/depth), fixed-depth search request, pool incl. PDL-found people, no JS errors, no paid calls. Screenshot: {os.path.join(tmp_dir, 'sourcing.png')}")

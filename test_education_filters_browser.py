@@ -88,10 +88,17 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.35.0" in page.content(), "cache-buster not bumped to 5.35.0")
+        check("app.js?v=5.36.0" in page.content(), "cache-buster not bumped to 5.36.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")
+        # every control must sit inside the panel (nothing spilling past its right edge) at common widths
+        for width in (1280, 1440, 1024):
+            page.set_viewport_size({"width": width, "height": 1000})
+            overflow = page.evaluate("""() => { const panel = document.getElementById('edu-panel').getBoundingClientRect();
+                return [...document.querySelectorAll('#form-edu-search > *')].filter(el => el.getBoundingClientRect().right > panel.right + 1).map(el => el.id || el.tagName); }""")
+            check(not overflow, f"at {width}px these controls spill outside the panel: {overflow}")
+        page.set_viewport_size({"width": 1440, "height": 1000})
         check(page.is_disabled("#btn-edu-export"), "Excel button should be disabled before a search")
 
         # searching before choosing a college explains what to do

@@ -1755,8 +1755,8 @@ async function loadStudents(runLive = false) {
             ? ` <span style="color:#475569;">Your team's pool by graduation year: <b>${formatPoolCounts(poolCounts)}</b> (change the year to view another - free).</span>`
             : '';
         setStudentsSearchStatus((found.length > 0
-            ? `Showing <b>${found.length}</b> verified match(es) your team has already found for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to fetch more (it uses your chosen data source's credits; pick the size first).`
-            : `Pick a search depth, then click <b>Search LinkedIn</b>. Apify costs about $0.20 per 25 profiles scanned.`) + poolLine);
+            ? `Showing <b>${found.length}</b> verified match(es) your team has already found for ${escapeHtml(by)}${imported.length ? ' plus candidates on your bench' : ''}. Click <b>Search LinkedIn</b> to find more (paid: up to about $1.20 per click).`
+            : `Nothing saved yet for this year. Click <b>Search LinkedIn</b> to find candidates (paid: up to about $1.20 per click).`) + poolLine);
         return;
     }
 
@@ -1788,7 +1788,7 @@ async function loadStudents(runLive = false) {
     let cost = null;
     try {
         if (!source) {
-            studentsEmptyMessage = 'No automated data source is set up yet. Add APIFY_API_TOKEN in the server settings, or use the Google X-Ray / LinkedIn Search buttons above.';
+            studentsEmptyMessage = 'LinkedIn search is not set up yet. Add APIFY_API_TOKEN in the server settings.';
             setStudentsSearchStatus(`<span style="color:#b45309;">${escapeHtml(studentsEmptyMessage)}</span>`);
             renderStudentsGrid(state.students);
             return;

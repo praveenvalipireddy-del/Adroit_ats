@@ -73,7 +73,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.44.0" in page.content(), "cache-buster not bumped to 5.44.0")
+        check("app.js?v=5.45.0" in page.content(), "cache-buster not bumped to 5.45.0")
         page.click("a.nav-item[data-tab=candidates]")
         page.click("#btn-add-consultant-tab")
         page.wait_for_selector("#modal-consultant", state="visible")
@@ -132,9 +132,36 @@ try:
         page.wait_for_selector("#modal-consultant", state="visible")
         check(page.input_value("#c-visa") == "OPT/CPT" and "previously saved" in page.inner_text("#c-visa"),
               f"old value kept: {page.input_value('#c-visa')!r}")
+        # ---- editing a consultant: a chosen resume file is uploaded, the summary is saved
+        import docx as _docx  # noqa: E402
+        doc = _docx.Document()
+        doc.add_paragraph("US FORMTEST RESUME (fixture)")
+        resume_path = os.path.join(tmp_dir, "us_formtest_resume.docx")
+        doc.save(resume_path)
+        page.keyboard.press("Escape")
+        page.evaluate("closeConsultantModal()")
+        page.evaluate(f"openConsultantModal(state.consultants.find(c => c.id === {us['id']}))")
+        page.wait_for_selector("#modal-consultant", state="visible")
+        page.fill("#c-summary", "Edited summary (test)")
+        page.set_input_files("#c-resume-file", resume_path)
+        page.click("#btn-save-consultant")
+        page.wait_for_function("document.getElementById('modal-consultant').style.display === 'none'", timeout=15000)
+        stored = models.get_resume_file(us["id"])
+        edited = models.get_candidate_by_id(us["id"])
+        check(stored and stored["filename"].endswith("us_formtest_resume.docx"), f"resume chosen while editing must be saved: {stored and stored['filename']}")
+        check("US FORMTEST RESUME" in (edited.get("resume_text") or ""), "resume text extracted on edit upload")
+        check(edited.get("resume_summary") == "Edited summary (test)", f"summary saved on edit: {edited.get('resume_summary')!r}")
+        import models as _m  # noqa: E402
+        check(_m.find_resume_file(edited) is not None, "a Gmail draft would now find the resume to attach")
+        page.evaluate(f"openConsultantModal(state.consultants.find(c => c.id === {us['id']}))")
+        page.wait_for_timeout(300)
+        check(page.input_value("#c-summary") == "Edited summary (test)", "edit form shows the saved summary")
         browser.close()
 finally:
     server.shutdown()
+    import glob  # noqa: E402
+    for leftover in glob.glob(os.path.join(models.RESUMES_DIR, "*us_formtest_resume.docx")):
+        os.remove(leftover)   # the upload route also writes the file into data/resumes
 
 check(not js_errors, f"JavaScript errors: {js_errors}")
 if failures:

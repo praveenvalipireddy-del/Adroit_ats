@@ -460,7 +460,7 @@ function openConsultantModal(cand = null) {
         document.getElementById('c-location').value = cand.location || 'United States';
         document.getElementById('c-country').value = cand.country || 'United States';
         syncVisaOptionsForCountry(cand.visa_status || '');
-        document.getElementById('c-summary').value = cand.summary || '';
+        document.getElementById('c-summary').value = cand.resume_summary || cand.summary || '';
     } else {
         if (title) title.innerText = 'Add New US Bench Consultant';
         if (editIdInput) editIdInput.value = '';
@@ -1491,7 +1491,8 @@ function initModals() {
                         visa_status: document.getElementById('c-visa').value.trim(),
                         location: document.getElementById('c-location').value.trim(),
                         country: document.getElementById('c-country').value.trim(),
-                        summary: document.getElementById('c-summary').value.trim()
+                        // the server field is resume_summary ("summary" was silently ignored)
+                        resume_summary: document.getElementById('c-summary').value.trim()
                     };
 
                     const res = await fetch(`/api/consultants/${editId}`, {
@@ -1499,8 +1500,22 @@ function initModals() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
-                    const data = await res.json();
-                    showToast('Consultant profile updated!', 'success');
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || 'Could not update the consultant.');
+                    // A resume chosen while EDITING used to be ignored (only the create form sent the
+                    // file), so drafts had no resume to attach. Upload it to the consultant now.
+                    const resumeInput = document.getElementById('c-resume-file');
+                    const file = resumeInput && resumeInput.files && resumeInput.files[0];
+                    if (file) {
+                        const fd = new FormData();
+                        fd.append('resume_file', file);
+                        const up = await fetch(`/api/consultants/${editId}/upload-resume`, { method: 'POST', body: fd });
+                        const upData = await up.json().catch(() => ({}));
+                        if (!up.ok) throw new Error('Profile saved, but the resume upload failed: ' + (upData.error || up.status));
+                        showToast(`Consultant profile updated - resume "${upData.filename || file.name}" saved.`, 'success');
+                    } else {
+                        showToast('Consultant profile updated!', 'success');
+                    }
                 } else {
                     // Create via POST (multipart/form-data to support resume upload)
                     const formData = new FormData(formConsultant);

@@ -1051,6 +1051,12 @@ function initResumeBot() {
     // original Word file (the server holds it). Anything typed/edited falls back to plain text.
     let attachedDocx = null;
     let storedHasDocx = false;
+    // Which consultant the stored resume now in the box belongs to, and a counter so only the
+    // LATEST load may fill the box. Without it a slow earlier load (e.g. the previously selected
+    // consultant's PDF being read for the first time) finished last and replaced the newly
+    // selected consultant's resume - the dropdown said Praveen while the box held Sai Teja's.
+    let loadedForCandId = null;
+    let loadSeq = 0;
 
     const setSourceNote = (html, tone) => {
         if (!sourceNote) return;
@@ -1066,10 +1072,13 @@ function initResumeBot() {
     async function loadStoredResume(onlyIfPristine = false) {
         if (onlyIfPristine && sourceMode !== 'stored') return;
         const candId = candSelect ? parseInt(candSelect.value) : NaN;
+        const seq = ++loadSeq;
         if (fileInput) fileInput.value = '';
         sourceMode = 'stored';
         attachedDocx = null;
         storedHasDocx = false;
+        loadedForCandId = null;
+        if (resumeTextarea) resumeTextarea.value = '';   // never show the previous person's resume while loading
         if (!candId) {
             if (resumeTextarea) resumeTextarea.value = '';
             setSourceNote('Select a consultant, attach a file, or paste a resume below.', 'muted');
@@ -1080,8 +1089,11 @@ function initResumeBot() {
             const res = await fetch(`/api/consultants/${candId}`);
             if (res.status === 401) { window.location.href = '/login'; return; }
             const cand = await res.json().catch(() => ({}));
+            // A newer selection (or an attached/typed resume) has taken over: drop this stale result.
+            if (seq !== loadSeq || sourceMode !== 'stored' || (candSelect && parseInt(candSelect.value) !== candId)) return;
             const text = (cand.resume_text || '').trim();
             if (resumeTextarea) resumeTextarea.value = text;
+            loadedForCandId = text ? candId : null;
             storedHasDocx = !!text && /\.docx$/i.test(cand.resume_filename || '');
             const who = escapeHtml(cand.name || 'this consultant');
             setSourceNote(text
@@ -1093,6 +1105,7 @@ function initResumeBot() {
                 : `No resume is on file for <b>${who}</b>. Attach a .docx / .pdf / .txt file or paste the resume text below.`,
                 text ? 'ok' : 'warn');
         } catch (err) {
+            if (seq !== loadSeq) return;
             setSourceNote('Could not load that consultant\'s resume: ' + escapeHtml(err.message), 'error');
         }
     }
@@ -1100,6 +1113,7 @@ function initResumeBot() {
 
     if (candSelect) candSelect.addEventListener('change', () => loadStoredResume(false));
     if (resumeTextarea) resumeTextarea.addEventListener('input', () => {
+        loadSeq++;
         sourceMode = 'typed';
         attachedDocx = null;
         storedHasDocx = false;
@@ -1110,6 +1124,7 @@ function initResumeBot() {
         fileInput.addEventListener('change', async () => {
             const file = fileInput.files && fileInput.files[0];
             if (!file) return;
+            loadSeq++;   // an attached file wins over any stored-resume load still in flight
             setSourceNote(`Reading <b>${escapeHtml(file.name)}</b>...`, 'muted');
             const formData = new FormData();
             formData.append('resume_file', file);
@@ -1155,6 +1170,12 @@ function initResumeBot() {
             const resume = resumeTextarea ? resumeTextarea.value.trim() : '';
             const notes = notesInput ? notesInput.value.trim() : '';
 
+            const selectedId = candSelect ? parseInt(candSelect.value) : NaN;
+            if (sourceMode === 'stored' && resume && loadedForCandId !== selectedId) {
+                showToast('The resume in the box does not belong to the selected consultant - reloading it. Check it, then click Optimize again.', 'warning', 6000);
+                loadStoredResume(false);
+                return;
+            }
             if (!resume) {
                 showToast('There is no resume to optimize. Attach a file or paste the resume text first.', 'warning');
                 if (resumeTextarea) resumeTextarea.focus();
@@ -3227,13 +3248,10 @@ function openResumeOptimizerForJob(jobId, candidateId) {
     const job = (state.jobs || []).find(j => j.id === jobId);
     if (!job) { showToast('Job not found - refresh the Jobs list.', 'error'); return; }
     setActiveConsultant(candidateId);
-    switchTab('resumebot');
-
     const candSelect = document.getElementById('resumebot-consultant-select');
-    if (candSelect) {
-        candSelect.value = String(candidateId);
-        candSelect.dispatchEvent(new Event('change'));   // loads that consultant's resume on file
-    }
+    if (candSelect) candSelect.value = String(candidateId);
+    switchTab('resumebot');
+    if (candSelect) candSelect.dispatchEvent(new Event('change'));   // (re)load that consultant's resume on file
 
     const desc = (job.description || '').trim();
     const full = (job.full_description || '').trim()

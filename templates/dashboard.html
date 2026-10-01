@@ -263,17 +263,18 @@
                         <table class="data-table" id="jobs-data-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 28%;">Job Title & Company</th>
-                                    <th style="width: 12%;">Portal</th>
-                                    <th style="width: 14%;">Rate / Type</th>
-                                    <th style="width: 22%;">Recruiter Email (In-Table Edit)</th>
+                                    <th style="width: 25%;">Job Title & Company</th>
+                                    <th style="width: 10%;">Portal</th>
+                                    <th style="width: 12%;">Rate / Type</th>
+                                    <th style="width: 20%;">Recruiter Email (In-Table Edit)</th>
+                                    <th style="width: 10%;">Resume</th>
                                     <th style="width: 12%;">Target Candidate</th>
-                                    <th style="width: 12%; text-align: right;">1-Click Actions</th>
+                                    <th style="width: 11%; text-align: right;">1-Click Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="jobs-table-body">
                                 <tr>
-                                    <td colspan="6" class="loading-cell">
+                                    <td colspan="7" class="loading-cell">
                                         <div class="spinner"></div> Loading fresh 24h US contract jobs...
                                     </td>
                                 </tr>
@@ -624,6 +625,7 @@
                             <div class="form-group">
                                 <label>Paste Client Requisition / JD</label>
                                 <textarea id="resumebot-jd-text" rows="8" class="form-control" placeholder="Paste full client job description here..."></textarea>
+                                <div id="resumebot-jd-note" style="display:none; font-size:0.8rem; margin-top:6px;"></div>
                             </div>
                             <div class="form-group">
                                 <label>Custom Optimization Instructions (Optional)</label>
@@ -1086,7 +1088,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.38.0"></script>
+    <script src="/static/js/app.js?v=5.39.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

@@ -649,7 +649,7 @@ async function searchJobs(liveScrape = false) {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
+                <td colspan="7" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
                     <div class="spinner" style="display:inline-block; margin-right:8px;"></div>
                     ${liveScrape ? `Scraping fresh 24h ${country} contract jobs across portals...` : `Searching ${country} job requisitions...`}
                 </td>
@@ -682,7 +682,7 @@ async function searchJobs(liveScrape = false) {
     } catch (err) {
         console.error('Error fetching jobs:', err);
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
         }
     }
 }
@@ -758,7 +758,7 @@ function renderJobsTable(jobs) {
     if (!jobs || jobs.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" style="text-align:center; padding: 40px; color: var(--text-muted);">
+                <td colspan="7" style="text-align:center; padding: 40px; color: var(--text-muted);">
                     No jobs found matching your search. Try adjusting keywords or click <strong>"Live 24h Scrape"</strong> to fetch fresh postings.
                 </td>
             </tr>`;
@@ -799,6 +799,11 @@ function renderJobsTable(jobs) {
                     <input type="email" class="form-control form-control-sm email-inline-input" data-job-id="${j.id}" value="${escapeHtml(j.recruiter_email || '')}" placeholder="Paste recruiter email..." style="min-width: 180px; font-size: 0.85rem;">
                     <button class="btn btn-secondary btn-xs btn-save-email" data-job-id="${j.id}" title="Save Recruiter Email">💾</button>
                 </div>
+            </td>
+            <td>
+                <button type="button" class="btn btn-sm btn-optimize-job" data-job-id="${j.id}" title="Open the Resume Optimizer with this job and the Target Candidate's resume" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd; font-weight:700; font-size:0.78rem; padding:6px 10px; border-radius:6px; white-space:nowrap;">
+                    ⚡ Optimize Resume
+                </button>
             </td>
             <td>
                 <select class="form-control form-control-sm job-consultant-select" data-job-id="${j.id}" style="font-size: 0.85rem;">
@@ -847,6 +852,20 @@ function renderJobsTable(jobs) {
             const recruiterEmail = emailInput ? emailInput.value.trim() : '';
 
             createJobDraft(jobId, candId, recruiterEmail, btn);
+        });
+    });
+
+    // Resume Optimizer for this job + the row's Target Candidate
+    tbody.querySelectorAll('.btn-optimize-job').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const row = btn.closest('tr');
+            const candSelect = row.querySelector('.job-consultant-select');
+            const candId = candSelect ? parseInt(candSelect.value) : state.activeConsultantId;
+            if (!candId) {
+                showToast('Please select a Target Candidate first', 'warning');
+                return;
+            }
+            openResumeOptimizerForJob(parseInt(btn.getAttribute('data-job-id')), candId);
         });
     });
 
@@ -3197,7 +3216,61 @@ async function submitCopilotDraftToGmail() {
 // =========================================================================
 // Candidate -> Jobs: Browse matching live jobs for a specific candidate
 // =========================================================================
+// A pasted requirement ("Manual Paste") keeps the full job description. Scraped postings only keep a
+// one-line summary, so for those the recruiter is asked to paste the full description from the posting.
+const FULL_JD_MIN_CHARS = 400;
+
+function openResumeOptimizerForJob(jobId, candidateId) {
+    const job = (state.jobs || []).find(j => j.id === jobId);
+    if (!job) { showToast('Job not found - refresh the Jobs list.', 'error'); return; }
+    setActiveConsultant(candidateId);
+    switchTab('resumebot');
+
+    const candSelect = document.getElementById('resumebot-consultant-select');
+    if (candSelect) {
+        candSelect.value = String(candidateId);
+        candSelect.dispatchEvent(new Event('change'));   // loads that consultant's resume on file
+    }
+
+    const desc = (job.description || '').trim();
+    const isFull = job.source === 'Manual Paste' || desc.length >= FULL_JD_MIN_CHARS;
+    const header = [job.title, job.company].filter(Boolean).join(' - ') + (job.location ? ` (${job.location})` : '');
+    const jdBox = document.getElementById('resumebot-jd-text');
+    if (jdBox) jdBox.value = isFull ? desc : [header, desc, job.url ? `Posting: ${job.url}` : ''].filter(Boolean).join('\n\n');
+
+    const note = document.getElementById('resumebot-jd-note');
+    if (note) {
+        note.style.display = 'block';
+        if (isFull) {
+            note.style.color = '#047857';
+            note.innerHTML = `Job description filled in from <b>${escapeHtml(header)}</b>. Review it, then click Optimize.`;
+        } else {
+            note.style.color = '#b45309';
+            note.innerHTML = `Only a short summary is saved for <b>${escapeHtml(header)}</b>. For a good result, `
+                + (job.url ? `<a href="${escapeHtml(job.url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; font-weight:600;">open the posting ↗</a>` : 'open the posting')
+                + ', copy the full job description and paste it into the box above.';
+        }
+    }
+    if (jdBox) jdBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function setActiveConsultant(candidateId) {
+    const id = parseInt(candidateId);
+    if (!id || !(state.consultants || []).some(c => c.id === id)) return;
+    state.activeConsultantId = id;
+    ['global-active-consultant', 'pd-consultant-select'].forEach(selId => {
+        const sel = document.getElementById(selId);
+        if (sel) sel.value = String(id);
+    });
+    updateActiveConsultantUI();
+    updateTableConsultantSelects();
+}
+
 async function browseJobsForCandidate(candidateId, candidateTitle, candidateCountry) {
+    // 0. This consultant becomes the Target Candidate on every job row (it used to stay on
+    //    whoever was selected before, e.g. the first consultant, instead of the one clicked).
+    setActiveConsultant(candidateId);
+
     // 1. Switch to the Jobs tab first
     switchTab('jobs');
 
@@ -3230,6 +3303,7 @@ async function browseJobsForCandidate(candidateId, candidateTitle, candidateCoun
 
         // Trigger the job search
         await searchJobs(false);
+        updateTableConsultantSelects();
 
         // After results load, update the match-count badge on the candidate row
         setTimeout(() => {

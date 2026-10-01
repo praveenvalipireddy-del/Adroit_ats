@@ -146,6 +146,28 @@ for g in institutions_seed.GROUPS:
     check(all(m.startswith("in-" if g[2] == "India" else "us-") for m in g[4]), f"group {g[0]} mixes countries")
 check("in-iiit-hyderabad" not in dict((g[0], g[4]) for g in institutions_seed.GROUPS)["group-iit"], "IIIT is not an IIT")
 
+# ---- Passout tab: Indian Bachelor's in the chosen year (any Indian college) + US Master's
+def passout(year, **kw):
+    r = client.get("/api/education/search", query_string={"filter": "P", "passout_year": year, **kw})
+    check(r.status_code == 200, f"passout {year}: {r.status_code} {r.get_json()}")
+    return sorted(x["name"] for x in (r.get_json() or {}).get("results", []))
+
+
+check(passout(2019) == ["One Testcase"], f"passout 2019: {passout(2019)}")
+row = client.get("/api/education/search", query_string={"filter": "P", "passout_year": 2019}).get_json()["results"][0]
+check(row["indian_college"] == "Jawaharlal Nehru Technological University Hyderabad (2019)"
+      and row["us_masters"].startswith("The University of Texas at Dallas - "), f"passout columns swapped? {row}")
+check(passout(2018) == ["Eight Testcase"], f"passout 2018 (unrecognised college must not count): {passout(2018)}")
+check(passout("All") == ["Eight Testcase", "One Testcase", "Three Testcase"],
+      f"passout All 2015-2023 (no-year, dual-degree, non-US MS and 2014 excluded): {passout('All')}")
+check(passout(2014) == ["Nine Testcase"], "a single year outside 2015-2023 still works")
+check(passout("All", location="boston") == ["Three Testcase"], "passout + location")
+check(client.get("/api/education/search", query_string={"filter": "P"}).status_code == 400, "passout without a year")
+check(client.get("/api/education/institutions", query_string={"filter": "P"}).status_code == 400, "no college list for passout")
+r = client.get("/api/education/export-xlsx", query_string={"filter": "P", "passout_year": "All"})
+check(r.status_code == 200 and "Passout_2015_2023" in r.headers.get("Content-Disposition", "")
+      and load_workbook(io.BytesIO(r.data))["Candidates"].max_row == 4, f"passout export: {r.headers.get('Content-Disposition')}")
+
 # ---- result columns
 r = client.get("/api/education/search", query_string={"filter": "A", "institution_id": "in-osmania"}).get_json()["results"][0]
 check("Osmania University (2015)" == r["indian_college"], f"indian_college column: {r['indian_college']}")
@@ -188,7 +210,7 @@ conn = models.get_db_connection()
 cur = conn.cursor()
 cur.execute("SELECT user_id, details FROM capture_log WHERE action = 'export_xlsx'")
 logs = [tuple(x) for x in cur.fetchall()]
-check(len(logs) == 2 and all(l[0] == REC_ID for l in logs) and logs[0][1].startswith("4 rows") and logs[1][1].startswith("2 rows"),
+check(len(logs) == 3 and all(l[0] == REC_ID for l in logs) and [l[1].split(" rows")[0] for l in logs] == ["4", "3", "2"],
       f"export log: {logs}")
 cur.execute("SELECT COUNT(*) FROM capture_log WHERE action = 'capture' AND user_id = ?", (REC_ID,))
 check(cur.fetchone()[0] == 6, "each captured profile should be logged with the recruiter id")

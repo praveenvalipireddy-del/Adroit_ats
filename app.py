@@ -1759,7 +1759,7 @@ def api_education_institutions():
     if err:
         return err
     f = (request.args.get("filter") or "").strip().upper()
-    if f not in education_filters.FILTERS:
+    if f not in ("A", "B"):
         return jsonify({"error": "filter must be 'A' or 'B'"}), 400
     conn = models.get_db_connection()
     try:
@@ -1800,9 +1800,15 @@ def api_education_export_xlsx():
         rows = education_filters.export_rows(conn, params)
         cur = conn.cursor()
         inst_name = education_filters.display_name(conn, params["institution_id"])
-        label = ("Filter A: Indian college -> US Master's" if params["filter"] == "A"
-                 else "Filter B: US university -> Indian undergrad") + f" | {inst_name}"
-        if params["year_from"] or params["year_to"]:
+        if params["filter"] == "P":
+            span = (str(params["year_from"]) if params["year_from"] == params["year_to"]
+                    else f"{params['year_from']}-{params['year_to']}")
+            label = f"Passout {span}: Indian Bachelor's + US Master's"
+            inst_name = f"Passout_{span}"
+        else:
+            label = ("Filter A: Indian college -> US Master's" if params["filter"] == "A"
+                     else "Filter B: US university -> Indian undergrad") + f" | {inst_name}"
+        if params["filter"] != "P" and (params["year_from"] or params["year_to"]):
             label += f" | years {params['year_from'] or '...'}-{params['year_to'] or '...'}"
         if params["location"]:
             label += f" | location: {params['location']}"
@@ -1815,7 +1821,7 @@ def api_education_export_xlsx():
         conn.close()
     models.log_activity(user["id"], user["name"], "Exported Excel", "Sourcing", 0, f"{len(rows)} candidates - {label}")
     data = education_filters.build_xlsx(rows, label)
-    slug = re.sub(r"[^A-Za-z0-9]+", "_", f"Filter_{params['filter']}_{inst_name}").strip("_")[:80]
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", inst_name if params["filter"] == "P" else f"Filter_{params['filter']}_{inst_name}").strip("_")[:80]
     return send_file(io.BytesIO(data), as_attachment=True, download_name=f"{slug}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 

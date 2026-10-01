@@ -25,6 +25,7 @@ config.DB_PATH = os.environ["DB_PATH"]
 config.DATABASE_URL = ""
 config.APIFY_API_TOKEN = "dummy-test-token-not-real"
 import app as app_module  # noqa: E402
+import linkedin_ingest  # noqa: E402
 import models  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
@@ -35,10 +36,11 @@ conn = models.get_db_connection()
 cur = conn.cursor()
 for src, slug, name in (("pdl", "a", "Test Pool Person From PDL"), ("apify", "b", "Test Pool Person From Apify")):
     cur.execute("INSERT INTO sourced_candidates (source, search_year, profile_url, name, bachelor_year, bachelor_college, master_university) "
-                "VALUES (?, '2019', ?, ?, '2019', 'Test College (India)', 'Test University (USA)')",
+                "VALUES (?, '2019', ?, ?, '2019', 'Osmania University', 'UT Dallas')",
                 (src, f"https://www.linkedin.com/in/test-only-{slug}.example.invalid", name))
 conn.commit()
 conn.close()
+linkedin_ingest.import_sourced_pool()   # what startup does on the server
 
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0))
@@ -75,14 +77,11 @@ try:
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
 
-        check("app.js?v=5.37.0" in page.content(), "cache-buster not bumped to app.js?v=5.37.0")
+        check("app.js?v=5.38.0" in page.content(), "cache-buster not bumped to app.js?v=5.38.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.select_option("#filter-student-bachelor-year", "2019")
-        page.wait_for_function(
-            "document.querySelector('#students-table-body') && "
-            "document.querySelector('#students-table-body').innerText.includes('Test Pool Person From Apify')",
-            timeout=15000)
+        page.wait_for_function("document.getElementById('edu-results').innerText.includes('Test Pool Person From Apify')", timeout=15000)
 
         # Clean layout: no source dropdown / depth selector / old header, stats or buttons.
         check(page.get_attribute("#filter-student-source", "type") == "hidden"
@@ -95,12 +94,16 @@ try:
         pane = page.inner_text("#tab-students")
         for gone_text in ("US Bench Sourcing", "Talent Sourcing Pool", "Experienced Tech Candidates", "Google X-Ray", "Data source", "Search depth"):
             check(gone_text.lower() not in pane.lower(), f"Sourcing still shows {gone_text!r}")
-        check("Search LinkedIn (up to $1.20)" in page.inner_text("#btn-apply-student-filter"), "search button should state its cost")
-        order = page.evaluate("""() => { const e = document.getElementById('edu-panel'), f = document.getElementById('form-student-search');
-                                         return !!(e.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING); }""")
-        check(order, "Education Filters should come before the LinkedIn search")
+        check("$1.20" in page.inner_text("#btn-apply-student-filter"), "search button should state its cost")
+        for width in (1280, 1440):
+            page.set_viewport_size({"width": width, "height": 900})
+            tops = page.evaluate("""() => [...document.querySelectorAll('#form-edu-search > *')]
+                .filter(el => el.offsetParent !== null).map(el => Math.round(el.getBoundingClientRect().bottom))""")
+            check(len(set(tops)) == 1, f"at {width}px the Passout controls should fit one row (bottoms: {tops})")
+        page.set_viewport_size({"width": 1280, "height": 720})
+        check(page.is_visible("#btn-apply-student-filter"), "Search LinkedIn should be on the Passout tab's row")
 
-        table = page.inner_text("#students-table-body")
+        table = page.inner_text("#edu-results")
         check("Test Pool Person From PDL" in table, "person found earlier by PDL is missing from the pool")
         check("Test Pool Person From Apify" in table, "Apify pool person missing")
 

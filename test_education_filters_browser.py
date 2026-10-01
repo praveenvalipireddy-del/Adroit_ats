@@ -88,10 +88,30 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.37.0" in page.content(), "cache-buster not bumped to 5.37.0")
+        check("app.js?v=5.38.0" in page.content(), "cache-buster not bumped to 5.38.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")
+
+        # Passout tab is first and selected; its controls show, the college box doesn't
+        tabs = page.eval_on_selector_all(".edu-tab", "els => els.map(e => [e.textContent.trim(), Math.round(e.getBoundingClientRect().top)])")
+        check([t[0] for t in tabs] == ["Passout Year", "Filter A: Indian College → US Master's", "Filter B: US University → Indian Undergrad"],
+              f"tab order: {tabs}")
+        check(len({t[1] for t in tabs}) == 1, f"tabs should sit in one row: {tabs}")
+        check(page.is_visible("#filter-student-bachelor-year") and not page.is_visible("#edu-inst-input"), "passout controls")
+        page.wait_for_function("document.getElementById('edu-status').innerText.length > 0")
+        check("No saved candidates" in page.inner_text("#edu-status"), f"passout 2023 should be empty: {page.inner_text('#edu-status')}")
+        page.select_option("#filter-student-bachelor-year", "2017")
+        page.wait_for_function("document.getElementById('edu-status').innerText.includes('5 candidates')")
+        check(page.locator("#edu-results tr").count() == 5, "passout 2017 rows")
+        page.select_option("#filter-student-bachelor-year", "All")
+        page.wait_for_function("document.getElementById('edu-status').innerText.includes('27 candidates')")
+        for gone in ("Education Filters", "FREE - TEAM DATABASE", "Year range applies", "Find more candidates", "Searches every LinkedIn"):
+            check(gone not in page.inner_text("#tab-students"), f"Sourcing still shows {gone!r}")
+
+        page.click(".edu-tab[data-filter=A]")
+        check(page.is_visible("#edu-inst-input") and not page.is_visible("#filter-student-bachelor-year")
+              and not page.is_visible("#btn-apply-student-filter"), "Filter A controls")
         # every control must sit inside the panel (nothing spilling past its right edge) at common widths
         for width in (1280, 1440, 1024):
             page.set_viewport_size({"width": width, "height": 1000})
@@ -111,7 +131,7 @@ try:
         first = page.inner_text(".edu-inst-option")
         check("Jawaharlal Nehru Technological University Hyderabad" in first and "27 candidates" in first, f"autocomplete: {first!r}")
         page.click(".edu-inst-option")
-        page.wait_for_function("document.querySelectorAll('#edu-results tr').length > 0")
+        page.wait_for_function("document.getElementById('edu-status').innerText.includes('from Jawaharlal Nehru Technological University Hyderabad')")
         check("27" in page.inner_text("#edu-status"), f"status: {page.inner_text('#edu-status')}")
         check(page.locator("#edu-results tr").count() == 25, "page 1 should show 25 rows")
         check(page.inner_text("#edu-page-info") == "Page 1 of 2", f"pager: {page.inner_text('#edu-page-info')}")
@@ -193,4 +213,4 @@ if failures:
         print("  -", f)
     print("screenshot:", shot)
     sys.exit(1)
-print(f"PASS: Education Filters in Edge - autocomplete, A/B, paging, years, Excel download, admin linking, no JS errors, no paid calls. Screenshot: {shot}")
+print(f"PASS: Sourcing tabs in Edge - Passout/A/B in one row, passout years, autocomplete, A/B, paging, years, Excel download, admin linking, no JS errors, no paid calls. Screenshot: {shot}")

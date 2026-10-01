@@ -1,5 +1,6 @@
 """Filter A / Filter B over the education tables (linkedin_profiles + profile_education).
 
+Passout  - an Indian Bachelor's ending in the chosen year (any Indian college) AND a US Master's.
 Filter A - "Indian College -> US Masters": a Bachelors entry at the chosen Indian college AND a
            Masters entry at any institution whose country is USA.
 Filter B - "US University -> Indian Undergrad": a Masters entry at the chosen US university AND a
@@ -22,7 +23,12 @@ from institutions_seed import GROUPS
 
 _GROUPS = {g[0]: {"id": g[0], "name": g[1], "country": g[2], "words": g[3], "members": g[4]} for g in GROUPS}
 
+# Passout ("P"): an Indian Bachelor's ending in the chosen year (any Indian college) AND a US Master's.
+# "All" covers PASSOUT_MIN..PASSOUT_MAX, the same range the LinkedIn search uses.
+PASSOUT_MIN, PASSOUT_MAX = 2015, 2023
+
 FILTERS = {
+    "P": {"chosen_level": "Bachelors", "chosen_country": "India", "other_level": "Masters", "other_country": "USA"},
     "A": {"chosen_level": "Bachelors", "chosen_country": "India", "other_level": "Masters", "other_country": "USA"},
     "B": {"chosen_level": "Masters", "chosen_country": "USA", "other_level": "Bachelors", "other_country": "India"},
 }
@@ -49,11 +55,21 @@ def _year(v) -> Optional[int]:
 def parse_params(args: Dict) -> Dict:
     f = str(args.get("filter") or "").strip().upper()
     if f not in FILTERS:
-        raise FilterError("filter must be 'A' or 'B'")
-    inst = str(args.get("institution_id") or "").strip()
-    if not inst:
-        raise FilterError("Choose an institution first.")
-    y_from, y_to = _year(args.get("year_from")), _year(args.get("year_to"))
+        raise FilterError("filter must be 'P', 'A' or 'B'")
+    if f == "P":
+        inst = None
+        py = str(args.get("passout_year") or "").strip()
+        if py.lower() == "all":
+            y_from, y_to = PASSOUT_MIN, PASSOUT_MAX
+        else:
+            y_from = y_to = _year(py)
+            if not y_from:
+                raise FilterError("Choose a passout year.")
+    else:
+        inst = str(args.get("institution_id") or "").strip()
+        if not inst:
+            raise FilterError("Choose an institution first.")
+        y_from, y_to = _year(args.get("year_from")), _year(args.get("year_to"))
     if y_from and y_to and y_from > y_to:
         raise FilterError("'Year from' is after 'Year to'.")
     try:
@@ -66,13 +82,17 @@ def parse_params(args: Dict) -> Dict:
             "page": page, "page_size": page_size}
 
 
-def member_ids(institution_id: str) -> List[str]:
-    """A group ("JNTU - any campus") stands for all of its member institutions."""
+def member_ids(institution_id: Optional[str]) -> Optional[List[str]]:
+    """A group ("JNTU - any campus") stands for all of its member institutions. None = any institution."""
+    if institution_id is None:
+        return None
     group = _GROUPS.get(institution_id)
     return list(group["members"]) if group else [institution_id]
 
 
-def display_name(conn, institution_id: str) -> str:
+def display_name(conn, institution_id: Optional[str]) -> str:
+    if institution_id is None:
+        return "any Indian college"
     if institution_id in _GROUPS:
         return _GROUPS[institution_id]["name"]
     cur = conn.cursor()
@@ -89,10 +109,10 @@ def _where(p: Dict):
     spec = FILTERS[p["filter"]]
     members = member_ids(p["institution_id"])
     clauses = ["""EXISTS (SELECT 1 FROM profile_education c WHERE c.profile_id = p.id AND c.degree_level = ?
-                   AND c.institution_canonical_id IN ({members}) AND c.country = ?{years})""",
+                   {inst}AND c.country = ?{years})""",
                """EXISTS (SELECT 1 FROM profile_education o WHERE o.profile_id = p.id AND o.degree_level = ?
                    AND o.country = ?)"""]
-    params = [spec["chosen_level"], *members, spec["chosen_country"]]
+    params = [spec["chosen_level"], *(members or []), spec["chosen_country"]]
     years = ""
     if p["year_from"]:
         years += " AND c.end_year >= ?"
@@ -100,7 +120,8 @@ def _where(p: Dict):
     if p["year_to"]:
         years += " AND c.end_year <= ?"
         params.append(p["year_to"])
-    clauses[0] = clauses[0].format(years=years, members=", ".join(["?"] * len(members)))
+    inst_sql = f"AND c.institution_canonical_id IN ({', '.join(['?'] * len(members))}) " if members else ""
+    clauses[0] = clauses[0].format(years=years, inst=inst_sql)
     params += [spec["other_level"], spec["other_country"]]
     if p["location"]:
         clauses.append("LOWER(COALESCE(p.location, '')) LIKE ?")
@@ -152,10 +173,11 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
     out = []
     for r in rows:
         edu = by_profile.get(r["id"], [])
-        chosen = [e for e in edu if e["degree_level"] == spec["chosen_level"] and e["institution_canonical_id"] in members
+        chosen = [e for e in edu if e["degree_level"] == spec["chosen_level"] and (members is None or e["institution_canonical_id"] in members)
                   and e["country"] == spec["chosen_country"] and _in_range(e["end_year"], p)]
         other = [e for e in edu if e["degree_level"] == spec["other_level"] and e["country"] == spec["other_country"]]
-        indian, us = (chosen, other) if p["filter"] == "A" else (other, chosen)
+        # A and Passout choose on the Indian Bachelor's side; B chooses on the US Master's side.
+        indian, us = (other, chosen) if p["filter"] == "B" else (chosen, other)
         out.append({
             "id": r["id"],
             "name": r["name"],

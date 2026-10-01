@@ -102,9 +102,7 @@ function switchTab(rawTabId) {
         loadRecruiters();
         loadUnmappedInstitutions();
     } else if (paneKey === 'students') {
-        if (!state.students || state.students.length === 0) {
-            loadStudents();
-        }
+        eduOnTabOpen();
     } else if (paneKey === 'jobs') {
         if (!state.jobs || state.jobs.length === 0) {
             searchJobs(false);
@@ -1923,6 +1921,7 @@ async function loadStudents(runLive = false) {
     } finally {
         studentsLiveSearchRunning = false;
         if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
+        if (runLive && typeof eduAfterLiveSearch === 'function') eduAfterLiveSearch();
     }
 }
 
@@ -2445,10 +2444,6 @@ function initStudentsTab() {
     if (btnFilter) {
         btnFilter.addEventListener('click', () => loadStudents(true));
     }
-    const byInput = document.getElementById('filter-student-bachelor-year');
-    if (byInput) {
-        byInput.addEventListener('change', () => loadStudents(false));
-    }
     if (btnExport) {
         btnExport.addEventListener('click', () => exportStudentsCSV());
     }
@@ -2475,10 +2470,6 @@ function initStudentsTab() {
     window.closeStudentPitchModal = closeStudentPitchModal;
     window.exportStudentsCSV = exportStudentsCSV;
 
-    // Auto-load if empty
-    if (!state.studentsLoaded) {
-        loadStudents(false);
-    }
 }
 
 // =========================================================================
@@ -3260,7 +3251,8 @@ async function browseJobsForCandidate(candidateId, candidateTitle, candidateCoun
 // LinkedIn profiles via /api/education/* - free, never calls Apify.
 // =========================================================================
 const eduState = {
-    filter: 'A',
+    filter: 'P',
+    searchedOnce: false,
     institutions: { A: null, B: null },
     selected: { A: null, B: null },
     page: 1,
@@ -3326,19 +3318,35 @@ async function eduSwitchFilter(filter) {
         btn.style.color = on ? '#ffffff' : '#334155';
         btn.style.borderColor = on ? '#2563eb' : '#cbd5e1';
     });
-    const t = EDU_TEXT[filter];
-    const label = document.getElementById('edu-inst-label');
-    const input = document.getElementById('edu-inst-input');
-    const hint = document.getElementById('edu-year-hint');
-    if (label) label.textContent = t.label;
-    if (input) { input.placeholder = t.placeholder; input.value = eduState.selected[filter] ? eduState.selected[filter].name : ''; }
-    if (hint) hint.textContent = t.hint;
+    const isP = filter === 'P';
+    document.querySelectorAll('.edu-only-p').forEach(el => { el.style.display = isP ? '' : 'none'; });
+    document.querySelectorAll('.edu-only-ab').forEach(el => { el.style.display = isP ? 'none' : ''; });
+    if (!isP) {
+        const t = EDU_TEXT[filter];
+        const label = document.getElementById('edu-inst-label');
+        const input = document.getElementById('edu-inst-input');
+        if (label) label.textContent = t.label;
+        if (input) { input.placeholder = t.placeholder; input.value = eduState.selected[filter] ? eduState.selected[filter].name : ''; }
+    }
     document.getElementById('edu-results-wrap').style.display = 'none';
     document.getElementById('edu-pager').style.display = 'none';
     document.getElementById('btn-edu-export').disabled = true;
     eduSetStatus('');
+    if (isP) { eduSearch(1); return; }
     await eduLoadInstitutions(filter);
     if (eduState.selected[filter]) eduSearch(1);
+}
+
+// Opening the Sourcing tab shows the current tab's results (free - saved profiles only).
+function eduOnTabOpen() {
+    if (!document.getElementById('edu-panel')) return;
+    if (!eduState.searchedOnce) eduSwitchFilter(eduState.filter);
+}
+
+// After a paid LinkedIn search finishes, its profiles are in the database: refresh what's shown.
+function eduAfterLiveSearch() {
+    eduState.institutions = { A: null, B: null };
+    if (eduState.filter === 'P') eduSearch(1);
 }
 
 function eduSetStatus(html) {
@@ -3347,9 +3355,16 @@ function eduSetStatus(html) {
 }
 
 function eduParams(page) {
-    const inst = eduState.selected[eduState.filter];
-    const p = new URLSearchParams({ filter: eduState.filter, institution_id: inst ? inst.id : '', page: String(page || 1), page_size: '25' });
-    for (const [key, id] of [['year_from', 'edu-year-from'], ['year_to', 'edu-year-to'], ['location', 'edu-location'], ['keyword', 'edu-keyword']]) {
+    const p = new URLSearchParams({ filter: eduState.filter, page: String(page || 1), page_size: '25' });
+    const fields = [['location', 'edu-location'], ['keyword', 'edu-keyword']];
+    if (eduState.filter === 'P') {
+        p.set('passout_year', document.getElementById('filter-student-bachelor-year')?.value || 'All');
+    } else {
+        const inst = eduState.selected[eduState.filter];
+        p.set('institution_id', inst ? inst.id : '');
+        fields.push(['year_from', 'edu-year-from'], ['year_to', 'edu-year-to']);
+    }
+    for (const [key, id] of fields) {
         const v = (document.getElementById(id)?.value || '').trim();
         if (v) p.set(key, v);
     }
@@ -3357,12 +3372,14 @@ function eduParams(page) {
 }
 
 async function eduSearch(page) {
+    const isP = eduState.filter === 'P';
     const inst = eduState.selected[eduState.filter];
-    if (!inst) {
+    if (!isP && !inst) {
         eduSetStatus(`<span style="color:#b45309;">Pick ${eduState.filter === 'A' ? 'an Indian college' : 'a US university'} from the list first.</span>`);
         return;
     }
     const params = eduParams(page);
+    eduState.searchedOnce = true;
     eduSetStatus('Searching...');
     const res = await fetch('/api/education/search?' + params.toString());
     if (res.status === 401) { window.location.href = '/login'; return; }
@@ -3376,23 +3393,27 @@ async function eduSearch(page) {
         return;
     }
     eduState.page = data.page; eduState.pages = data.pages; eduState.lastParams = params;
-    const other = eduState.filter === 'A' ? "a US Master's" : "an Indian Bachelor's";
+    const other = eduState.filter === 'B' ? "an Indian Bachelor's" : "a US Master's";
+    const py = document.getElementById('filter-student-bachelor-year')?.value || 'All';
+    const what = isP ? `an Indian Bachelor's (${py === 'All' ? '2015 - 2023' : escapeHtml(py)}) and a US Master's`
+        : `${eduState.filter === 'A' ? "a Bachelor's" : "a Master's"} from <b>${escapeHtml(inst.name)}</b> and ${other}`;
     if (!data.total) {
-        eduSetStatus(`No saved profiles match <b>${escapeHtml(inst.name)}</b> + ${other} with these filters. New Apify searches add profiles here automatically.`);
+        eduSetStatus(isP
+            ? `No saved candidates with ${what} yet. Click <b>Search LinkedIn</b> to find some.`
+            : `No saved profiles match <b>${escapeHtml(inst.name)}</b> + ${other} with these filters.`);
         wrap.style.display = 'none'; pager.style.display = 'none'; exportBtn.disabled = true;
         return;
     }
-    eduSetStatus(`<b>${data.total}</b> candidate${data.total === 1 ? '' : 's'} with ${eduState.filter === 'A' ? "a Bachelor's" : "a Master's"} from <b>${escapeHtml(inst.name)}</b> and ${other}.`);
+    eduSetStatus(`<b>${data.total}</b> candidate${data.total === 1 ? '' : 's'} with ${what}.`);
     const td = 'padding:10px 12px; border-bottom:1px solid #f1f5f9; vertical-align:top; color:#0f172a;';
     document.getElementById('edu-results').innerHTML = data.results.map(r => `
         <tr>
-            <td style="${td} font-weight:600;">${escapeHtml(r.name)}</td>
+            <td style="${td} font-weight:600;"><a href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer" title="Open LinkedIn profile" style="color:#1d4ed8; text-decoration:none;">${escapeHtml(r.name)} <span style="font-size:11px;">↗</span></a></td>
             <td style="${td}">${escapeHtml(r.headline)}</td>
             <td style="${td}">${escapeHtml(r.current_company)}</td>
             <td style="${td}">${escapeHtml(r.location)}</td>
             <td style="${td}">${escapeHtml(r.indian_college)}</td>
             <td style="${td}">${escapeHtml(r.us_masters)}</td>
-            <td style="${td}"><a href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; font-weight:600;">Open ↗</a></td>
             <td style="${td}">${escapeHtml(r.captured_by)}</td>
             <td style="${td} white-space:nowrap;">${escapeHtml(r.captured_at)}</td>
         </tr>`).join('');
@@ -3445,6 +3466,7 @@ function initEducationFilters() {
     document.getElementById('btn-edu-export').addEventListener('click', eduExportExcel);
     document.getElementById('btn-edu-prev').addEventListener('click', () => eduSearch(Math.max(1, eduState.page - 1)));
     document.getElementById('btn-edu-next').addEventListener('click', () => eduSearch(Math.min(eduState.pages, eduState.page + 1)));
+    document.getElementById('filter-student-bachelor-year')?.addEventListener('change', () => { if (eduState.filter === 'P') eduSearch(1); });
     ['edu-year-from', 'edu-year-to', 'edu-location', 'edu-keyword'].forEach(id => {
         document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); eduSearch(1); } });
     });

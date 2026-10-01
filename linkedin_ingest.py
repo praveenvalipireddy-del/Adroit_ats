@@ -271,6 +271,29 @@ def mark_verified(conn, matches) -> int:
     return n
 
 
+def mark_filter_verified(conn, matches) -> int:
+    """Record people a Filter A/B LinkedIn search verified (linkedin_sourcing.evaluate_for_filter).
+    One row per (profile, filter, institution). Caller commits."""
+    cur = conn.cursor()
+    n = 0
+    for m in matches or []:
+        url = canonical_linkedin_url((m or {}).get("profile_url"))
+        if not url or m.get("filter") not in ("A", "B") or not m.get("institution_id"):
+            continue
+        cur.execute("SELECT id FROM linkedin_profiles WHERE linkedin_url = ?", (url,))
+        row = cur.fetchone()
+        if not row:
+            continue
+        cur.execute("SELECT 1 FROM profile_verifications WHERE profile_id = ? AND filter_key = ? AND institution_id = ?",
+                    (row[0], m["filter"], m["institution_id"]))
+        if cur.fetchone():
+            continue
+        cur.execute("INSERT INTO profile_verifications (profile_id, filter_key, institution_id, chosen_year) VALUES (?, ?, ?, ?)",
+                    (row[0], m["filter"], m["institution_id"], m.get("chosen_year")))
+        n += 1
+    return n
+
+
 def sync_verified_years(conn=None) -> int:
     """Fill verified_bachelor_year from the team's verified pool (sourced_candidates) for profiles
     that don't have it yet. Free, idempotent; runs at startup so existing results show too."""

@@ -1931,6 +1931,112 @@ def api_education_export_xlsx():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+def _edu_live_params(data):
+    """Validated (filter, member ids, year_from, year_to, school names) for a Filter A/B LinkedIn search."""
+    f = str(data.get("filter") or "").strip().upper()
+    if f not in ("A", "B"):
+        raise education_filters.FilterError("filter must be 'A' or 'B'")
+    params = education_filters.parse_params({"filter": f, "institution_id": data.get("institution_id"),
+                                             "year_from": data.get("year_from"), "year_to": data.get("year_to")})
+    members = education_filters.member_ids(params["institution_id"])
+    want_country = education_filters.FILTERS[f]["chosen_country"]
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        names = []
+        for m in members:
+            cur.execute("SELECT MIN(canonical_name), MIN(country) FROM institution_aliases WHERE canonical_id = ?", (m,))
+            row = cur.fetchone()
+            if not row or not row[0] or row[1] != want_country:
+                raise education_filters.FilterError("Choose a college from the list.")
+            # LinkedIn's school filter needs a real school name, not our "(campus not stated)" label.
+            names.append(re.sub(r"\s*\(campus not stated\)\s*$", "", row[0]))
+    finally:
+        conn.close()
+    return f, params["institution_id"], members, params["year_from"], params["year_to"], names
+
+
+@app.route("/api/education/live-start", methods=["POST", "OPTIONS"])
+def api_education_live_start():
+    """Start a paid LinkedIn search (Apify) for ONE chosen college/university (Filter A/B). Same
+    caps as the Passout search: per-run spend cap, daily budget, Apify account headroom. The team's
+    shared cursor per (filter, institution) makes the next search continue on new profiles."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    try:
+        f, inst_id, members, y_from, y_to, schools = _edu_live_params(request.get_json(silent=True) or {})
+    except education_filters.FilterError as ex:
+        return jsonify({"error": str(ex)}), 400
+    exp_ids = []
+    if f == "A" and (y_from or y_to):
+        lo, hi = (y_from or y_to), (y_to or y_from)
+        for y in range(lo, min(hi, lo + 20) + 1):
+            for e in linkedin_sourcing.experience_ids_for_year(y):
+                if e not in exp_ids:
+                    exp_ids.append(e)
+    cursor_key = f"edu-{f}-{inst_id}"
+    cursor = sourcing_store.get_cursor("apify", cursor_key)
+    result = linkedin_sourcing.start_search(None, pages=1, start_page=cursor["next_page"],
+                                            schools=schools, experience_ids=exp_ids)
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), result.get("code", 500)
+    sourcing_store.save_cursor("apify", cursor_key, next_page=result["next_start_page"])
+    models.log_activity(user["id"], user["name"], "LinkedIn Search", "Sourcing", 0,
+                        f"Filter {f} live search: {', '.join(schools)} (page {cursor['next_page']})")
+    return jsonify(result)
+
+
+@app.route("/api/education/live-poll", methods=["POST", "OPTIONS"])
+def api_education_live_poll():
+    """Poll a Filter A/B LinkedIn search run: stores every scanned profile, records the people
+    verified for the chosen institution, banks Passout-year matches, returns counts (no raw data)."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    try:
+        f, inst_id, members, y_from, y_to, _ = _edu_live_params(data)
+    except education_filters.FilterError as ex:
+        return jsonify({"error": str(ex)}), 400
+    run_id, dataset_id = str(data.get("run_id") or ""), str(data.get("dataset_id") or "")
+    if not _APIFY_ID_RE.match(run_id) or not _APIFY_ID_RE.match(dataset_id):
+        return jsonify({"error": "Invalid run reference"}), 400
+    try:
+        offset = max(0, int(data.get("offset") or 0))
+        matched_so_far = max(0, int(data.get("matched_so_far") or 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid offset"}), 400
+    result = linkedin_sourcing.poll_filter_search(run_id, dataset_id, f, members, y_from, y_to,
+                                                  offset=offset, matched_so_far=matched_so_far)
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), result.get("code", 500)
+    raw_items = result.pop("raw_items", None) or []
+    matches = result.pop("new_matches", None) or []
+    passout = result.pop("passout_matches", None) or []
+    try:
+        if raw_items:
+            linkedin_ingest.ingest_profiles(linkedin_ingest.ApifyProfileProvider().to_profiles(raw_items), "apify", user["id"])
+        if passout:
+            sourcing_store.save_matches("apify", None, passout, user["id"])
+        conn = models.get_db_connection()
+        try:
+            linkedin_ingest.mark_filter_verified(conn, matches)
+            linkedin_ingest.mark_verified(conn, passout)
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as ex:
+        logger.warning(f"Education live search: could not store results: {ex}")
+    result["new_matches"] = len(matches)
+    result["passout_banked"] = len(passout)
+    return jsonify(result)
+
+
 @app.route("/api/education/unmapped", methods=["GET"])
 def api_education_unmapped():
     """Admin list: school names from LinkedIn profiles that didn't match the institution list."""

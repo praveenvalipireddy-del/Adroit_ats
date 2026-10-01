@@ -88,7 +88,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.41.0" in page.content(), "cache-buster not bumped to 5.41.0")
+        check("app.js?v=5.42.0" in page.content(), "cache-buster not bumped to 5.42.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")
@@ -111,7 +111,7 @@ try:
 
         page.click(".edu-tab[data-filter=A]")
         check(page.is_visible("#edu-inst-input") and not page.is_visible("#filter-student-bachelor-year")
-              and not page.is_visible("#btn-apply-student-filter"), "Filter A controls")
+              and page.is_visible("#btn-apply-student-filter"), "Filter A controls (Search LinkedIn is on every tab)")
         # every control must sit inside the panel (nothing spilling past its right edge) at common widths
         for width in (1280, 1440, 1024):
             page.set_viewport_size({"width": width, "height": 1000})

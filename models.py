@@ -374,6 +374,18 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # People a Filter A / Filter B LinkedIn search verified for a chosen institution (shown in that
+    # filter even when their OTHER school isn't on the college list).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS profile_verifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL,
+        filter_key TEXT NOT NULL,
+        institution_id TEXT NOT NULL,
+        chosen_year INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS app_meta (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

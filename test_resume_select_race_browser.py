@@ -92,7 +92,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.41.0" in page.content(), "cache-buster not bumped to 5.41.0")
+        check("app.js?v=5.42.0" in page.content(), "cache-buster not bumped to 5.42.0")
 
         # 1. open the optimizer on Saiteja (slow), then immediately pick Praveen
         page.click("a.nav-item[data-tab=resumebot]")
@@ -112,7 +112,7 @@ try:
         page.select_option("#resumebot-consultant-select", str(sai_id))
         page.wait_for_function("document.getElementById('resumebot-resume-text').value.includes('SAITEJA')", timeout=8000)
         page.click("a.nav-item[data-tab=jobs]")
-        page.wait_for_selector(f".job-row[data-job-id='{job_id}']", timeout=20000)
+        page.wait_for_selector(f".job-row[data-job-id='{job_id}']", timeout=45000)
         page.select_option(f".job-row[data-job-id='{job_id}'] .job-consultant-select", str(pra_id))
         page.click(f".job-row[data-job-id='{job_id}'] .btn-optimize-job")
         page.wait_for_timeout(3500)

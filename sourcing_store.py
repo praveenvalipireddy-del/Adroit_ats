@@ -175,7 +175,8 @@ def save_cursor(source: str, search_year, next_page: Optional[int] = None,
                    VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT {conflict_cols} DO UPDATE SET
                        next_page = EXCLUDED.next_page, scroll_token = EXCLUDED.scroll_token,
-                       mode = EXCLUDED.mode, exhausted = EXCLUDED.exhausted, updated_at = CURRENT_TIMESTAMP""",
+                       mode = EXCLUDED.mode, exhausted = EXCLUDED.exhausted, updated_at = CURRENT_TIMESTAMP
+                   RETURNING next_page""",
                 (source, year_key, next_page or 1, scroll_token, mode, int(exhausted)),
             )
         else:

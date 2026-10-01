@@ -2482,7 +2482,10 @@ function initStudentsTab() {
     }
 
     if (btnFilter) {
-        btnFilter.addEventListener('click', () => loadStudents(true));
+        btnFilter.addEventListener('click', () => {
+            if (typeof eduState !== 'undefined' && eduState.filter !== 'P') eduLiveSearch();
+            else loadStudents(true);
+        });
     }
     if (btnExport) {
         btnExport.addEventListener('click', () => exportStudentsCSV());
@@ -3440,6 +3443,7 @@ async function eduSwitchFilter(filter) {
     });
     const isP = filter === 'P';
     document.querySelectorAll('.edu-only-p').forEach(el => { el.style.display = isP ? '' : 'none'; });
+    if (!eduLiveRunning && !studentsLiveSearchRunning) setStudentsSearchStatus('');
     document.querySelectorAll('.edu-only-ab').forEach(el => { el.style.display = isP ? 'none' : ''; });
     if (!isP) {
         const t = EDU_TEXT[filter];
@@ -3455,6 +3459,91 @@ async function eduSwitchFilter(filter) {
     if (isP) { eduSearch(1); return; }
     await eduLoadInstitutions(filter);
     if (eduState.selected[filter]) eduSearch(1);
+}
+
+// Paid LinkedIn search for the college / university chosen in Filter A or B (Apify, same caps as
+// the Passout search: one page = 25 profiles, up to 6 pages / about $1.20, stops at 15 matches).
+// Every scanned profile is saved; verified people appear in the table when it finishes.
+let eduLiveRunning = false;
+const EDU_LIVE_MAX_PAGES = 6;
+const EDU_LIVE_TARGET = 15;
+
+async function eduLiveSearch() {
+    const f = eduState.filter;
+    const inst = eduState.selected[f];
+    if (!inst) {
+        eduSetStatus(`<span style="color:#b45309;">Pick ${f === 'A' ? 'an Indian college' : 'a US university'} first, then click Search LinkedIn.</span>`);
+        return;
+    }
+    if (eduLiveRunning || studentsLiveSearchRunning) {
+        showToast('A LinkedIn search is already running - please wait for it to finish.', 'info');
+        return;
+    }
+    eduLiveRunning = true;
+    const btn = document.getElementById('btn-apply-student-filter');
+    const btnHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span>Searching LinkedIn...</span>'; }
+    const jsonHeaders = { 'Content-Type': 'application/json' };
+    const body = { filter: f, institution_id: inst.id };
+    const yf = (document.getElementById('edu-year-from')?.value || '').trim();
+    const yt = (document.getElementById('edu-year-to')?.value || '').trim();
+    if (yf) body.year_from = yf;
+    if (yt) body.year_to = yt;
+    const pollMs = (typeof window.EDU_LIVE_POLL_MS === 'number') ? window.EDU_LIVE_POLL_MS : 4000;   // tests shorten this
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const what = f === 'A' ? `a Bachelor's from <b>${escapeHtml(inst.name)}</b> and a US Master's`
+        : `a Master's from <b>${escapeHtml(inst.name)}</b> and an Indian Bachelor's`;
+    let pages = 0, scanned = 0, found = 0, banked = 0, cost = 0, stopMsg = '', exhausted = false;
+    const progress = () => setStudentsSearchStatus(`Searching LinkedIn for people with ${what}: scanned <b>${scanned}</b> profiles, <b>${found}</b> verified so far...`);
+    try {
+        while (pages < EDU_LIVE_MAX_PAGES && found < EDU_LIVE_TARGET) {
+            progress();
+            const sr = await fetch('/api/education/live-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) });
+            if (sr.status === 401) { window.location.href = '/login'; return; }
+            const sd = await sr.json().catch(() => ({}));
+            if (!sr.ok) { stopMsg = sd.error || 'Could not start the LinkedIn search.'; break; }
+            const run = (sd.runs || [])[0];
+            if (!run) { stopMsg = 'Could not start the LinkedIn search.'; break; }
+            pages++;
+            let offset = 0, done = false, runCost = 0, runScanned = 0;
+            const startedAt = Date.now();
+            while (!done && Date.now() - startedAt < 6 * 60 * 1000) {
+                await sleep(pollMs);
+                const pr = await fetch('/api/education/live-poll', {
+                    method: 'POST', headers: jsonHeaders,
+                    body: JSON.stringify({ ...body, run_id: run.run_id, dataset_id: run.dataset_id, offset, matched_so_far: found }),
+                });
+                const pd = await pr.json().catch(() => ({}));
+                if (!pr.ok) { stopMsg = pd.error || 'Lost contact with the LinkedIn search.'; break; }
+                offset = (typeof pd.next_offset === 'number') ? pd.next_offset : offset;
+                runScanned += pd.scanned_new || 0;
+                scanned += pd.scanned_new || 0;
+                found += pd.new_matches || 0;
+                banked += pd.passout_banked || 0;
+                if (typeof pd.cost_usd === 'number') runCost = pd.cost_usd;
+                if (pd.provider_error) stopMsg = pd.provider_error;
+                done = !!pd.done;
+                progress();
+            }
+            cost += runCost;
+            if (stopMsg) break;
+            if (runScanned === 0) { exhausted = true; break; }   // LinkedIn has no more profiles for this school
+        }
+    } catch (err) {
+        stopMsg = 'The LinkedIn search failed: ' + (err.message || 'unknown error');
+    } finally {
+        eduLiveRunning = false;
+        if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
+        let summary = `Finished: scanned <b>${scanned}</b> LinkedIn profiles, <b>${found}</b> new verified ${found === 1 ? 'person' : 'people'} with ${what}.`;
+        if (banked) summary += ` ${banked} also saved under their Passout year.`;
+        summary += ` Apify cost: about $${cost.toFixed(2)}.`;
+        if (stopMsg) summary += ` <span style="color:#b91c1c;">${escapeHtml(stopMsg)}</span>`;
+        else if (exhausted) summary += ' LinkedIn has no more profiles for this school.';
+        else summary += ' Click Search LinkedIn again to scan the next profiles.';
+        setStudentsSearchStatus(summary);
+        eduState.institutions = { A: null, B: null };   // candidate counts changed
+        if (eduState.filter === f && eduState.selected[f] && eduState.selected[f].id === inst.id) eduSearch(1);
+    }
 }
 
 // Opening the Sourcing tab shows the current tab's results (free - saved profiles only).

@@ -353,7 +353,8 @@ def _apify_error_text(resp) -> str:
 
 
 def start_search(bachelor_year: Optional[int], pages: int = 1, location: str = "United States",
-                 start_page: int = 1) -> Dict:
+                 start_page: int = 1, schools: Optional[List[str]] = None,
+                 experience_ids: Optional[List[str]] = None) -> Dict:
     """Start `pages` ONE-PAGE runs in parallel (pages <= MAX_WAVE), for LinkedIn
     result pages start_page .. start_page+pages-1.
 
@@ -361,7 +362,12 @@ def start_search(bachelor_year: Optional[int], pages: int = 1, location: str = "
     ~25 profiles (verified in the run log: "Free users are limited up to 25
     items per run") - so a deeper search is several runs, which works on any
     plan. start_page lets repeat searches continue with NEW profiles instead of
-    re-scanning (and re-paying for) the same first pages."""
+    re-scanning (and re-paying for) the same first pages.
+
+    schools: LinkedIn school names to search (default: the broad Indian college list used by the
+    Passout search; the education filters pass the one college the recruiter picked).
+    experience_ids: LinkedIn years-of-experience facet ids; None = derive from bachelor_year,
+    [] = no experience filter at all."""
     if not _token():
         return {"error": "APIFY_API_TOKEN is not configured on the server.", "code": 503}
 
@@ -392,13 +398,15 @@ def start_search(bachelor_year: Optional[int], pages: int = 1, location: str = "
         page_no = start_page + i
         payload = {
             "profileScraperMode": "Full",
-            "schools": INDIAN_SCHOOLS_FOR_SEARCH,
+            "schools": list(schools) if schools else INDIAN_SCHOOLS_FOR_SEARCH,
             "locations": [location],
-            "yearsOfExperienceIds": experience_ids_for_year(bachelor_year),
             "maxItems": 25,
             "startPage": page_no,
             "takePages": 1,
         }
+        exp_ids = experience_ids_for_year(bachelor_year) if experience_ids is None else list(experience_ids)
+        if exp_ids:
+            payload["yearsOfExperienceIds"] = exp_ids
         try:
             r = requests.post(f"{API}/acts/{ACTOR}/runs",
                               params={"token": _token(), "maxTotalChargeUsd": per_run_cap, "timeout": 240},
@@ -468,16 +476,10 @@ def _provider_problem(run_id: str, status: str, status_message: str = ""):
     return (msg.replace(token, "***") if token else msg), kind
 
 
-def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offset: int = 0, matched_so_far: int = 0,
-                target: int = TARGET_MATCHES) -> Dict:
-    """Fetch the run status and evaluate only the NEW dataset items since
-    `offset`. Aborts the run once `target` verified matches exist (saves money)."""
+def fetch_run(run_id: str, dataset_id: str, offset: int = 0) -> Dict:
+    """{run, status, raw_items} for the dataset items after `offset`, or {error, code}."""
     if not _token():
         return {"error": "APIFY_API_TOKEN is not configured on the server.", "code": 503}
-    try:
-        target = max(3, min(int(target or TARGET_MATCHES), 60))
-    except (TypeError, ValueError):
-        target = TARGET_MATCHES
     try:
         run = requests.get(f"{API}/actor-runs/{run_id}", params={"token": _token()}, timeout=20).json().get("data", {})
         status = run.get("status") or "UNKNOWN"
@@ -492,6 +494,52 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
     except Exception as ex:
         logger.error(f"Apify poll exception: {ex}")
         return {"error": "Lost contact with Apify while polling.", "code": 502}
+    return {"run": run, "status": status, "raw_items": raw_items}
+
+
+def abort_run(run_id: str) -> bool:
+    """Stop a run early (stops the spending too). True if the abort was accepted."""
+    try:
+        requests.post(f"{API}/actor-runs/{run_id}/abort", params={"token": _token()}, timeout=15)
+        return True
+    except Exception as ex:
+        logger.warning(f"Could not abort run {run_id}: {ex}")
+        return False
+
+
+def run_outcome(run_id: str, run: Dict, status: str, raw_items: List, offset: int, aborted: bool) -> Dict:
+    """Common poll result fields: whether the run is finished, where to read next, provider errors, cost."""
+    # Only finished once the run has ended AND every item has been read (a full batch means
+    # there may be more waiting at the next offset).
+    more_waiting = len(raw_items) >= POLL_BATCH
+    done = (status in TERMINAL_STATUSES or status == "ABORTING" or aborted) and not more_waiting
+    provider_error, provider_kind = "", ""
+    if done and offset == 0 and not raw_items and not aborted:
+        provider_error, provider_kind = _provider_problem(run_id, status, run.get("statusMessage") or "")
+    return {
+        "provider_error": provider_error,        # non-empty = the run gave nothing because the provider failed
+        "provider_error_kind": provider_kind,    # overloaded / timeout / error (retry once) or plan_limit (stop: retrying is pointless)
+        "status": "ABORTED" if aborted else status,
+        "done": done,
+        "next_offset": offset + len(raw_items),
+        "scanned_new": len(raw_items),
+        "cost_usd": run.get("usageTotalUsd"),
+        "stopped_early": aborted,
+    }
+
+
+def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offset: int = 0, matched_so_far: int = 0,
+                target: int = TARGET_MATCHES) -> Dict:
+    """Fetch the run status and evaluate only the NEW dataset items since
+    `offset`. Aborts the run once `target` verified matches exist (saves money)."""
+    try:
+        target = max(3, min(int(target or TARGET_MATCHES), 60))
+    except (TypeError, ValueError):
+        target = TARGET_MATCHES
+    fetched = fetch_run(run_id, dataset_id, offset)
+    if fetched.get("error"):
+        return fetched
+    run, status, raw_items = fetched["run"], fetched["status"], fetched["raw_items"]
 
     matches, other_years, skipped = [], [], {}
     for item in raw_items:
@@ -513,30 +561,139 @@ def poll_search(run_id: str, dataset_id: str, bachelor_year: Optional[int], offs
     total_matched = matched_so_far + len(matches)
     aborted = False
     if status in ("RUNNING", "READY") and total_matched >= target:
-        try:
-            requests.post(f"{API}/actor-runs/{run_id}/abort", params={"token": _token()}, timeout=15)
-            aborted = True
-        except Exception as ex:
-            logger.warning(f"Could not abort run {run_id}: {ex}")
+        aborted = abort_run(run_id)
 
-    # Only finished once the run has ended AND every item has been read (a full
-    # batch means there may be more waiting at the next offset).
-    more_waiting = len(raw_items) >= POLL_BATCH
-    done = (status in TERMINAL_STATUSES or status == "ABORTING" or aborted) and not more_waiting
-    provider_error, provider_kind = "", ""
-    if done and offset == 0 and not raw_items and not aborted:
-        provider_error, provider_kind = _provider_problem(run_id, status, run.get("statusMessage") or "")
-    return {
-        "provider_error": provider_error,        # non-empty = the run gave nothing because the provider failed
-        "provider_error_kind": provider_kind,    # overloaded / timeout / error (retry once) or plan_limit (stop: retrying is pointless)
-        "status": "ABORTED" if aborted else status,
-        "done": done,
-        "next_offset": offset + len(raw_items),
-        "scanned_new": len(raw_items),
+    out = run_outcome(run_id, run, status, raw_items, offset, aborted)
+    out.update({
         "new_matches": matches,
         "other_year_matches": other_years,       # saved to the pool by the route; not shown for this year's search
         "raw_items": raw_items,                  # every scanned profile -> education filters (route pops it; never sent to the browser)
         "skipped": skipped,
-        "cost_usd": run.get("usageTotalUsd"),
-        "stopped_early": aborted,
-    }
+    })
+    return out
+
+
+# ----------------------------------------------------------------------------
+# Education filters (Filter A / Filter B) live search: one chosen college
+# ----------------------------------------------------------------------------
+
+def _entries(item: Dict) -> List[Dict]:
+    out = []
+    for e in item.get("education") or []:
+        if isinstance(e, dict) and (e.get("schoolName") or "").strip():
+            out.append({"school": e["schoolName"].strip(), "degree": (e.get("degree") or "").strip(),
+                        "end_year": _year(e.get("endDate"))})
+    return out
+
+
+def _in_years(year: Optional[int], year_from: Optional[int], year_to: Optional[int]) -> bool:
+    if not (year_from or year_to):
+        return True
+    if not year:
+        return False
+    return (not year_from or year >= year_from) and (not year_to or year <= year_to)
+
+
+def evaluate_for_filter(item: Dict, filter_key: str, member_ids: List[str], year_from: Optional[int] = None,
+                        year_to: Optional[int] = None) -> Tuple[Optional[Dict], str]:
+    """Strict check of one scanned profile for an education-filter search.
+
+    Filter A (an Indian college): located in the USA, a Bachelor's whose school matches the chosen
+    college (institution list), ending in the year range if one is set, AND a Master's that is not
+    from an Indian or other non-US school.
+    Filter B (a US university): located in the USA, a Master's whose school matches the chosen
+    university (year range applies to it) AND a Bachelor's from an Indian college (institution list
+    or the Indian-college rule the Passout search uses).
+    Returns ({profile_url, name, filter, institution_id, chosen_year}, "match") or (None, reason)."""
+    import education_match
+
+    url = (item.get("linkedinUrl") or "").strip()
+    first = (item.get("firstName") or "").strip()
+    if not url or "linkedin.com/in/" not in url or not first:
+        return None, "incomplete"
+    loc = item.get("location") or {}
+    if (loc.get("countryCode") or (loc.get("parsed") or {}).get("countryCode") or "").upper() != "US":
+        return None, "not_in_us"
+
+    matcher = education_match.load_matcher()
+    members = set(member_ids or [])
+    entries = []
+    for e in _entries(item):
+        m = matcher.match(e["school"])
+        e["level"] = education_match.degree_level(e["degree"])
+        e["canonical_id"] = m.get("canonical_id") if m.get("status") == "matched" else None
+        e["country"] = m.get("country") if m.get("status") == "matched" else None
+        entries.append(e)
+
+    def is_us_master(e):
+        if e["level"] != education_match.MASTERS:
+            return False
+        if e["country"]:
+            return e["country"] == "USA"
+        return not is_indian_institution(e["school"]) and not looks_like_non_us_institution(e["school"])
+
+    def is_indian_bachelor(e):
+        if e["level"] != education_match.BACHELORS:
+            return False
+        if e["country"]:
+            return e["country"] == "India"
+        return is_indian_institution(e["school"])
+
+    if filter_key == "A":
+        chosen = [e for e in entries if e["level"] == education_match.BACHELORS and e["canonical_id"] in members]
+        if not chosen:
+            return None, "no_bachelor_at_college"
+        chosen = [e for e in chosen if _in_years(e["end_year"], year_from, year_to)]
+        if not chosen:
+            return None, "wrong_year"
+        if not any(is_us_master(e) for e in entries):
+            return None, "no_us_master"
+    elif filter_key == "B":
+        chosen = [e for e in entries if e["level"] == education_match.MASTERS and e["canonical_id"] in members]
+        if not chosen:
+            return None, "no_master_at_university"
+        chosen = [e for e in chosen if _in_years(e["end_year"], year_from, year_to)]
+        if not chosen:
+            return None, "wrong_year"
+        if not any(is_indian_bachelor(e) for e in entries):
+            return None, "no_indian_bachelor"
+    else:
+        return None, "bad_filter"
+
+    pick = chosen[0]
+    return {"profile_url": url, "name": f"{first} {(item.get('lastName') or '').strip()}".strip(),
+            "filter": filter_key, "institution_id": pick["canonical_id"], "chosen_year": pick["end_year"]}, "match"
+
+
+def poll_filter_search(run_id: str, dataset_id: str, filter_key: str, member_ids: List[str],
+                       year_from: Optional[int] = None, year_to: Optional[int] = None, offset: int = 0,
+                       matched_so_far: int = 0, target: int = TARGET_MATCHES) -> Dict:
+    """poll_search for an education-filter search: evaluate the new items with evaluate_for_filter.
+    Every scanned item is also returned (raw_items) for storage, and checked against the Passout
+    rule so people who also fit a passout year are banked in the team pool (no extra cost)."""
+    try:
+        target = max(3, min(int(target or TARGET_MATCHES), 60))
+    except (TypeError, ValueError):
+        target = TARGET_MATCHES
+    fetched = fetch_run(run_id, dataset_id, offset)
+    if fetched.get("error"):
+        return fetched
+    run, status, raw_items = fetched["run"], fetched["status"], fetched["raw_items"]
+
+    matches, passout_matches, skipped = [], [], {}
+    for item in raw_items:
+        cand, reason = evaluate_for_filter(item, filter_key, member_ids, year_from, year_to)
+        if cand:
+            matches.append(cand)
+        else:
+            skipped[reason] = skipped.get(reason, 0) + 1
+        banked, _ = evaluate_profile(item, None)
+        if banked:
+            passout_matches.append(banked)
+
+    aborted = False
+    if status in ("RUNNING", "READY") and matched_so_far + len(matches) >= target:
+        aborted = abort_run(run_id)
+    out = run_outcome(run_id, run, status, raw_items, offset, aborted)
+    out.update({"new_matches": matches, "passout_matches": passout_matches, "raw_items": raw_items, "skipped": skipped})
+    return out

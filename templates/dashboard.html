@@ -342,7 +342,7 @@
                             </div>
                             <button type="button" id="btn-edu-search" style="height:40px; font-weight:700; padding:0 18px; border:none; border-radius:8px; background:#2563eb; color:#ffffff; cursor:pointer;">Search</button>
                             <button type="button" id="btn-edu-export" disabled style="height:40px; font-weight:700; padding:0 14px; border:1px solid #cbd5e1; border-radius:8px; background:#ffffff; color:#047857; cursor:pointer;">⬇ Excel</button>
-                            <button type="button" id="btn-apply-student-filter" class="edu-only-p" title="{% if has_apify %}Scans up to 150 LinkedIn profiles (Apify, paid). New candidates are added to the table when it finishes.{% else %}LinkedIn search is off: add APIFY_API_TOKEN in the server settings.{% endif %}" {% if not has_apify %}disabled{% endif %} style="height:40px; font-weight:700; padding:0 14px; border:1px solid #2563eb; border-radius:8px; background:#eff6ff; color:#1d4ed8; cursor:pointer; margin-left:auto;">
+                            <button type="button" id="btn-apply-student-filter" title="{% if has_apify %}Scans up to 150 LinkedIn profiles (Apify, paid). New candidates are added to the table when it finishes.{% else %}LinkedIn search is off: add APIFY_API_TOKEN in the server settings.{% endif %}" {% if not has_apify %}disabled{% endif %} style="height:40px; font-weight:700; padding:0 14px; border:1px solid #2563eb; border-radius:8px; background:#eff6ff; color:#1d4ed8; cursor:pointer; margin-left:auto;">
                                 <span>🔍 Search LinkedIn · $1.20</span>
                             </button>
                         </form>
@@ -1088,7 +1088,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
-    <script src="/static/js/app.js?v=5.41.0"></script>
+    <script src="/static/js/app.js?v=5.42.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

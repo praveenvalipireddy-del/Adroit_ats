@@ -20,6 +20,7 @@ import io
 from typing import Dict, List, Optional
 
 from institutions_seed import GROUPS
+from linkedin_sourcing import is_indian_institution
 
 _GROUPS = {g[0]: {"id": g[0], "name": g[1], "country": g[2], "words": g[3], "members": g[4]} for g in GROUPS}
 
@@ -128,6 +129,19 @@ def _where(p: Dict):
         edu_sql, edu_params = " AND ".join(clauses), params
         clauses = [f"((p.verified_bachelor_year >= ? AND p.verified_bachelor_year <= ?) OR ({edu_sql}))"]
         params = [p["year_from"], p["year_to"], *edu_params]
+    else:
+        # ...or verified for this institution by a Filter A/B LinkedIn search.
+        edu_sql, edu_params = " AND ".join(clauses), params
+        vyears, vparams = "", []
+        if p["year_from"]:
+            vyears += " AND v.chosen_year >= ?"
+            vparams.append(p["year_from"])
+        if p["year_to"]:
+            vyears += " AND v.chosen_year <= ?"
+            vparams.append(p["year_to"])
+        clauses = [f"""(({edu_sql}) OR EXISTS (SELECT 1 FROM profile_verifications v WHERE v.profile_id = p.id
+                        AND v.filter_key = ? AND v.institution_id IN ({", ".join(["?"] * len(members))}){vyears}))"""]
+        params = [*edu_params, p["filter"], *members, *vparams]
     if p["location"]:
         clauses.append("LOWER(COALESCE(p.location, '')) LIKE ?")
         params.append(_like(p["location"]))
@@ -181,6 +195,19 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
         chosen = [e for e in edu if e["degree_level"] == spec["chosen_level"] and (members is None or e["institution_canonical_id"] in members)
                   and e["country"] == spec["chosen_country"] and _in_range(e["end_year"], p)]
         other = [e for e in edu if e["degree_level"] == spec["other_level"] and e["country"] == spec["other_country"]]
+        if p["filter"] in ("A", "B") and members and (not chosen or not other):
+            # Verified by a Filter A/B LinkedIn search but the OTHER school isn't on the college list:
+            # show the profile's entries the search verified.
+            if not chosen:
+                chosen = [e for e in edu if e["degree_level"] == spec["chosen_level"] and e["institution_canonical_id"] in members
+                          and _in_range(e["end_year"], p)]
+            if not other:
+                if p["filter"] == "A":
+                    other = [e for e in edu if e["degree_level"] == "Masters" and e["country"] not in ("India",)
+                             and (e["country"] == "USA" or not is_indian_institution(e["institution_name"]))]
+                else:
+                    other = [e for e in edu if e["degree_level"] == "Bachelors"
+                             and (e["country"] == "India" or (not e["country"] and is_indian_institution(e["institution_name"])))]
         vy = r.get("verified_bachelor_year")
         if p["filter"] == "P" and vy and _in_range(vy, p):
             # Search-verified person whose college/university isn't on the college list: show the
@@ -283,14 +310,23 @@ def institutions_for(conn, filter_key: str) -> List[Dict]:
                                                  "city": r["city"] or "", "aliases": [], "profiles": 0})
         if r["alias"] != r["canonical_name"]:
             d["aliases"].append(r["alias"])
-    cur.execute("""SELECT c.institution_canonical_id AS cid, COUNT(DISTINCT c.profile_id) AS n FROM profile_education c
+    # Who this filter would return per institution (no year range): college-list matches plus people
+    # a Filter A/B LinkedIn search verified for it. Kept as sets so groups count distinct people.
+    people: Dict[str, set] = {}
+    cur.execute("""SELECT DISTINCT c.institution_canonical_id AS cid, c.profile_id AS pid FROM profile_education c
                    WHERE c.country = ? AND c.degree_level = ? AND c.institution_canonical_id IS NOT NULL
                      AND EXISTS (SELECT 1 FROM profile_education o WHERE o.profile_id = c.profile_id
-                                 AND o.degree_level = ? AND o.country = ?)
-                   GROUP BY c.institution_canonical_id""", (country, level, spec["other_level"], spec["other_country"]))
+                                 AND o.degree_level = ? AND o.country = ?)""",
+                (country, level, spec["other_level"], spec["other_country"]))
     for r in cur.fetchall():
-        if r["cid"] in insts:
-            insts[r["cid"]]["profiles"] = int(r["n"])
+        people.setdefault(r["cid"], set()).add(r["pid"])
+    cur.execute("SELECT DISTINCT institution_id AS cid, profile_id AS pid FROM profile_verifications WHERE filter_key = ?",
+                (filter_key,))
+    for r in cur.fetchall():
+        people.setdefault(r["cid"], set()).add(r["pid"])
+    for cid, pids in people.items():
+        if cid in insts:
+            insts[cid]["profiles"] = len(pids)
     out = sorted(insts.values(), key=lambda d: (-d["profiles"], d["name"]))
     # "Any campus" groups go first; their count is distinct people across all member campuses.
     groups = []
@@ -300,12 +336,8 @@ def institutions_for(conn, filter_key: str) -> List[Dict]:
         members = [m for m in g["members"] if m in insts]
         if not members:
             continue
-        cur.execute(f"""SELECT COUNT(DISTINCT c.profile_id) FROM profile_education c
-                        WHERE c.country = ? AND c.degree_level = ? AND c.institution_canonical_id IN ({", ".join(["?"] * len(members))})
-                          AND EXISTS (SELECT 1 FROM profile_education o WHERE o.profile_id = c.profile_id
-                                      AND o.degree_level = ? AND o.country = ?)""",
-                    (country, level, *members, spec["other_level"], spec["other_country"]))
+        group_people = set().union(*(people.get(m, set()) for m in members))
         groups.append({"id": g["id"], "name": g["name"], "city": "", "aliases": list(g["words"]),
-                       "profiles": int(cur.fetchone()[0]), "group": True,
+                       "profiles": len(group_people), "group": True,
                        "members": [insts[m]["name"] for m in members]})
     return groups + out

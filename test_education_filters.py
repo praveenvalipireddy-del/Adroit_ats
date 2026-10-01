@@ -125,6 +125,10 @@ check(names("A", "group-jntu") == ["Eight Testcase", "Five Testcase", "Nine Test
       f"JNTU any campus: {names('A', 'group-jntu')} (JNTUH + JNTUK + bare JNTU; dual degree and non-US MS excluded)")
 check(names("A", "group-jntu", year_from=2018, year_to=2020) == ["Eight Testcase", "One Testcase"], "JNTU group + years")
 check(names("A", "in-jntu-kakinada") == ["Eight Testcase"], "a single campus still works on its own")
+# one year in EITHER box = exactly that year (reported: "Year to 2023" also returned older passouts)
+check(names("A", "group-jntu", year_to=2019) == ["One Testcase"], f"Year to 2019 alone = exactly 2019: {names('A', 'group-jntu', year_to=2019)}")
+check(names("A", "group-jntu", year_from=2018) == ["Eight Testcase"], f"Year from 2018 alone = exactly 2018: {names('A', 'group-jntu', year_from=2018)}")
+check(names("A", "group-jntu", year_from=2014, year_to=2019) == ["Eight Testcase", "Nine Testcase", "One Testcase"], "both boxes = range")
 check(names("B", "group-ut") == ["Eight Testcase", "One Testcase"], f"UT any campus: {names('B', 'group-ut')}")
 check(names("A", "group-iit") == [], "IIT group: the only IIT entry is a Master's, so Filter A finds nobody")
 lst = client.get("/api/education/institutions", query_string={"filter": "A"}).get_json()["institutions"]

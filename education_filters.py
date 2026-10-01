@@ -7,7 +7,7 @@ Filter B - "US University -> Indian Undergrad": a Masters entry at the chosen US
            Bachelors entry at any institution whose country is India.
 
 - Year range (optional) applies to the entry at the CHOSEN institution (A: the Bachelor's end year,
-  B: the Master's end year). When a range is set, entries with no end year don't qualify - a
+  B: the Master's end year). A single year (either box) means exactly that year. When a range is set, entries with no end year don't qualify - a
   missing year is never assumed to be inside the range.
 - A candidate with several degrees matches if ANY qualifying pair exists.
 - Entries whose country is unknown (school not matched to the alias table) never qualify; those
@@ -71,6 +71,10 @@ def parse_params(args: Dict) -> Dict:
         if not inst:
             raise FilterError("Choose an institution first.")
         y_from, y_to = _year(args.get("year_from")), _year(args.get("year_to"))
+        # One year typed (in either box) means exactly that passout year - "2023" must not also
+        # return 2016-2022 graduates. Both boxes = a range.
+        if bool(y_from) != bool(y_to):
+            y_from = y_to = y_from or y_to
     if y_from and y_to and y_from > y_to:
         raise FilterError("'Year from' is after 'Year to'.")
     try:

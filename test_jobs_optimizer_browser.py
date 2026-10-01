@@ -46,8 +46,19 @@ admin = models.create_user("Jobs Opt Admin", EMAIL, PASSWORD, role="Admin")
 admin_id = admin["id"] if isinstance(admin, dict) else admin
 
 first_id = models.create_candidate("Aaa First Testcase", "first@example.invalid", title="Java Developer", assigned_user_id=admin_id)
+# Like the real Karun: a resume FILE on record but no extracted text (the optimizer must still load it).
+import io  # noqa: E402
+
+import docx  # noqa: E402
+
+_doc = docx.Document()
+_doc.add_paragraph("KARUN TEST RESUME")
+_doc.add_paragraph("Data Analyst with SQL, Python and Power BI (test fixture).")
+_buf = io.BytesIO()
+_doc.save(_buf)
 karun_id = models.create_candidate("Karun Testcase", "karun@example.invalid", title="Data Analyst", assigned_user_id=admin_id,
-                                   resume_text="KARUN TEST RESUME\nData Analyst with SQL, Python and Power BI.")
+                                   resume_filename="karun_test.docx")
+models.save_resume_file(karun_id, "karun_test.docx", _buf.getvalue())
 FULL_JD = ("Data Analyst (Contract) - Test Client. Responsibilities: build Power BI dashboards, write complex SQL, "
            "automate reporting in Python, partner with finance stakeholders, document data lineage, validate data quality, "
            "support month-end close analytics, and present insights to leadership. Requirements: 5+ years SQL, Power BI, "

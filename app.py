@@ -373,6 +373,7 @@ def api_consultant_detail(candidate_id):
         return jsonify({"error": "Consultant not found or unauthorized"}), 404
 
     if request.method == "GET":
+        _ensure_resume_text(cand)
         cand_status = gmail_multi_manager.is_candidate_connected(candidate_id)
         cand["gmail_connected"] = cand_status.get("connected", False)
         return jsonify(cand)
@@ -1163,7 +1164,7 @@ def api_resume_bot_optimize():
                 format_note = ("This consultant's original Word file is no longer stored (or was uploaded as a PDF/text file), so a clean "
                                "Word file was built from the resume text. Attach the original .docx to keep its exact formatting.")
         if cand and not resume_text:
-            resume_text = (cand.get("resume_text") or "").strip()
+            resume_text = (_ensure_resume_text(cand).get("resume_text") or "").strip()
 
         if not resume_text and docx_bytes is None:
             return jsonify({"error": "No resume to optimize. Attach a .docx / .pdf / .txt file or paste the resume text first."}), 400
@@ -1187,23 +1188,66 @@ def api_resume_bot_optimize():
     return jsonify(result)
 
 
-def _stored_docx_bytes(cand):
-    """The original .docx of a consultant the caller may see: from the database, or - for files
-    uploaded before that table existed - from the resumes folder if it survived the last
-    deploy. Returns None when there isn't one."""
+def _stored_resume_file(cand):
+    """(filename, bytes) of a consultant's original resume file (.docx/.pdf/.txt): from the
+    database, or - for consultants created before that table existed - from the resumes folder.
+    Only files inside RESUMES_DIR are read. None when there isn't one."""
     rec = models.get_resume_file(cand["id"])
-    if rec and (rec.get("filename") or "").lower().endswith(".docx"):
-        return rec["data"]
-    path = cand.get("resume_path") or ""
-    if path.lower().endswith(".docx"):
-        real, root = os.path.realpath(path), os.path.realpath(RESUMES_DIR)
+    if rec and rec.get("data"):
+        return rec.get("filename") or "resume", rec["data"]
+    root = os.path.realpath(RESUMES_DIR)
+    candidates = []
+    if cand.get("resume_path"):
+        candidates.append(cand["resume_path"])
+    # The stored absolute path is from whichever server saved it (it changes between deploys /
+    # Docker vs native), so also look for the same file name in this server's resumes folder.
+    for name in (cand.get("resume_path"), cand.get("resume_filename")):
+        base = secure_filename(os.path.basename(name or ""))
+        if base:
+            candidates.append(os.path.join(RESUMES_DIR, base))
+    for path in candidates:
+        if os.path.splitext(path.lower())[1] not in (".docx", ".pdf", ".txt"):
+            continue
+        real = os.path.realpath(path)
         if real.startswith(root + os.sep) and os.path.isfile(real):
             try:
                 with open(real, "rb") as fh:
-                    return fh.read()
+                    return os.path.basename(real), fh.read()
             except OSError:
-                return None
+                continue
     return None
+
+
+def _stored_docx_bytes(cand):
+    """The original .docx of a consultant the caller may see, or None."""
+    found = _stored_resume_file(cand)
+    if found and found[0].lower().endswith(".docx"):
+        return found[1]
+    return None
+
+
+def _ensure_resume_text(cand):
+    """A consultant can have a resume FILE but no extracted text - e.g. those created by the old
+    startup seeding, which saved resume_path/resume_filename only. The Resume Optimizer reads the
+    text, so it reported "No resume is on file" although the file was there. Extract it once,
+    store it (and keep the file in the database so it survives deploys). Mutates and returns cand."""
+    if (cand.get("resume_text") or "").strip():
+        return cand
+    found = _stored_resume_file(cand)
+    if not found:
+        return cand
+    filename, data = found
+    text = (resume_bot.extract_text_from_file_bytes(data, filename) or "").strip()
+    if len(text) < 30:
+        return cand
+    models.update_candidate(cand["id"], resume_text=text,
+                            **({} if cand.get("resume_filename") else {"resume_filename": filename}))
+    if not models.get_resume_file(cand["id"]):
+        models.save_resume_file(cand["id"], filename, data)
+    cand["resume_text"] = text
+    cand["resume_filename"] = cand.get("resume_filename") or filename
+    logger.info(f"Extracted stored resume text for consultant #{cand['id']} ({filename}, {len(text)} chars)")
+    return cand
 
 
 @app.route("/api/resume-bot/extract-text", methods=["POST", "OPTIONS"])

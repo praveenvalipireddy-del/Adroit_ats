@@ -3596,6 +3596,9 @@ function eduSetStatus(html) {
 function eduParams(page) {
     const p = new URLSearchParams({ filter: eduState.filter, page: String(page || 1), page_size: '25' });
     const fields = [['location', 'edu-location'], ['keyword', 'edu-keyword'], ['status', 'edu-status-filter']];
+    for (const [key, id] of [['mine', 'edu-f-mine'], ['followup_due', 'edu-f-followup'], ['has_contact', 'edu-f-contact']]) {
+        if (document.getElementById(id)?.checked) p.set(key, '1');
+    }
     if (eduState.filter === 'P') {
         p.set('passout_year', document.getElementById('filter-student-bachelor-year')?.value || 'All');
     } else {
@@ -3646,29 +3649,20 @@ async function eduSearch(page) {
     eduSetStatus(`<b>${data.total}</b> candidate${data.total === 1 ? '' : 's'} with ${what}.`);
     const td = 'padding:10px 12px; border-bottom:1px solid #f1f5f9; vertical-align:top; color:#0f172a;';
     const statusOptions = (cur) => TRK_STATUSES.map(s => `<option${s === cur ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
+    const icon = (on, ch, title) => `<span title="${title}${on ? '' : ' - not saved yet'}" style="font-size:15px; opacity:${on ? 1 : 0.25};">${ch}</span>`;
     document.getElementById('edu-results').innerHTML = data.results.map(r => `
-        <tr data-pid="${r.id}">
-            <td style="${td} font-weight:600;"><a href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer" title="Open LinkedIn profile" style="color:#1d4ed8; text-decoration:none;">${escapeHtml(r.name)} <span style="font-size:11px;">↗</span></a></td>
-            <td style="${td}">${escapeHtml(r.headline)}</td>
-            <td style="${td}">${escapeHtml(r.current_company)}</td>
-            <td style="${td}">${escapeHtml(r.location)}</td>
+        <tr data-pid="${r.id}" class="trk-row" style="cursor:pointer;" title="Click to open the tracking card">
+            <td style="${td} font-weight:600;"><a href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer" title="Open LinkedIn profile" style="color:#1d4ed8; text-decoration:none;">${escapeHtml(r.name)} <span style="font-size:11px;">↗</span></a>
+                <div style="margin-top:4px;"><button type="button" class="trk-card-open" data-id="${r.id}" style="padding:2px 8px; font-size:11px; font-weight:700; border:1px solid #cbd5e1; border-radius:6px; background:#ffffff; color:#1d4ed8; cursor:pointer;">📋 Card${r.comment_count ? ` · 💬 ${r.comment_count}` : ''}</button></div></td>
+            <td style="${td}">${escapeHtml(r.headline)}${r.current_company ? `<div style="color:#64748b; font-size:12px;">${escapeHtml(r.current_company)}</div>` : ''}</td>
+            <td style="${td}">${escapeHtml(r.current_location || r.location)}</td>
             <td style="${td}">${escapeHtml(r.indian_college)}</td>
             <td style="${td}">${escapeHtml(r.us_masters)}</td>
             <td style="${td}"><select class="trk-status" data-id="${r.id}" data-current="${escapeHtml(r.status)}" style="${trkStatusStyle(r.status)}">${statusOptions(r.status)}</select></td>
-            <td style="${td}" class="trk-comments">${trkCommentCell(r)}</td>
-            <td style="${td} white-space:nowrap; font-size:12px; color:#475569;">${escapeHtml(r.captured_by)}<br>${escapeHtml(r.captured_at)}</td>
-        </tr>
-        <tr id="trk-row-${r.id}" style="display:none;">
-            <td colspan="9" style="padding:10px 0; background:#f8fafc; border-bottom:1px solid #e2e8f0;">
-                <div class="trk-panel" style="position:sticky; left:0; box-sizing:border-box; padding:0 14px;">
-                <div style="font-size:12px; font-weight:700; color:#334155; margin-bottom:4px;">Comments on ${escapeHtml(r.name)}</div>
-                <div id="trk-thread-${r.id}"></div>
-                <div style="display:flex; gap:8px; margin-top:8px; align-items:flex-start;">
-                    <textarea id="trk-new-${r.id}" rows="2" maxlength="2000" placeholder="e.g. Called - interested, expects $60/hr, H1B, available in 2 weeks" style="flex:1; border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; resize:vertical;"></textarea>
-                    <button type="button" class="trk-save" data-id="${r.id}" style="height:38px; padding:0 14px; border:none; border-radius:8px; background:#2563eb; color:#ffffff; font-weight:700; cursor:pointer;">Save comment</button>
-                </div>
-                </div>
-            </td>
+            <td style="${td} white-space:nowrap;">${icon(r.has_email, '✉️', 'Email')} ${icon(r.has_phone, '📞', 'Phone')}</td>
+            <td style="${td}">${escapeHtml(r.visa || '–')}</td>
+            <td style="${td}">${escapeHtml(r.owner_name || '–')}</td>
+            <td style="${td} white-space:nowrap;">${trkFollowUp(r.follow_up_date)}</td>
         </tr>`).join('');
     wrap.style.display = 'block';
     pager.style.display = data.pages > 1 ? 'flex' : 'none';
@@ -3787,134 +3781,244 @@ async function mapUnmappedInstitution(id, payload) {
     loadUnmappedInstitutions();
 }
 
-// ---- Sourcing tracker: per-candidate status + comments (team-wide) ----
-const TRK_STATUSES = ['New', 'Contacted', 'Interested', 'Not interested', 'Added to bench'];
+// ---- Sourcing tracker: per-candidate card (status, contact details, owner, activity) ----
+const TRK_STATUSES = ['New', 'Contacted', 'No response', 'Interested', 'Not interested', 'Added to bench'];
 const TRK_COLORS = {
-    'New': ['#f1f5f9', '#334155'], 'Contacted': ['#eff6ff', '#1d4ed8'], 'Interested': ['#ecfdf5', '#047857'],
-    'Not interested': ['#fef2f2', '#b91c1c'], 'Added to bench': ['#f5f3ff', '#6d28d9'],
+    'New': ['#f1f5f9', '#334155'], 'Contacted': ['#eff6ff', '#1d4ed8'], 'No response': ['#fff7ed', '#c2410c'],
+    'Interested': ['#ecfdf5', '#047857'], 'Not interested': ['#fef2f2', '#b91c1c'], 'Added to bench': ['#f5f3ff', '#6d28d9'],
 };
+let trkCurrentId = null;
+let trkRecruiters = null;
 
 function trkStatusStyle(status) {
     const [bg, fg] = TRK_COLORS[status] || TRK_COLORS['New'];
     return `background:${bg}; color:${fg}; border:1px solid ${fg}33; border-radius:6px; padding:4px 6px; font-size:12px; font-weight:700; cursor:pointer;`;
 }
 
-function trkCommentCell(r) {
-    const latest = r.latest_comment;
-    const snippet = latest
-        ? `<div style="font-size:12px; color:#334155; max-width:260px;">"${escapeHtml(latest.text.length > 90 ? latest.text.slice(0, 90) + '...' : latest.text)}"<br><span style="color:#94a3b8;">${escapeHtml(latest.author)} · ${escapeHtml(latest.at)}</span></div>`
-        : '';
-    const label = r.comment_count ? `💬 ${r.comment_count}` : '💬 Add';
-    return `${snippet}<button type="button" class="trk-open" data-id="${r.id}" style="margin-top:4px; padding:3px 8px; font-size:12px; font-weight:700; border:1px solid #cbd5e1; border-radius:6px; background:#ffffff; color:#1d4ed8; cursor:pointer;">${label}</button>`;
+function trkToday() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function trkRenderThread(profileId, thread) {
-    const box = document.getElementById(`trk-thread-${profileId}`);
-    if (!box) return;
+function trkFollowUp(dateStr) {
+    if (!dateStr) return '<span style="color:#94a3b8;">–</span>';
+    const today = trkToday();
+    if (dateStr < today) return `<span style="color:#b91c1c; font-weight:700;">⚠ Overdue (${escapeHtml(dateStr)})</span>`;
+    if (dateStr === today) return '<span style="color:#b91c1c; font-weight:700;">🔔 Today</span>';
+    return `<span style="color:#334155;">${escapeHtml(dateStr)}</span>`;
+}
+
+function trkActivityHtml(thread) {
     const me = window.CURRENT_USER || {};
-    if (!thread.length) {
-        box.innerHTML = '<div style="color:#64748b; font-size:12px;">No comments yet.</div>';
-        return;
-    }
-    box.innerHTML = thread.map(c => c.kind === 'status'
-        ? `<div style="font-size:12px; color:#64748b; margin:4px 0;">🔄 ${escapeHtml(c.text)} <span style="color:#94a3b8;">- ${escapeHtml(c.author)}, ${escapeHtml(c.at)}</span></div>`
-        : `<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin:6px 0;">
-               <div style="font-size:12px; color:#64748b; margin-bottom:3px;"><b style="color:#0f172a;">${escapeHtml(c.author)}</b> · ${escapeHtml(c.at)}
-               ${(me.admin || me.id === c.user_id) ? `<button type="button" class="trk-del" data-cid="${c.id}" data-id="${profileId}" title="Delete comment" style="float:right; border:none; background:none; color:#b91c1c; cursor:pointer; font-size:12px;">Delete</button>` : ''}</div>
+    if (!thread.length) return '<div style="color:#64748b; font-size:12px;">No activity yet.</div>';
+    const iconFor = { status: '🔄', field: '✏️', owner: '👤', bench: '➕' };
+    return thread.map(c => c.kind === 'comment'
+        ? `<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin:6px 0;">
+               <div style="font-size:12px; color:#64748b; margin-bottom:3px;"><b style="color:#0f172a;">💬 ${escapeHtml(c.author)}</b> · ${escapeHtml(c.at)}
+               ${(me.admin || me.id === c.user_id) ? `<button type="button" class="trk-del" data-cid="${c.id}" title="Delete comment" style="float:right; border:none; background:none; color:#b91c1c; cursor:pointer; font-size:12px;">Delete</button>` : ''}</div>
                <div style="font-size:13px; color:#0f172a; white-space:pre-wrap;">${escapeHtml(c.text)}</div>
-           </div>`).join('');
+           </div>`
+        : `<div style="font-size:12px; color:#475569; margin:5px 0;">${iconFor[c.kind] || '•'} ${escapeHtml(c.text)} <span style="color:#94a3b8;">- ${escapeHtml(c.author)}, ${escapeHtml(c.at)}</span></div>`).join('');
 }
 
-function trkUpdateCell(profileId, thread) {
-    const row = document.querySelector(`#edu-results tr[data-pid="${profileId}"]`);
-    if (!row) return;
-    const comments = thread.filter(c => c.kind === 'comment');
-    const latest = comments[0];
-    row.querySelector('.trk-comments').innerHTML = trkCommentCell({
-        id: profileId, comment_count: comments.length,
-        latest_comment: latest ? { text: latest.text, author: latest.author, at: latest.at } : null,
+// '+14695550100' -> '+1 469 555 0100', '+919876543210' -> '+91 98765 43210' (display only)
+function trkPhoneDisplay(p) {
+    const d = String(p || '').replace(/\D/g, '');
+    if (!p) return '';
+    if (p.startsWith('+1') && d.length === 11) return `+1 ${d.slice(1, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
+    if (p.startsWith('+91') && d.length === 12) return `+91 ${d.slice(2, 7)} ${d.slice(7)}`;
+    return p;
+}
+
+function trkSelect(id, options, value, placeholder) {
+    return `<select id="${id}" class="trk-input">${placeholder !== null ? `<option value="">${escapeHtml(placeholder)}</option>` : ''}${options.map(o => `<option${o === value ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('')}</select>`;
+}
+
+function trkRenderCard(c, warnings) {
+    const drawer = document.getElementById('trk-drawer');
+    if (!drawer) return;
+    const me = window.CURRENT_USER || {};
+    const f = c.fields || {};
+    const o = c.options || {};
+    const lbl = 'display:block; font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.4px; margin:10px 0 4px;';
+    const edu = (c.education || []).filter(e => e.degree_level === 'Bachelors' || e.degree_level === 'Masters')
+        .map(e => `${escapeHtml(e.institution_name)}${e.degree ? ' - ' + escapeHtml(e.degree) : ''}${e.end_year ? ' (' + e.end_year + ')' : ''}`).join(' → ');
+    const ownerNote = c.owner_user_id && c.owner_user_id !== me.id
+        ? `<div style="margin-top:8px; padding:8px 10px; border-radius:8px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; font-size:12px;">👤 <b>${escapeHtml(c.owner_name)}</b> is working with this candidate. You can still view, update and comment.</div>` : '';
+    const ownerCtl = me.admin
+        ? `<select id="trk-owner" class="trk-input" style="width:auto;"><option value="">– No owner –</option>${(trkRecruiters || []).map(u => `<option value="${u.id}"${u.id === c.owner_user_id ? ' selected' : ''}>${escapeHtml(u.name)}</option>`).join('')}</select>`
+        : `<b>${escapeHtml(c.owner_name || '–')}</b>`;
+    const warn = (warnings || []).length
+        ? `<div style="margin-top:10px; padding:8px 10px; border-radius:8px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; font-size:12px;">⚠ ${warnings.map(escapeHtml).join('<br>⚠ ')}</div>` : '';
+    drawer.innerHTML = `
+      <div style="padding:18px 20px; border-bottom:1px solid #e2e8f0; position:sticky; top:0; background:#ffffff; z-index:1;">
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+          <div>
+            <div style="font-size:1.1rem; font-weight:800; color:#0f172a;">${escapeHtml(c.name)} <a href="${escapeHtml(c.linkedin_url)}" target="_blank" rel="noopener noreferrer" style="font-size:12px; color:#1d4ed8;">LinkedIn ↗</a></div>
+            <div style="font-size:13px; color:#475569; margin-top:2px;">${escapeHtml([c.headline, c.company, c.linkedin_location].filter(Boolean).join(' · '))}</div>
+            ${edu ? `<div style="font-size:12px; color:#64748b; margin-top:4px;">🎓 ${edu}</div>` : ''}
+          </div>
+          <button type="button" id="trk-close" aria-label="Close" style="border:none; background:none; font-size:22px; color:#64748b; cursor:pointer; line-height:1;">×</button>
+        </div>
+      </div>
+      <div style="padding:6px 20px 20px;">
+        <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+          <div><label style="${lbl}">Status</label><select id="trk-card-status" style="${trkStatusStyle(c.status)} padding:7px 8px;">${(o.statuses || TRK_STATUSES).map(s => `<option${s === c.status ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('')}</select></div>
+          <div><label style="${lbl}">Owner</label><div style="font-size:13px; color:#0f172a; padding:6px 0;">${ownerCtl}</div></div>
+        </div>
+        ${ownerNote}
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 12px; margin-top:6px;">
+          <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-email">Email</label><input id="trk-email" class="trk-input" type="email" value="${escapeHtml(f.contact_email)}" placeholder="name@example.com"></div>
+          <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-phone">Phone (with country code)</label><input id="trk-phone" class="trk-input" type="tel" value="${escapeHtml(trkPhoneDisplay(f.contact_phone))}" placeholder="+1 469 555 0100"></div>
+          <div><label style="${lbl}" for="trk-visa">Visa status</label>${trkSelect('trk-visa', o.visa || [], f.visa_status, '– Not known –')}</div>
+          <div><label style="${lbl}" for="trk-location">Current location</label><input id="trk-location" class="trk-input" value="${escapeHtml(f.current_location)}" placeholder="e.g. Dallas, TX"></div>
+          <div><label style="${lbl}" for="trk-relocate">Open to relocate</label>${trkSelect('trk-relocate', o.relocate || [], f.open_to_relocate, '– Not known –')}</div>
+          <div><label style="${lbl}" for="trk-rate">Expected rate</label><input id="trk-rate" class="trk-input" value="${escapeHtml(f.expected_rate)}" placeholder="e.g. $65/hr C2C"></div>
+          <div><label style="${lbl}" for="trk-availability">Availability</label>${trkSelect('trk-availability', o.availability || [], f.availability, '– Not known –')}</div>
+          <div><label style="${lbl}" for="trk-followup">Next follow-up</label><input id="trk-followup" class="trk-input" type="date" value="${escapeHtml(f.follow_up_date)}"></div>
+        </div>
+        ${warn}
+        <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+          <button type="button" id="trk-save" style="height:38px; padding:0 18px; border:none; border-radius:8px; background:#2563eb; color:#ffffff; font-weight:700; cursor:pointer;">Save</button>
+          ${c.bench_candidate_id
+              ? '<span style="height:38px; display:inline-flex; align-items:center; padding:0 14px; border-radius:8px; background:#f5f3ff; color:#6d28d9; font-weight:700;">✓ On the bench</span>'
+              : '<button type="button" id="trk-bench" title="Create a bench consultant from this card (needs an email)" style="height:38px; padding:0 14px; border:1px solid #c4b5fd; border-radius:8px; background:#f5f3ff; color:#6d28d9; font-weight:700; cursor:pointer;">➕ Add to Bench</button>'}
+        </div>
+        <div style="margin-top:20px; font-size:12px; font-weight:800; color:#334155; text-transform:uppercase; letter-spacing:0.4px;">Activity</div>
+        <div style="display:flex; gap:8px; margin-top:8px; align-items:flex-start;">
+          <textarea id="trk-comment" rows="2" maxlength="2000" placeholder="e.g. Called - interested, will send resume tonight" style="flex:1; border:1px solid #cbd5e1; border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; resize:vertical;"></textarea>
+          <button type="button" id="trk-post" style="height:38px; padding:0 12px; border:none; border-radius:8px; background:#0f172a; color:#ffffff; font-weight:700; cursor:pointer;">Post</button>
+        </div>
+        <div id="trk-activity" style="margin-top:8px;">${trkActivityHtml(c.thread || [])}</div>
+      </div>`;
+    drawer.querySelectorAll('.trk-input').forEach(el => {
+        el.style.cssText = 'width:100%; height:38px; box-sizing:border-box; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; color:#0f172a; background:#ffffff;';
     });
 }
 
-async function trkToggle(profileId) {
-    const row = document.getElementById(`trk-row-${profileId}`);
-    if (!row) return;
-    const open = row.style.display !== 'none';
-    row.style.display = open ? 'none' : '';
-    if (open) return;
-    // The table can be wider than the screen (it scrolls sideways); keep the comment panel the width
-    // of the visible area and pinned to its left edge so it is never cut off.
-    const wrap = document.getElementById('edu-results-wrap');
-    const panel = row.querySelector('.trk-panel');
-    if (wrap && panel) panel.style.width = `${wrap.clientWidth}px`;
-    const box = document.getElementById(`trk-thread-${profileId}`);
-    if (box) box.innerHTML = '<div style="color:#64748b; font-size:12px;">Loading...</div>';
-    const res = await fetch(`/api/sourcing/profiles/${profileId}/comments`);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { if (box) box.textContent = data.error || 'Could not load comments.'; return; }
-    trkRenderThread(profileId, data.thread || []);
-    document.getElementById(`trk-new-${profileId}`)?.focus();
+async function trkLoadRecruiters() {
+    if (trkRecruiters !== null || !(window.CURRENT_USER || {}).admin) return;
+    try {
+        const res = await fetch('/api/admin/recruiters');
+        const data = res.ok ? await res.json() : [];
+        trkRecruiters = (Array.isArray(data) ? data : (data.recruiters || [])).map(u => ({ id: u.id, name: u.name }));
+    } catch (e) { trkRecruiters = []; }
 }
 
-async function trkSave(profileId) {
-    const input = document.getElementById(`trk-new-${profileId}`);
-    const text = (input?.value || '').trim();
-    if (!text) { showToast('Write a comment first.', 'warning'); return; }
-    const res = await fetch(`/api/sourcing/profiles/${profileId}/comments`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ comment: text }),
+async function trkOpen(profileId) {
+    trkCurrentId = parseInt(profileId);
+    await trkLoadRecruiters();
+    const res = await fetch(`/api/sourcing/profiles/${trkCurrentId}/card`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Could not open the card.', 'error'); return; }
+    trkRenderCard(data, []);
+    document.getElementById('trk-backdrop').style.display = 'block';
+    document.getElementById('trk-drawer').style.transform = 'translateX(0)';
+}
+
+function trkClose() {
+    trkCurrentId = null;
+    document.getElementById('trk-backdrop').style.display = 'none';
+    document.getElementById('trk-drawer').style.transform = 'translateX(105%)';
+}
+
+async function trkRequest(url, body, method = 'POST') {
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Something went wrong.', 'error', 6000); return null; }
+    return data;
+}
+
+function trkRefreshTable() {
+    if (eduState.filter === 'P' || eduState.selected[eduState.filter]) eduSearch(eduState.page || 1);
+}
+
+async function trkSaveCard() {
+    const v = (id) => (document.getElementById(id)?.value || '').trim();
+    const data = await trkRequest(`/api/sourcing/profiles/${trkCurrentId}/card`, {
+        contact_email: v('trk-email'), contact_phone: v('trk-phone'), visa_status: v('trk-visa'),
+        current_location: v('trk-location'), open_to_relocate: v('trk-relocate'), expected_rate: v('trk-rate'),
+        availability: v('trk-availability'), follow_up_date: v('trk-followup'),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { showToast(data.error || 'Could not save the comment.', 'error'); return; }
-    input.value = '';
-    trkRenderThread(profileId, data.thread || []);
-    trkUpdateCell(profileId, data.thread || []);
-    showToast('Comment saved.', 'success');
+    if (!data) return;
+    trkRenderCard(data, data.warnings || []);
+    showToast((data.warnings || []).length ? 'Saved - but see the warning on the card.' : 'Saved.', (data.warnings || []).length ? 'warning' : 'success');
+    trkRefreshTable();
 }
 
-async function trkDelete(commentId, profileId) {
-    if (!confirm('Delete this comment?')) return;
-    const res = await fetch(`/api/sourcing/comments/${commentId}`, { method: 'DELETE' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { showToast(data.error || 'Could not delete.', 'error'); return; }
-    trkRenderThread(profileId, data.thread || []);
-    trkUpdateCell(profileId, data.thread || []);
-}
-
-async function trkSetStatus(select) {
-    const profileId = select.getAttribute('data-id');
-    const previous = select.getAttribute('data-current');
-    const status = select.value;
-    const res = await fetch(`/api/sourcing/profiles/${profileId}/status`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        select.value = previous;
-        showToast(data.error || 'Could not change the status.', 'error');
-        return;
-    }
-    select.setAttribute('data-current', status);
-    select.setAttribute('style', trkStatusStyle(status));
-    const row = document.getElementById(`trk-row-${profileId}`);
-    if (row && row.style.display !== 'none') trkRenderThread(profileId, data.thread || []);
+async function trkSetStatus(profileId, status, select) {
+    const data = await trkRequest(`/api/sourcing/profiles/${profileId}/status`, { status });
+    if (!data) { if (select) select.value = select.getAttribute('data-current') || 'New'; return; }
+    if (select) { select.setAttribute('data-current', status); select.setAttribute('style', trkStatusStyle(status)); }
+    if (trkCurrentId === parseInt(profileId)) trkRenderCard(data, []);
     showToast(`Status: ${status}`, 'success');
+    trkRefreshTable();
+}
+
+async function trkPostComment() {
+    const box = document.getElementById('trk-comment');
+    const text = (box?.value || '').trim();
+    if (!text) { showToast('Write a comment first.', 'warning'); return; }
+    const data = await trkRequest(`/api/sourcing/profiles/${trkCurrentId}/comments`, { comment: text });
+    if (!data) return;
+    box.value = '';
+    document.getElementById('trk-activity').innerHTML = trkActivityHtml(data.thread || []);
+    showToast('Comment posted.', 'success');
+    trkRefreshTable();
+}
+
+async function trkDeleteComment(commentId) {
+    if (!confirm('Delete this comment?')) return;
+    const data = await trkRequest(`/api/sourcing/comments/${commentId}`, null, 'DELETE');
+    if (!data) return;
+    document.getElementById('trk-activity').innerHTML = trkActivityHtml(data.thread || []);
+    trkRefreshTable();
+}
+
+async function trkAddToBench() {
+    if (!confirm('Add this candidate to your bench as a consultant?')) return;
+    const data = await trkRequest(`/api/sourcing/profiles/${trkCurrentId}/add-to-bench`, {});
+    if (!data) return;
+    trkRenderCard(data, []);
+    showToast(`${data.name} added to your bench.`, 'success');
+    if (typeof fetchConsultants === 'function') fetchConsultants();
+    trkRefreshTable();
+}
+
+async function trkReassign(userId) {
+    const data = await trkRequest(`/api/sourcing/profiles/${trkCurrentId}/owner`, { user_id: userId || null });
+    if (!data) return;
+    trkRenderCard(data, []);
+    showToast('Owner updated.', 'success');
+    trkRefreshTable();
 }
 
 function initSourcingTracker() {
     const tbody = document.getElementById('edu-results');
-    if (!tbody) return;
+    const drawer = document.getElementById('trk-drawer');
+    if (!tbody || !drawer) return;
     tbody.addEventListener('change', (e) => {
-        if (e.target.classList.contains('trk-status')) trkSetStatus(e.target);
+        if (e.target.classList.contains('trk-status')) trkSetStatus(e.target.getAttribute('data-id'), e.target.value, e.target);
     });
     tbody.addEventListener('click', (e) => {
-        const open = e.target.closest('.trk-open');
-        if (open) { trkToggle(open.getAttribute('data-id')); return; }
-        const save = e.target.closest('.trk-save');
-        if (save) { trkSave(save.getAttribute('data-id')); return; }
-        const del = e.target.closest('.trk-del');
-        if (del) trkDelete(del.getAttribute('data-cid'), del.getAttribute('data-id'));
+        if (e.target.closest('a, select, input')) return;          // LinkedIn link / status dropdown keep their own job
+        const row = e.target.closest('tr.trk-row');
+        if (row) trkOpen(row.getAttribute('data-pid'));
     });
-    document.getElementById('edu-status-filter')?.addEventListener('change', () => {
-        if (eduState.filter === 'P' || eduState.selected[eduState.filter]) eduSearch(1);
+    drawer.addEventListener('click', (e) => {
+        if (e.target.closest('#trk-close')) trkClose();
+        else if (e.target.closest('#trk-save')) trkSaveCard();
+        else if (e.target.closest('#trk-post')) trkPostComment();
+        else if (e.target.closest('#trk-bench')) trkAddToBench();
+        else if (e.target.closest('.trk-del')) trkDeleteComment(e.target.closest('.trk-del').getAttribute('data-cid'));
     });
+    drawer.addEventListener('change', (e) => {
+        if (e.target.id === 'trk-card-status') trkSetStatus(trkCurrentId, e.target.value, null);
+        else if (e.target.id === 'trk-owner') trkReassign(e.target.value);
+    });
+    document.getElementById('trk-backdrop')?.addEventListener('click', trkClose);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && trkCurrentId) trkClose(); });
+    document.getElementById('edu-status-filter')?.addEventListener('change', trkRefreshTable);
+    ['edu-f-mine', 'edu-f-followup', 'edu-f-contact'].forEach(id =>
+        document.getElementById(id)?.addEventListener('change', trkRefreshTable));
 }

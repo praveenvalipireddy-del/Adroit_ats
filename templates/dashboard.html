@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hiring Flow - Enterprise ATS & Outreach Platform</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=5.5.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=5.6.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -358,21 +358,27 @@
                             </button>
                         </form>
 
+                        <div id="edu-quick-filters" style="display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:13px; color:#334155;">
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="edu-f-mine"> My candidates</label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="edu-f-followup"> Follow-up due</label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="edu-f-contact"> Has contact info</label>
+                        </div>
                         <div id="students-search-status" style="display:none; margin-top:12px; padding:8px 12px; border-radius:8px; background:#f8fafc; border:1px solid #e2e8f0; color:#334155; font-size:0.8rem; line-height:1.5;"></div>
                         <div id="edu-status" style="margin-top:14px; font-size:0.85rem; color:#334155;"></div>
                         <div id="edu-results-wrap" style="display:none; margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; overflow-x:auto;">
                             <table id="edu-table" style="width:100%; border-collapse:collapse; text-align:left; font-size:0.83rem; min-width:1180px;">
                                 <thead>
                                     <tr style="background:#f8fafc; color:#475569; border-bottom:1px solid #e2e8f0;">
-                                        <th style="padding:10px 12px;">Name (opens LinkedIn)</th>
-                                        <th style="padding:10px 12px;">Headline / Current Title</th>
-                                        <th style="padding:10px 12px;">Current Company</th>
+                                        <th style="padding:10px 12px;">Name</th>
+                                        <th style="padding:10px 12px;">Title / Company</th>
                                         <th style="padding:10px 12px;">Location</th>
                                         <th style="padding:10px 12px;">Indian College (year)</th>
                                         <th style="padding:10px 12px;">US University - Master's (year)</th>
                                         <th style="padding:10px 12px;">Status</th>
-                                        <th style="padding:10px 12px;">Comments</th>
-                                        <th style="padding:10px 12px;">Captured</th>
+                                        <th style="padding:10px 12px;">Contact</th>
+                                        <th style="padding:10px 12px;">Visa</th>
+                                        <th style="padding:10px 12px;">Owner</th>
+                                        <th style="padding:10px 12px;">Follow-up</th>
                                     </tr>
                                 </thead>
                                 <tbody id="edu-results"></tbody>
@@ -1100,8 +1106,11 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script>window.HAS_GOOGLE_OAUTH = {{ 'true' if has_google_oauth else 'false' }};</script>
+    <!-- Sourcing tracker card: slides in from the right when a candidate row is clicked -->
+    <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
+    <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.45.0"></script>
+    <script src="/static/js/app.js?v=5.46.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

@@ -88,7 +88,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.45.0" in page.content(), "cache-buster not bumped to 5.45.0")
+        check("app.js?v=5.46.0" in page.content(), "cache-buster not bumped to 5.46.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")
@@ -137,7 +137,7 @@ try:
         check(page.inner_text("#edu-page-info") == "Page 1 of 2", f"pager: {page.inner_text('#edu-page-info')}")
         row = page.inner_text("#edu-results tr[data-pid]:first-child")
         check("UT Dallas" in row or "University of Texas at Dallas" in row, f"US Master's column missing: {row!r}")
-        check("Edu UI Admin" in row and "Test Corp" in row, f"captured by / company column: {row!r}")
+        check("Test Corp" in row and "New" in row, f"company / status columns: {row!r}")   # "Captured By" column replaced by Owner (still in Excel)
         href = page.get_attribute("#edu-results tr[data-pid]:first-child a", "href")
         check(href and href.startswith("https://www.linkedin.com/in/jn-"), f"LinkedIn link: {href}")
         page.screenshot(path=shot)

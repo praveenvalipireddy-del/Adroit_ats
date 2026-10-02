@@ -1075,7 +1075,7 @@ body {
     position: fixed;
     bottom: 24px;
     right: 24px;
-    z-index: 200;
+    z-index: 1300;   /* above the Sourcing tracker card (1201) */
     display: flex;
     flex-direction: column;
     gap: 10px;

@@ -24,6 +24,7 @@ import education_match
 import gmail_multi_manager
 import us_job_scrapers
 import india_job_scrapers
+import sourcing_tracker
 import job_description_fetch
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
@@ -1878,6 +1879,7 @@ def api_education_search():
         params = education_filters.parse_params(request.args)
     except education_filters.FilterError as ex:
         return jsonify({"error": str(ex)}), 400
+    params["user_id"] = user["id"]
     conn = models.get_db_connection()
     try:
         return jsonify(education_filters.search(conn, params))
@@ -1895,6 +1897,7 @@ def api_education_export_xlsx():
         params = education_filters.parse_params(request.args)
     except education_filters.FilterError as ex:
         return jsonify({"error": str(ex)}), 400
+    params["user_id"] = user["id"]
     conn = models.get_db_connection()
     try:
         rows = education_filters.export_rows(conn, params)
@@ -1920,7 +1923,8 @@ def api_education_export_xlsx():
     finally:
         conn.close()
     models.log_activity(user["id"], user["name"], "Exported Excel", "Sourcing", 0, f"{len(rows)} candidates - {label}")
-    data = education_filters.build_xlsx(rows, label)
+    # Email and phone are personal data: only admins get them in the Excel file.
+    data = education_filters.build_xlsx(rows, label, include_contacts="Admin" in user.get("role", ""))
     slug = re.sub(r"[^A-Za-z0-9]+", "_", inst_name if params["filter"] == "P" else f"Filter_{params['filter']}_{inst_name}").strip("_")[:80]
     return send_file(io.BytesIO(data), as_attachment=True, download_name=f"{slug}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -2111,30 +2115,95 @@ def api_sourcing_comment_delete(comment_id):
 
 @app.route("/api/sourcing/profiles/<int:profile_id>/status", methods=["POST", "OPTIONS"])
 def api_sourcing_status(profile_id):
-    """Set a sourced candidate's tracking status; the change is recorded in its thread."""
+    """Set a sourced candidate's status (owner rule + history in sourcing_tracker)."""
     if request.method == "OPTIONS":
         return make_response("", 200)
     user = current_user()
     if not user:
         return jsonify({"error": "Login required"}), 401
     status = ((request.get_json(silent=True) or {}).get("status") or "").strip()
-    if status not in education_filters.STATUSES:
-        return jsonify({"error": "Unknown status."}), 400
-    prof = _tracker_profile(profile_id)
-    if not prof:
+    conn = models.get_db_connection()
+    try:
+        c = sourcing_tracker.set_status(conn, profile_id, user, status)
+    except sourcing_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except LookupError:
         return jsonify({"error": "Candidate not found"}), 404
-    old = prof.get("tracking_status") or "New"
-    if old != status:
-        conn = models.get_db_connection()
-        try:
-            cur = conn.cursor()
-            cur.execute("UPDATE linkedin_profiles SET tracking_status = ? WHERE id = ?", (status, profile_id))
-            cur.execute("INSERT INTO sourcing_comments (profile_id, user_id, kind, comment) VALUES (?, ?, 'status', ?)",
-                        (profile_id, user["id"], f"Status: {old} \u2192 {status}"))
-            conn.commit()
-        finally:
-            conn.close()
-    return jsonify({"status": status, "thread": _tracker_thread(profile_id)})
+    finally:
+        conn.close()
+    return jsonify({**c, "status": c["status"]})
+
+
+@app.route("/api/sourcing/profiles/<int:profile_id>/card", methods=["GET", "POST", "OPTIONS"])
+def api_sourcing_card(profile_id):
+    """The tracker card: GET it, POST field updates (email, phone, visa, location, relocate, rate,
+    availability, follow-up). Saving returns duplicate warnings for the email / phone."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        if request.method == "POST":
+            c, warnings = sourcing_tracker.save_fields(conn, profile_id, user, request.get_json(silent=True) or {})
+            return jsonify({**c, "warnings": warnings})
+        c = sourcing_tracker.card(conn, profile_id)
+        if not c:
+            return jsonify({"error": "Candidate not found"}), 404
+        return jsonify(c)
+    except sourcing_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except LookupError:
+        return jsonify({"error": "Candidate not found"}), 404
+    finally:
+        conn.close()
+
+
+@app.route("/api/sourcing/profiles/<int:profile_id>/owner", methods=["POST", "OPTIONS"])
+def api_sourcing_owner(profile_id):
+    """Admins reassign (or clear) a sourced candidate's owner."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user, err = _edu_admin()
+    if err:
+        return err
+    new_owner = (request.get_json(silent=True) or {}).get("user_id")
+    try:
+        new_owner = int(new_owner) if new_owner not in (None, "", 0, "0") else None
+    except (TypeError, ValueError):
+        return jsonify({"error": "Unknown recruiter."}), 400
+    conn = models.get_db_connection()
+    try:
+        return jsonify(sourcing_tracker.reassign(conn, profile_id, user, new_owner))
+    except sourcing_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except LookupError:
+        return jsonify({"error": "Candidate not found"}), 404
+    finally:
+        conn.close()
+
+
+@app.route("/api/sourcing/profiles/<int:profile_id>/add-to-bench", methods=["POST", "OPTIONS"])
+def api_sourcing_add_to_bench(profile_id):
+    """Create the bench consultant from the tracker card (owned by the recruiter clicking it)."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        c, cand_id = sourcing_tracker.add_to_bench(conn, profile_id, user)
+    except sourcing_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except LookupError:
+        return jsonify({"error": "Candidate not found"}), 404
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Added to Bench", "Candidate", cand_id,
+                        f"{c['name']} added to the bench from Sourcing")
+    return jsonify({**c, "candidate_id": cand_id})
 
 
 @app.route("/api/education/unmapped", methods=["GET"])

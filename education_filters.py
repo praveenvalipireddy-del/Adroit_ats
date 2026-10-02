@@ -17,9 +17,11 @@ Filter B - "US University -> Indian Undergrad": a Masters entry at the chosen US
 - Profiles are a team-wide pool (like the rest of Sourcing): every logged-in recruiter sees them.
 """
 import io
+from datetime import date
 from typing import Dict, List, Optional
 
 from institutions_seed import GROUPS
+from sourcing_tracker import STATUSES
 from linkedin_sourcing import is_indian_institution
 
 _GROUPS = {g[0]: {"id": g[0], "name": g[1], "country": g[2], "words": g[3], "members": g[4]} for g in GROUPS}
@@ -34,8 +36,7 @@ FILTERS = {
     "B": {"chosen_level": "Masters", "chosen_country": "USA", "other_level": "Bachelors", "other_country": "India"},
 }
 MAX_PAGE_SIZE = 100
-# Sourcing tracker statuses (a profile with no status yet is "New").
-STATUSES = ["New", "Contacted", "Interested", "Not interested", "Added to bench"]
+# Sourcing tracker statuses come from sourcing_tracker (a profile with no status yet is "New").
 MAX_EXPORT_ROWS = 10000
 
 
@@ -87,9 +88,11 @@ def parse_params(args: Dict) -> Dict:
     status = str(args.get("status") or "").strip()
     if status and status not in STATUSES:
         raise FilterError("Unknown status.")
+    flag = lambda k: str(args.get(k) or "").strip().lower() in ("1", "true", "yes", "on")  # noqa: E731
     return {"filter": f, "institution_id": inst, "year_from": y_from, "year_to": y_to,
             "location": str(args.get("location") or "").strip(), "keyword": str(args.get("keyword") or "").strip(),
-            "status": status, "page": page, "page_size": page_size}
+            "status": status, "mine": flag("mine"), "followup_due": flag("followup_due"),
+            "has_contact": flag("has_contact"), "page": page, "page_size": page_size}
 
 
 def member_ids(institution_id: Optional[str]) -> Optional[List[str]]:
@@ -156,6 +159,15 @@ def _where(p: Dict):
     elif p.get("status"):
         clauses.append("p.tracking_status = ?")
         params.append(p["status"])
+    if p.get("mine") and p.get("user_id"):
+        clauses.append("p.owner_user_id = ?")
+        params.append(p["user_id"])
+    if p.get("followup_due"):
+        # due today or overdue (dates are stored as YYYY-MM-DD, so text comparison is date order)
+        clauses.append("(p.follow_up_date IS NOT NULL AND p.follow_up_date <> '' AND p.follow_up_date <= ?)")
+        params.append(p.get("today") or date.today().isoformat())
+    if p.get("has_contact"):
+        clauses.append("(COALESCE(p.contact_email, '') <> '' OR COALESCE(p.contact_phone, '') <> '')")
     if p["location"]:
         clauses.append("LOWER(COALESCE(p.location, '')) LIKE ?")
         params.append(_like(p["location"]))
@@ -255,6 +267,12 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
             "captured_by": r["captured_by_name"] or ("Sourcing search" if not r["captured_by"] else f"User #{r['captured_by']}"),
             "captured_at": str(r["captured_at"] or "")[:10],
             "status": r.get("tracking_status") or "New",
+            "has_email": bool(r.get("contact_email")), "has_phone": bool(r.get("contact_phone")),
+            "contact_email": r.get("contact_email") or "", "contact_phone": r.get("contact_phone") or "",
+            "visa": r.get("trk_visa") or "", "current_location": r.get("current_location") or "",
+            "open_to_relocate": r.get("open_to_relocate") or "", "expected_rate": r.get("expected_rate") or "",
+            "availability": r.get("availability") or "", "follow_up_date": r.get("follow_up_date") or "",
+            "owner_name": r.get("owner_name") or "", "owner_user_id": r.get("owner_user_id"),
             "comment_count": (comments.get(r["id"]) or {}).get("count", 0),
             "latest_comment": (comments.get(r["id"]) or {}).get("latest"),
         })
@@ -262,8 +280,10 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
 
 
 _SELECT = """SELECT p.id, p.name, p.headline, p.current_title, p.current_company, p.location, p.linkedin_url,
-                    p.captured_by, p.captured_at, p.verified_bachelor_year, p.tracking_status, u.name AS captured_by_name
-             FROM linkedin_profiles p LEFT JOIN users u ON u.id = p.captured_by"""
+                    p.captured_by, p.captured_at, p.verified_bachelor_year, p.tracking_status, u.name AS captured_by_name,
+                    p.contact_email, p.contact_phone, p.visa_status AS trk_visa, p.current_location, p.open_to_relocate,
+                    p.expected_rate, p.availability, p.follow_up_date, p.owner_user_id, o.name AS owner_name
+             FROM linkedin_profiles p LEFT JOIN users u ON u.id = p.captured_by LEFT JOIN users o ON o.id = p.owner_user_id"""
 
 
 def search(conn, p: Dict) -> Dict:
@@ -275,8 +295,12 @@ def search(conn, p: Dict) -> Dict:
     cur.execute(f"{_SELECT} WHERE {where} ORDER BY p.captured_at DESC, p.id DESC LIMIT ? OFFSET ?",
                 params + [p["page_size"], offset])
     rows = [dict(r) for r in cur.fetchall()]
+    results = _decorate(conn, p, rows)
+    for r in results:   # the table only needs to know a contact exists; the card shows the details
+        r.pop("contact_email", None)
+        r.pop("contact_phone", None)
     return {"total": total, "page": p["page"], "page_size": p["page_size"],
-            "pages": max(1, -(-total // p["page_size"])), "results": _decorate(conn, p, rows)}
+            "pages": max(1, -(-total // p["page_size"])), "results": results}
 
 
 def export_rows(conn, p: Dict) -> List[Dict]:
@@ -291,33 +315,38 @@ EXPORT_COLUMNS = [
     ("location", "Location"), ("indian_college", "Indian College (Bachelor's year)"),
     ("us_masters", "US University - Master's (year)"), ("linkedin_url", "LinkedIn URL"),
     ("captured_by", "Captured By"), ("captured_at", "Captured Date"),
-    ("status", "Status"), ("latest_comment_text", "Latest Comment"), ("comment_count", "Comments"),
+    ("status", "Status"), ("owner_name", "Owner"), ("contact_email", "Email"), ("contact_phone", "Phone"),
+    ("visa", "Visa"), ("current_location", "Current Location"), ("open_to_relocate", "Open to Relocate"),
+    ("expected_rate", "Expected Rate"), ("availability", "Availability"), ("follow_up_date", "Next Follow-up"),
+    ("latest_comment_text", "Latest Comment"), ("comment_count", "Comments"),
 ]
+CONTACT_COLUMNS = {"contact_email", "contact_phone"}   # admins only (personal data)
 
 
-def build_xlsx(rows: List[Dict], title: str) -> bytes:
+def build_xlsx(rows: List[Dict], title: str, include_contacts: bool = False) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
 
+    columns = [(k, lbl) for k, lbl in EXPORT_COLUMNS if include_contacts or k not in CONTACT_COLUMNS]
     wb = Workbook()
     ws = wb.active
     ws.title = "Candidates"
-    ws.append([label for _, label in EXPORT_COLUMNS])
+    ws.append([label for _, label in columns])
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1D4ED8")
     for r in rows:
         latest = r.get("latest_comment")
         r = dict(r, latest_comment_text=(f"{latest['text']} ({latest['author']}, {latest['at']})" if latest else ""))
-        ws.append([r.get(key, "") for key, _ in EXPORT_COLUMNS])
-        link = ws.cell(row=ws.max_row, column=[k for k, _ in EXPORT_COLUMNS].index("linkedin_url") + 1)
+        ws.append([r.get(key, "") for key, _ in columns])
+        link = ws.cell(row=ws.max_row, column=[k for k, _ in columns].index("linkedin_url") + 1)
         if link.value:
             link.hyperlink = link.value
             link.font = Font(color="1D4ED8", underline="single")
     widths = {"name": 24, "headline": 40, "current_company": 26, "location": 26, "indian_college": 46,
               "us_masters": 56, "linkedin_url": 48, "captured_by": 20, "captured_at": 14,
               "status": 16, "latest_comment_text": 60, "comment_count": 11}
-    for i, (key, _) in enumerate(EXPORT_COLUMNS, start=1):
+    for i, (key, _) in enumerate(columns, start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = widths.get(key, 20)
     ws.freeze_panes = "A2"
     info = wb.create_sheet("Search")

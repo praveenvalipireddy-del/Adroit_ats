@@ -71,8 +71,9 @@ check(asha["status"] == "New" and asha["comment_count"] == 0 and asha["latest_co
 r = client.post(f"/api/sourcing/profiles/{asha['id']}/status", json={"status": "Contacted"})
 check(r.status_code == 200 and r.get_json()["status"] == "Contacted", f"set status: {r.get_json()}")
 thread = r.get_json()["thread"]
-check(thread and thread[0]["kind"] == "status" and thread[0]["text"] == "Status: New → Contacted" and thread[0]["author"] == "Pramod Trk",
-      f"status change recorded in the thread: {thread[:1]}")
+st = next((c for c in thread if c["kind"] == "status"), None)
+check(st and st["text"] == "Status: New → Contacted" and st["author"] == "Pramod Trk", f"status change recorded in the thread: {thread[:2]}")
+check(any(c["kind"] == "owner" and c["text"] == "Owner: Pramod Trk" for c in thread), "first recruiter to contact becomes owner")
 check(client.post(f"/api/sourcing/profiles/{asha['id']}/status", json={"status": "Hired!!"}).status_code == 400, "unknown status rejected")
 check(client.post("/api/sourcing/profiles/999999/status", json={"status": "Contacted"}).status_code == 404, "unknown candidate")
 n_before = len(client.get(f"/api/sourcing/profiles/{asha['id']}/comments").get_json()["thread"])
@@ -121,12 +122,13 @@ check(sorted(results()) == ["Asha Trktest", "Bharat Trktest"], "no status filter
 r = client.get("/api/education/export-xlsx", query_string={"filter": "A", "institution_id": "in-jntu-hyderabad"})
 ws = load_workbook(io.BytesIO(r.data))["Candidates"]
 header = [c.value for c in ws[1]]
-check(header[-3:] == ["Status", "Latest Comment", "Comments"], f"Excel tracker columns: {header[-3:]}")
-vals = {ws.cell(row=i, column=1).value: [ws.cell(row=i, column=j).value for j in range(len(header) - 2, len(header) + 1)]
-        for i in range(2, ws.max_row + 1)}
-asha_x = vals.get("Asha Trktest") or []
-check(asha_x and asha_x[0] == "Contacted" and str(asha_x[1]).startswith("Interested - follow up Monday (Other Trk,")
-      and asha_x[2] == 1, f"Excel row: {asha_x}")
+for col in ("Status", "Owner", "Latest Comment", "Comments"):
+    check(col in header, f"Excel tracker column {col!r} missing: {header}")
+rowmap = {ws.cell(row=i, column=1).value: {header[j - 1]: ws.cell(row=i, column=j).value for j in range(1, len(header) + 1)}
+          for i in range(2, ws.max_row + 1)}
+asha_x = rowmap.get("Asha Trktest") or {}
+check(asha_x.get("Status") == "Contacted" and str(asha_x.get("Latest Comment")).startswith("Interested - follow up Monday (Other Trk,")
+      and asha_x.get("Comments") == 1, f"Excel row: {asha_x}")
 
 if failures:
     print(f"FAIL: {len(failures)} check(s) failed:")

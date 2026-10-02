@@ -586,7 +586,13 @@ def migrate_db(conn):
     # Education-filter tables (added after their first deploy)
     for table, new_cols in (("linkedin_profiles", {"education_complete": "INTEGER DEFAULT 0",
                                                    "verified_bachelor_year": "INTEGER",
-                                                   "tracking_status": "TEXT"}),
+                                                   "tracking_status": "TEXT",
+                                                   # sourcing tracker card (sourcing_tracker.py)
+                                                   "contact_email": "TEXT", "contact_phone": "TEXT",
+                                                   "visa_status": "TEXT", "current_location": "TEXT",
+                                                   "open_to_relocate": "TEXT", "expected_rate": "TEXT",
+                                                   "availability": "TEXT", "follow_up_date": "TEXT",
+                                                   "owner_user_id": "INTEGER", "bench_candidate_id": "INTEGER"}),
                             ("profile_education", {"institution_norm": "TEXT"})):
         existing_cols = get_existing_cols(table)
         for col, c_type in new_cols.items():

@@ -803,7 +803,7 @@ def extract_details_from_raw_jd(text: str) -> dict:
     email = email_match.group(0) if email_match else ""
 
     salary_match = re.search(r'\$[\d,]+(?:\.\d+)?(?:\s*[-–—to]+\s*\$?[\d,]+(?:\.\d+)?)?(?:\s*\/\s*(?:hr|hour|yr|year|mo|month|annum|day))?', text, re.IGNORECASE)
-    salary = salary_match.group(0) if salary_match else "$90/hr (C2C)"
+    salary = salary_match.group(0) if salary_match else ""   # never an invented rate
 
     title = ""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
@@ -822,8 +822,6 @@ def extract_details_from_raw_jd(text: str) -> dict:
                     title = line
                     break
 
-    if not title:
-        title = "Software Engineering Specialist"
 
     company = ""
     for line in lines:
@@ -838,9 +836,6 @@ def extract_details_from_raw_jd(text: str) -> dict:
         domain = email.split("@")[1].split(".")[0]
         if domain not in ["gmail", "yahoo", "hotmail", "outlook", "icloud"]:
             company = domain.capitalize()
-
-    if not company:
-        company = "Direct Client"
 
     return {
         "title": title,
@@ -901,14 +896,25 @@ def api_paste_and_draft():
 
     if not recruiter_email or "@" not in recruiter_email:
         return jsonify({"error": "Recruiter email is required. Please type recruiter email."}), 400
+    if not job_title:
+        return jsonify({"error": "Job title is required. Please type the job title."}), 400
 
-    # Save to SQLite database as a job record
+    # Vendor contacts ticked in the modal: re-checked here - only this recruiter's own, active ones,
+    # never the To address, at most vendors.MAX_BCC.
+    conn = models.get_db_connection()
+    try:
+        bcc_contacts = vendors.contacts_for_bcc(conn, user["id"], data.get("bcc_contact_ids") or [],
+                                                exclude_emails=[recruiter_email])
+    finally:
+        conn.close()
+
+    # Save as a job record - only what the requirement actually says (no invented rate / location).
     job_id = models.save_or_update_scraped_job({
-        "title": job_title or "Technical Role",
-        "company": company or "Direct Client",
-        "location": "United States (Remote / Onsite)",
-        "job_type": "Contract (C2C)",
-        "salary": salary or "$90/hr (C2C)",
+        "title": job_title,
+        "company": company,
+        "location": "",
+        "job_type": "",
+        "salary": salary,
         "source": "Manual Paste",
         "url": "",
         "recruiter_email": recruiter_email,
@@ -922,12 +928,19 @@ def api_paste_and_draft():
         candidate_id=int(candidate_id),
         job_id=job_id,
         custom_to_email=recruiter_email,
-        custom_notes=custom_notes
+        custom_notes=custom_notes,
+        bcc=[c["email"] for c in bcc_contacts]
     )
 
     if not result.get("success"):
         return jsonify(result), 400
 
+    if bcc_contacts:
+        conn = models.get_db_connection()
+        try:
+            vendors.mark_emailed(conn, [c["id"] for c in bcc_contacts], f"{job_title} - {result.get('candidate_name', '')}")
+        finally:
+            conn.close()
     result["job_id"] = job_id
     return jsonify(result)
 
@@ -2327,10 +2340,13 @@ def api_vendors_match():
         emails = vendors.find_emails(emails)
     conn = models.get_db_connection()
     try:
-        m = vendors.match(conn, user["id"], company=str(data.get("company") or ""), emails=[str(e) for e in emails][:50])
+        emails = [str(e).strip().lower() for e in emails][:50]
+        m = vendors.match(conn, user["id"], company=str(data.get("company") or ""), emails=emails)
+        m["unknown_emails"] = vendors.unknown_emails(conn, user["id"], emails)
     finally:
         conn.close()
     m["contacts"] = [{k: c.get(k) for k in ("id", "company_name", "contact_name", "email", "phone", "title")} for c in m["contacts"]]
+    m["max_bcc"] = vendors.MAX_BCC
     return jsonify(m)
 
 

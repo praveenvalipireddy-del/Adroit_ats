@@ -20,6 +20,7 @@ PERSONAL_DOMAINS = {
 }
 STATUSES = ["active", "unsubscribed", "bounced"]
 MAX_ROWS = 5000
+MAX_BCC = 10   # vendor contacts BCC'd on one draft
 _EMAIL_RE = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[A-Za-z]{2,}$")
 _EMAIL_FIND_RE = re.compile(r"[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _SUFFIXES = {"inc", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "pvt", "private", "plc",
@@ -292,6 +293,38 @@ def match(conn, owner_id: int, company: str = "", emails: Iterable[str] = ()) ->
         rows, how = [dict(r) for r in cur.fetchall()], "company"
     label = rows[0]["company_name"] if rows else ""
     return {"company": label, "matched_by": how, "contacts": rows}
+
+
+def unknown_emails(conn, owner_id: int, emails: Iterable[str]) -> List[str]:
+    """Emails (e.g. found in a pasted requirement) that aren't in this recruiter's list at all."""
+    have = _owner_emails(conn.cursor(), owner_id)
+    return [e for e in dict.fromkeys((x or "").strip().lower() for x in emails or []) if e and e not in have]
+
+
+def contacts_for_bcc(conn, owner_id: int, contact_ids: Iterable, exclude_emails: Iterable[str] = ()) -> List[Dict]:
+    """The contacts a draft may BCC: only this recruiter's own, only active ones, never the To
+    address, at most MAX_BCC (in the order given)."""
+    ids = []
+    for i in contact_ids or []:
+        try:
+            ids.append(int(i))
+        except (TypeError, ValueError):
+            continue
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return []
+    cur = conn.cursor()
+    cur.execute(f"""SELECT * FROM vendor_contacts WHERE owner_user_id = ? AND status = 'active'
+                    AND id IN ({", ".join(["?"] * len(ids))})""", (owner_id, *ids))
+    by_id = {r["id"]: dict(r) for r in cur.fetchall()}
+    skip = {(e or "").strip().lower() for e in exclude_emails or []}
+    out, seen = [], set()
+    for i in ids:
+        c = by_id.get(i)
+        if c and c["email"].lower() not in skip and c["email"].lower() not in seen:
+            seen.add(c["email"].lower())
+            out.append(c)
+    return out[:MAX_BCC]
 
 
 def mark_emailed(conn, contact_ids: Iterable[int], note: str) -> None:

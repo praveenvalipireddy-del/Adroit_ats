@@ -544,6 +544,7 @@ function openPasteDraftModal(candId = null) {
     const modal = document.getElementById('modal-paste-draft');
     const form = document.getElementById('form-paste-draft');
     if (form) form.reset();
+    pdVendorReset();
 
     const select = document.getElementById('pd-consultant-select');
     if (select && candId) {
@@ -1649,6 +1650,10 @@ function initModals() {
     const formPasteDraft = document.getElementById('form-paste-draft');
     const rawTextarea = document.getElementById('pd-raw-text');
 
+    ['pd-raw-text', 'pd-email', 'pd-company'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', pdVendorSchedule);
+    });
+
     if (rawTextarea) {
         rawTextarea.addEventListener('input', (e) => {
             const val = e.target.value;
@@ -1659,7 +1664,7 @@ function initModals() {
                 if (emailInput && !emailInput.value) emailInput.value = emailMatch[1];
             }
 
-            const titleMatch = val.match(/(?:title|role|position|opening)\s*[:\-]?\s*([A-Za-z0-9\s\/\-#+]{4,40})/i);
+            const titleMatch = val.match(/(?:title|role|position|opening)[ \t]*[:\-]?[ \t]*([A-Za-z0-9 \t\/\-#+.]{4,60})/i);
             if (titleMatch) {
                 const titleInput = document.getElementById('pd-title');
                 if (titleInput && !titleInput.value) titleInput.value = titleMatch[1].trim();
@@ -1706,7 +1711,8 @@ function initModals() {
                         job_title: jobTitle,
                         company: company,
                         salary: rate,
-                        custom_notes: notes
+                        custom_notes: notes,
+                        bcc_contact_ids: pdVendorSelectedIds()
                     })
                 });
 
@@ -1714,9 +1720,10 @@ function initModals() {
                 if (data.success) {
                     // Never claim the resume was attached unless it really was - resume_attached
                     // reflects whether a real file was actually found and attached.
-                    showToast(data.resume_attached
+                    const bccNote = (data.bcc && data.bcc.length) ? ` BCC: ${data.bcc.length} vendor contact${data.bcc.length === 1 ? '' : 's'}.` : '';
+                    showToast((data.resume_attached
                         ? `⚡ Draft created in ${data.candidate_name}'s Gmail with attached .docx resume!`
-                        : `⚡ Draft created in ${data.candidate_name}'s Gmail.`, 'success', 6000);
+                        : `⚡ Draft created in ${data.candidate_name}'s Gmail.`) + bccNote, 'success', 6000);
                     if (!data.resume_attached) {
                         showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
                     }
@@ -4272,4 +4279,115 @@ async function vendorsImport() {
     document.getElementById('vendors-preview').style.display = 'none';
     showToast(`Imported ${data.added} vendor contact${data.added === 1 ? '' : 's'}`, 'success');
     loadVendors();
+}
+
+
+// =========================================================================
+// Paste Requirement & Draft: BCC the recruiter's own vendor contacts at that company
+// =========================================================================
+const pdVendor = { timer: null, seq: 0, contacts: [], unknown: [], company: '', max: 10, unticked: new Set() };
+
+function pdVendorEmails() {
+    const text = document.getElementById('pd-raw-text')?.value || '';
+    const to = (document.getElementById('pd-email')?.value || '').trim();
+    const found = text.match(/[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || [];
+    return [...new Set([to, ...found].map(e => e.replace(/^[.']+|[.']+$/g, '').toLowerCase()).filter(e => e.includes('@')))];
+}
+
+function pdVendorReset() {
+    clearTimeout(pdVendor.timer);
+    pdVendor.seq++;
+    pdVendor.contacts = [];
+    pdVendor.unknown = [];
+    pdVendor.unticked = new Set();
+    const box = document.getElementById('pd-vendor-box');
+    if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+}
+
+function pdVendorSchedule() {
+    clearTimeout(pdVendor.timer);
+    pdVendor.timer = setTimeout(pdVendorCheck, 400);
+}
+
+async function pdVendorCheck() {
+    const emails = pdVendorEmails();
+    const company = (document.getElementById('pd-company')?.value || '').trim();
+    const seq = ++pdVendor.seq;
+    if (!emails.length && !company) { pdVendorReset(); return; }
+    try {
+        const res = await fetch('/api/vendors/match', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails, company })
+        });
+        const data = await res.json();
+        if (seq !== pdVendor.seq || !res.ok) return;   // a newer check is running
+        const to = (document.getElementById('pd-email')?.value || '').trim().toLowerCase();
+        pdVendor.contacts = (data.contacts || []).filter(c => c.email.toLowerCase() !== to);
+        pdVendor.unknown = data.unknown_emails || [];
+        pdVendor.company = data.company || '';
+        pdVendor.max = data.max_bcc || 10;
+        const companyInput = document.getElementById('pd-company');
+        if (companyInput && !companyInput.value.trim() && pdVendor.company && pdVendor.contacts.length) companyInput.value = pdVendor.company;
+        pdVendorRender();
+    } catch (err) { /* the draft still works without the vendor box */ }
+}
+
+function pdVendorRender() {
+    const box = document.getElementById('pd-vendor-box');
+    if (!box) return;
+    const parts = [];
+    const n = pdVendor.contacts.length;
+    // ticked by default, except ones the recruiter unticked (kept across re-checks), up to the cap
+    const tickedIds = new Set(pdVendor.contacts.filter(c => !pdVendor.unticked.has(c.id)).slice(0, pdVendor.max).map(c => c.id));
+    if (n) {
+        const capped = n > pdVendor.max;
+        parts.push(`<div style="font-weight:700; color:#065f46; margin-bottom:6px;">🤝 Known vendor: ${escapeHtml(pdVendor.company)} &middot; <span id="pd-vendor-count"></span></div>
+            <div style="display:flex; flex-direction:column; gap:4px; max-height:170px; overflow:auto;">
+            ${pdVendor.contacts.map(c => `<label style="display:flex; gap:8px; align-items:center; font-weight:400; text-transform:none; color:#0f172a; margin:0;">
+                <input type="checkbox" class="pd-bcc" value="${c.id}" ${tickedIds.has(c.id) ? 'checked' : ''}>
+                <span>${escapeHtml(c.contact_name || '')}${c.contact_name ? ' &middot; ' : ''}${escapeHtml(c.email)}</span></label>`).join('')}
+            </div>
+            ${capped ? `<div style="font-size:0.78rem; color:#64748b; margin-top:4px;">At most ${pdVendor.max} contacts per draft - tick the ones you want.</div>` : ''}`);
+    }
+    const company = (document.getElementById('pd-company')?.value || '').trim();
+    pdVendor.unknown.forEach(e => {
+        parts.push(`<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:${parts.length ? 8 : 0}px; color:#0f172a;">
+            <span style="font-size:0.85rem;">${escapeHtml(e)} isn't in your vendors.</span>
+            <button type="button" class="btn btn-secondary btn-xs pd-save-vendor" data-email="${escapeHtml(e)}">➕ Save to my vendors</button></div>`);
+    });
+    if (!parts.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
+    box.innerHTML = parts.join('');
+    box.style.display = '';
+    box.querySelectorAll('.pd-bcc').forEach(cb => cb.addEventListener('change', () => {
+        const id = parseInt(cb.value);
+        if (cb.checked) pdVendor.unticked.delete(id); else pdVendor.unticked.add(id);
+        pdVendorCount();
+    }));
+    box.querySelectorAll('.pd-save-vendor').forEach(b => b.addEventListener('click', () => pdVendorSave(b.dataset.email, company)));
+    pdVendorCount();
+}
+
+function pdVendorCount() {
+    const boxes = [...document.querySelectorAll('#pd-vendor-box .pd-bcc')];
+    const ticked = boxes.filter(b => b.checked).length;
+    boxes.forEach(b => { b.disabled = !b.checked && ticked >= pdVendor.max; });
+    const el = document.getElementById('pd-vendor-count');
+    if (el) el.textContent = ticked ? `${ticked} contact${ticked === 1 ? '' : 's'} will be BCC'd` : 'no contacts will be BCC\'d';
+}
+
+function pdVendorSelectedIds() {
+    return [...document.querySelectorAll('#pd-vendor-box .pd-bcc:checked')].map(b => parseInt(b.value)).slice(0, pdVendor.max);
+}
+
+async function pdVendorSave(email, company) {
+    const res = await fetch('/api/vendors', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, company: company || pdVendor.company, notes: 'Saved from a pasted requirement' })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+        showToast((data.error || 'Could not save') + (/company/i.test(data.error || '') ? ' - type the company first.' : ''), 'warning', 6000);
+        return;
+    }
+    showToast(`${email} saved to your vendors`, 'success');
+    pdVendorCheck();
 }

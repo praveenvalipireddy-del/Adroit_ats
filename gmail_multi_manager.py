@@ -7,7 +7,7 @@ import imaplib
 import time
 from pathlib import Path
 from email.message import EmailMessage
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple
 
 import models
 import config
@@ -279,7 +279,7 @@ def generate_consultant_pitch(candidate: Dict, job: Dict, custom_notes: str = ""
     return "\n\n".join(paragraphs) + "\n"
 
 
-def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None) -> Dict[str, Any]:
+def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None, bcc: Optional[List[str]] = None) -> Dict[str, Any]:
     cand = models.get_candidate_by_id(candidate_id)
     if not cand:
         return {"success": False, "error": f"Candidate #{candidate_id} not found."}
@@ -310,6 +310,11 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
 
     msg = EmailMessage()
     msg["To"] = to_email
+    # Vendor contacts (vendors.py) go in BCC so no vendor sees another's address. The Bcc header is
+    # kept in the saved draft (IMAP append / Gmail API) and Gmail strips it when the draft is sent.
+    bcc = [b for b in dict.fromkeys((x or "").strip() for x in bcc or []) if "@" in b and b.lower() != to_email.lower()]
+    if bcc:
+        msg["Bcc"] = ", ".join(bcc)
     msg["From"] = sender_email
     msg["Subject"] = subject
     msg.set_content(body_text)
@@ -375,6 +380,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                 "company": company,
                 "resume_attached": resume_attached,
                 "resume_note": resume_note,
+                "bcc": bcc,
                 "preview": body_text[:280] + "..."
             }
         except Exception as e:
@@ -429,6 +435,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                     "company": company,
                     "resume_attached": resume_attached,
                     "resume_note": resume_note,
+                    "bcc": bcc,
                     "preview": body_text[:280] + "..."
                 }
         except Exception as e:

@@ -1083,9 +1083,11 @@
                         </div>
                         <div class="form-group">
                             <label>Pay Rate (C2C / Hourly)</label>
-                            <input type="text" id="pd-rate" class="form-control" placeholder="$90/hr (C2C)">
+                            <input type="text" id="pd-rate" class="form-control" placeholder="e.g. $65/hr C2C">
                         </div>
                     </div>
+
+                    <div id="pd-vendor-box" style="display:none; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:0.875rem;"></div>
 
                     <div class="form-group">
                         <label>Custom Notes for Pitch (Optional)</label>
@@ -1180,7 +1182,7 @@
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.50.0"></script>
+    <script src="/static/js/app.js?v=5.51.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

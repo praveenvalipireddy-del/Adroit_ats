@@ -279,7 +279,7 @@ def generate_consultant_pitch(candidate: Dict, job: Dict, custom_notes: str = ""
     return "\n\n".join(paragraphs) + "\n"
 
 
-def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None, bcc: Optional[List[str]] = None) -> Dict[str, Any]:
+def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None, bcc: Optional[List[str]] = None, save_to_email: bool = True) -> Dict[str, Any]:
     cand = models.get_candidate_by_id(candidate_id)
     if not cand:
         return {"success": False, "error": f"Candidate #{candidate_id} not found."}
@@ -296,7 +296,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
             "error": "Recruiter email is missing. Please type recruiter email directly in the table cell."
         }
 
-    if custom_to_email and custom_to_email != job.get("recruiter_email"):
+    if save_to_email and custom_to_email and custom_to_email != job.get("recruiter_email"):
         models.update_job_recruiter_info(job_id, email=custom_to_email)
 
     cand_name = cand.get("name", "Consultant")

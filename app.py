@@ -26,6 +26,8 @@ import us_job_scrapers
 import india_job_scrapers
 import sourcing_tracker
 import vendors
+import job_experience
+from datetime import datetime, timezone
 import job_description_fetch
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
@@ -570,6 +572,24 @@ def api_candidate_gmail_status(candidate_id):
 
 # --- US IT Job Searching & Live Scrapers ---
 
+def _tag_known_vendors(jobs, user):
+    """job["vendor"] = {company, count} when the job's company is in this recruiter's own vendor list."""
+    if not user or not jobs:
+        return
+    conn = models.get_db_connection()
+    try:
+        idx = vendors.vendor_index(conn, user["id"])
+    finally:
+        conn.close()
+    if not idx["domains"] and not idx["companies"]:
+        return
+    for j in jobs:
+        if isinstance(j, dict):
+            company, rows = vendors.match_job(idx, j)
+            if rows:
+                j["vendor"] = {"company": company, "count": len(rows)}
+
+
 @app.route("/api/jobs/search", methods=["POST", "OPTIONS"])
 def api_jobs_search():
     if request.method == "OPTIONS":
@@ -634,6 +654,8 @@ def api_jobs_search():
                 results = scrape_res["jobs"]
         except Exception as e:
             logger.error(f"Live scrape on-demand error: {e}")
+
+    _tag_known_vendors(results, current_user())
 
     return jsonify({
         "jobs": results,
@@ -967,19 +989,123 @@ def api_create_outreach_draft():
     custom_subject = data.get("custom_subject")
     custom_body = data.get("custom_body")
 
+    # Known vendor: BCC this recruiter's own active contacts at the job's company (max 10).
+    bcc_contacts = []
+    job = models.get_job_by_id(int(job_id))
+    if job and data.get("vendor_bcc", True) is not False:
+        conn = models.get_db_connection()
+        try:
+            to_email = (custom_to_email or job.get("recruiter_email") or "").strip()
+            bcc_contacts = vendors.bcc_for_job(vendors.vendor_index(conn, user["id"]), job, to_email)
+        finally:
+            conn.close()
+
     result = gmail_multi_manager.create_candidate_draft(
         candidate_id=int(candidate_id),
         job_id=int(job_id),
         custom_to_email=custom_to_email,
         custom_notes=custom_notes,
         custom_subject=custom_subject,
-        custom_body=custom_body
+        custom_body=custom_body,
+        bcc=[c["email"] for c in bcc_contacts]
     )
 
     if not result.get("success"):
         return jsonify(result), 400
 
+    if bcc_contacts:
+        conn = models.get_db_connection()
+        try:
+            vendors.mark_emailed(conn, [c["id"] for c in bcc_contacts], f"{job.get('title', '')} - {result.get('candidate_name', '')}")
+        finally:
+            conn.close()
     return jsonify(result)
+
+
+AUTO_VENDOR_DRAFTS_PER_DAY = 10
+
+
+@app.route("/api/outreach/auto-vendor-drafts", methods=["POST"])
+def api_auto_vendor_drafts():
+    """Browse Jobs: draft the consultant for the shown jobs that come from one of the recruiter's
+    known vendors - To = the job's recruiter (else the first vendor contact), BCC = the other
+    contacts (max 10). Only jobs that fit the consultant's experience, never the same job +
+    consultant twice, at most AUTO_VENDOR_DRAFTS_PER_DAY per consultant per day (UTC).
+    Drafts only - nothing is sent. Gmail drafts are free (no paid API)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    candidate_id = _int_or_none(data.get("candidate_id"))
+    if not candidate_id or not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
+    job_ids = []
+    for j in (data.get("job_ids") or [])[:200]:
+        jid = _int_or_none(j)
+        if jid and jid not in job_ids:
+            job_ids.append(jid)
+    cand = models.get_candidate_by_id(candidate_id)
+    years = _int_or_none(cand.get("experience_years"))
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d 00:00:00")
+
+    conn = models.get_db_connection()
+    try:
+        idx = vendors.vendor_index(conn, user["id"])
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM vendor_auto_drafts WHERE candidate_id = ? AND created_at >= ?", (candidate_id, today))
+        used = int(cur.fetchone()[0])
+        cur.execute("SELECT job_id FROM vendor_auto_drafts WHERE candidate_id = ?", (candidate_id,))
+        done = {r[0] for r in cur.fetchall()}
+        cur.execute("SELECT job_id FROM applications WHERE candidate_id = ? AND draft_id IS NOT NULL AND draft_id <> ''", (candidate_id,))
+        done |= {r[0] for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+    skipped = {"already_drafted": 0, "experience": 0, "not_vendor": 0, "daily_limit": 0}
+    plan = []
+    for jid in job_ids:
+        job = models.get_job_by_id(jid)
+        if not job:
+            continue
+        company, rows = vendors.match_job(idx, job)
+        if not rows:
+            skipped["not_vendor"] += 1
+        elif jid in done:
+            skipped["already_drafted"] += 1
+        elif years is not None and not job_experience.fits(job_experience.classify(job), years):
+            skipped["experience"] += 1
+        elif used + len(plan) >= AUTO_VENDOR_DRAFTS_PER_DAY:
+            skipped["daily_limit"] += 1
+        else:
+            plan.append((job, company, rows))
+
+    created, error = [], ""
+    for job, company, rows in plan:
+        job_email = (job.get("recruiter_email") or "").strip()
+        to_email = job_email if "@" in job_email else rows[0]["email"]
+        bcc_contacts = vendors.bcc_for_job(idx, job, to_email)
+        result = gmail_multi_manager.create_candidate_draft(
+            candidate_id=candidate_id, job_id=job["id"], custom_to_email=to_email,
+            bcc=[c["email"] for c in bcc_contacts], save_to_email=False)
+        if not result.get("success"):
+            error = result.get("error") or "Draft failed"
+            if result.get("needs_auth"):
+                break   # Gmail not connected: every other draft would fail the same way
+            continue
+        conn = models.get_db_connection()
+        try:
+            conn.cursor().execute("INSERT INTO vendor_auto_drafts (candidate_id, job_id, user_id, to_email, bcc_count) VALUES (?, ?, ?, ?, ?)",
+                                  (candidate_id, job["id"], user["id"], to_email, len(bcc_contacts)))
+            conn.commit()
+            vendors.mark_emailed(conn, [c["id"] for c in bcc_contacts], f"{job.get('title', '')} - {cand.get('name', '')} (auto)")
+        finally:
+            conn.close()
+        created.append({"job_id": job["id"], "title": job.get("title"), "company": company, "to": to_email, "bcc": len(bcc_contacts)})
+    if created:
+        models.log_activity(user["id"], user["name"], "Auto Vendor Drafts", "Candidate", candidate_id,
+                            f"{len(created)} known-vendor drafts for {cand.get('name', '')}")
+    return jsonify({"created": created, "skipped": skipped, "error": error, "candidate_name": cand.get("name", ""),
+                    "remaining_today": max(0, AUTO_VENDOR_DRAFTS_PER_DAY - used - len(created))})
 
 
 def personalize_pitch_with_prompt(cand, job, instruction: str, current_subject: str, current_body: str):

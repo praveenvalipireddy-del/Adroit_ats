@@ -418,6 +418,19 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # Automatic known-vendor drafts made from Browse Jobs (limit: 10 per consultant per day, never
+    # the same job + consultant twice).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS vendor_auto_drafts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        candidate_id INTEGER NOT NULL,
+        job_id INTEGER NOT NULL,
+        user_id INTEGER,
+        to_email TEXT,
+        bcc_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS app_meta (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -435,6 +448,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS ix_sourcing_comments_profile ON sourcing_comments (profile_id)",
         "CREATE INDEX IF NOT EXISTS ix_vendor_contacts_owner ON vendor_contacts (owner_user_id, email_domain)",
         "CREATE INDEX IF NOT EXISTS ix_vendor_contacts_company ON vendor_contacts (owner_user_id, company_norm)",
+        "CREATE INDEX IF NOT EXISTS ix_vendor_auto_drafts_cand ON vendor_auto_drafts (candidate_id, created_at)",
     ):
         try:
             cursor.execute(idx_sql)

@@ -327,6 +327,43 @@ def contacts_for_bcc(conn, owner_id: int, contact_ids: Iterable, exclude_emails:
     return out[:MAX_BCC]
 
 
+def vendor_index(conn, owner_id: int) -> Dict:
+    """This recruiter's active contacts grouped by email domain and by normalised company - built
+    once, then match_job() checks every job of a search without another query."""
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM vendor_contacts WHERE owner_user_id = ? AND status = 'active' ORDER BY id", (owner_id,))
+    idx = {"domains": {}, "companies": {}}
+    for r in cur.fetchall():
+        r = dict(r)
+        if r.get("email_domain"):
+            idx["domains"].setdefault(r["email_domain"], []).append(r)
+        if r.get("company_norm"):
+            idx["companies"].setdefault(r["company_norm"], []).append(r)
+    return idx
+
+
+def match_job(idx: Dict, job: Dict) -> Tuple[str, List[Dict]]:
+    """(vendor company, contacts) for a job: recruiter email domain first, then company name."""
+    d = company_domain(job.get("recruiter_email"))
+    rows = idx["domains"].get(d, []) if d else []
+    if not rows:
+        rows = idx["companies"].get(normalize_company(job.get("company")), []) if normalize_company(job.get("company")) else []
+    return (rows[0]["company_name"] if rows else ""), rows
+
+
+def bcc_for_job(idx: Dict, job: Dict, to_email: str) -> List[Dict]:
+    """The contacts to BCC on a draft for this job: matched, never the To address, at most MAX_BCC."""
+    _, rows = match_job(idx, job)
+    to = (to_email or "").strip().lower()
+    out, seen = [], set()
+    for r in rows:
+        e = r["email"].lower()
+        if e != to and e not in seen:
+            seen.add(e)
+            out.append(r)
+    return out[:MAX_BCC]
+
+
 def mark_emailed(conn, contact_ids: Iterable[int], note: str) -> None:
     ids = [int(i) for i in contact_ids or []]
     if not ids:

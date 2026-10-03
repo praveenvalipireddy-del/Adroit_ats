@@ -816,11 +816,12 @@ function renderJobsTable(jobs) {
         <tr class="job-row" data-job-id="${j.id}">
             <td>
                 <div style="font-weight: 600; color: #0f172a; margin-bottom: 2px;">
-                    ${escapeHtml(j.title || 'Software Engineer')}
+                    ${escapeHtml(j.title || 'Untitled requirement')}
                 </div>
-                <div style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:8px;">
-                    <span>🏢 ${escapeHtml(j.company || 'Direct Client / Prime Vendor')}</span>
-                    <span>📍 ${escapeHtml(j.location || 'United States')}</span>
+                <div style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    ${j.company ? `<span>🏢 ${escapeHtml(j.company)}</span>` : ''}
+                    ${j.location ? `<span>📍 ${escapeHtml(j.location)}</span>` : ''}
+                    ${j.vendor ? `<span class="vendor-badge" title="${j.vendor.count} of your vendor contacts at ${escapeHtml(j.vendor.company)} will be BCC'd on a draft" style="background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; border-radius:999px; padding:1px 8px; font-size:0.75rem; font-weight:700;">🤝 Known vendor &middot; ${j.vendor.count}</span>` : ''}
                     ${reqUrl && reqUrl !== '#' ? `<a href="${reqUrl}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:none;" title="Open original job posting">View Req ↗</a>` : ''}
                 </div>
             </td>
@@ -828,7 +829,7 @@ function renderJobsTable(jobs) {
                 <span class="portal-badge badge-${portalClass}">${escapeHtml(j.source || 'Portal')}</span>
             </td>
             <td>
-                <span style="color: #34d399; font-weight: 600;">${escapeHtml(j.salary || j.job_type || 'C2C / Contract')}</span>
+                <span style="color: #34d399; font-weight: 600;">${escapeHtml(j.salary || j.job_type || '-')}</span>
             </td>
             <td>${jobExperienceBadge(j.experience)}</td>
             <td>
@@ -966,7 +967,8 @@ async function createJobDraft(jobId, candId, customToEmail = '', btnElement = nu
 
         const data = await res.json();
         if (data.success) {
-            showToast(`✉️ Gmail Draft Created for ${data.candidate_name}! Sent to: ${data.to_email || data.recruiter_email || 'Recruiter'}`, 'success', 6000);
+            const bccNote = (data.bcc && data.bcc.length) ? ` BCC: ${data.bcc.length} vendor contact${data.bcc.length === 1 ? '' : 's'}.` : '';
+            showToast(`✉️ Gmail Draft Created for ${data.candidate_name}! To: ${data.to_email || data.recruiter_email || 'Recruiter'}.${bccNote}`, 'success', 6000);
             if (!data.resume_attached) {
                 showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
             }
@@ -3415,6 +3417,7 @@ async function browseJobsForCandidate(candidateId, candidateTitle, candidateCoun
         // Trigger the job search
         await searchJobs(false);
         updateTableConsultantSelects();
+        autoVendorDrafts(parseInt(candidateId));
 
         // After results load, update the match-count badge on the candidate row
         setTimeout(() => {
@@ -4390,4 +4393,38 @@ async function pdVendorSave(email, company) {
     }
     showToast(`${email} saved to your vendors`, 'success');
     pdVendorCheck();
+}
+
+
+// =========================================================================
+// Browse Jobs: automatic drafts for jobs from the recruiter's known vendors
+// (max 10 per consultant per day, never the same job twice - enforced by the server)
+// =========================================================================
+async function autoVendorDrafts(candidateId) {
+    const jobIds = (state.jobs || []).filter(j => j.vendor && j.vendor.count).map(j => j.id);
+    if (!candidateId || !jobIds.length) return;
+    try {
+        const res = await fetch('/api/outreach/auto-vendor-drafts', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ candidate_id: candidateId, job_ids: jobIds })
+        });
+        const data = await res.json();
+        if (!res.ok) return;
+        const name = data.candidate_name || 'this consultant';
+        const n = data.created.length;
+        if (n) {
+            const bcc = data.created.reduce((a, c) => a + c.bcc, 0);
+            showToast(`🤝 ${n} known-vendor draft${n === 1 ? '' : 's'} created in ${name}'s Gmail (${bcc} vendor contact${bcc === 1 ? '' : 's'} in BCC). ` +
+                      `${data.remaining_today} auto-draft${data.remaining_today === 1 ? '' : 's'} left today. Review them in Gmail Drafts - nothing is sent.`, 'success', 10000);
+            data.created.forEach(c => {
+                const btn = document.querySelector(`#jobs-table-body tr[data-job-id="${c.job_id}"] .btn-draft-job`);
+                if (btn) btn.insertAdjacentHTML('beforebegin', '<span class="auto-drafted-tag" style="font-size:0.72rem; color:#065f46; font-weight:700; margin-right:6px;">✓ Auto-drafted</span>');
+            });
+        }
+        if (data.error) {
+            showToast(`Known-vendor drafts for ${name}: ${data.error}`, 'warning', 8000);
+        } else if (!n && data.skipped.daily_limit) {
+            showToast(`Daily limit reached: ${name} already has 10 automatic known-vendor drafts today.`, 'info', 6000);
+        }
+    } catch (err) { /* browsing still works without the automatic drafts */ }
 }

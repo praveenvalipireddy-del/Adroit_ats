@@ -25,6 +25,7 @@ import gmail_multi_manager
 import us_job_scrapers
 import india_job_scrapers
 import sourcing_tracker
+import vendors
 import job_description_fetch
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
@@ -2211,6 +2212,126 @@ def api_sourcing_add_to_bench(profile_id):
     models.log_activity(user["id"], user["name"], "Added to Bench", "Candidate", cand_id,
                         f"{c['name']} added to the bench from Sourcing")
     return jsonify({**c, "candidate_id": cand_id})
+
+
+# ---------------------------------------------------------------- Vendors (private per recruiter)
+
+@app.route("/api/vendors", methods=["GET", "POST"])
+def api_vendors():
+    """GET: the recruiter's own vendor contacts (admins: everyone's, ?owner=<id> for one recruiter).
+    POST: add one contact to the recruiter's own list."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        if request.method == "POST":
+            new_id, reason = vendors.add_contact(conn, user["id"], request.get_json(silent=True) or {})
+            if not new_id:
+                return jsonify({"error": reason}), 400
+            return jsonify({"success": True, "id": new_id})
+        rows = vendors.list_contacts(conn, user, q=(request.args.get("q") or "").strip(),
+                                     owner_id=_int_or_none(request.args.get("owner")))
+    finally:
+        conn.close()
+    is_admin = "Admin" in (user.get("role") or "")
+    owners = sorted({(r["owner_user_id"], r.get("owner_name") or "") for r in rows}, key=lambda o: o[1].lower()) if is_admin else []
+    for r in rows:
+        r["mine"] = r["owner_user_id"] == user["id"]
+        for k in ("last_emailed_at", "created_at"):
+            if r.get(k) is not None:
+                r[k] = str(r[k])[:19]
+    return jsonify({"contacts": rows, "is_admin": is_admin,
+                    "owners": [{"id": o[0], "name": o[1]} for o in owners],
+                    "companies": len({r["company_norm"] for r in rows})})
+
+
+@app.route("/api/vendors/upload-preview", methods=["POST"])
+def api_vendors_upload_preview():
+    """Read an Excel / CSV upload and say what would happen to each row - nothing is saved yet."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "Choose an Excel or CSV file."}), 400
+    conn = models.get_db_connection()
+    try:
+        rows = vendors.preview(conn, user["id"], f.read(), f.filename)
+    except vendors.VendorError as ex:
+        return jsonify({"error": str(ex)}), 400
+    finally:
+        conn.close()
+    counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("new", "duplicate", "problem")}
+    return jsonify({"rows": rows, "counts": counts, "filename": f.filename})
+
+
+@app.route("/api/vendors/import", methods=["POST"])
+def api_vendors_import():
+    """Save the new rows of a previewed upload into the recruiter's own list (re-checked here)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    rows = data.get("rows") or []
+    if not isinstance(rows, list) or len(rows) > vendors.MAX_ROWS:
+        return jsonify({"error": "Nothing to import."}), 400
+    conn = models.get_db_connection()
+    try:
+        result = vendors.import_rows(conn, user["id"], [r for r in rows if isinstance(r, dict)])
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Imported Vendors", "Vendors", 0,
+                        f"{result['added']} vendor contacts from {str(data.get('filename') or 'upload')[:120]}")
+    return jsonify({"success": True, **result})
+
+
+@app.route("/api/vendors/template", methods=["GET"])
+def api_vendors_template():
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+    return send_file(io.BytesIO(vendors.template_xlsx()), as_attachment=True, download_name="Vendor_Contacts_Template.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/api/vendors/<int:contact_id>", methods=["PUT", "DELETE"])
+def api_vendor_contact(contact_id):
+    """Edit / delete a contact - your own (admins: anyone's)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        if request.method == "DELETE":
+            vendors.delete_contact(conn, contact_id, user)
+            return jsonify({"success": True})
+        row = vendors.update_contact(conn, contact_id, user, request.get_json(silent=True) or {})
+        return jsonify({"success": True, "contact": {k: (str(v) if k.endswith("_at") and v is not None else v) for k, v in row.items()}})
+    except vendors.VendorError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except LookupError:
+        return jsonify({"error": "Contact not found"}), 404
+    finally:
+        conn.close()
+
+
+@app.route("/api/vendors/match", methods=["POST"])
+def api_vendors_match():
+    """The recruiter's OWN active contacts at a company (by email domain, then company name)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    emails = data.get("emails") or []
+    if isinstance(emails, str):
+        emails = vendors.find_emails(emails)
+    conn = models.get_db_connection()
+    try:
+        m = vendors.match(conn, user["id"], company=str(data.get("company") or ""), emails=[str(e) for e in emails][:50])
+    finally:
+        conn.close()
+    m["contacts"] = [{k: c.get(k) for k in ("id", "company_name", "contact_name", "email", "phone", "title")} for c in m["contacts"]]
+    return jsonify(m)
 
 
 @app.route("/api/education/unmapped", methods=["GET"])

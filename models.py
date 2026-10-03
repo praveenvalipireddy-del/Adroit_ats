@@ -398,6 +398,26 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # Vendor contacts: each recruiter's private list of vendor recruiters (see vendors.py).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS vendor_contacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_user_id INTEGER NOT NULL,
+        company_name TEXT NOT NULL,
+        company_norm TEXT,
+        contact_name TEXT,
+        email TEXT NOT NULL,
+        email_domain TEXT,
+        phone TEXT,
+        title TEXT,
+        notes TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        source TEXT,
+        last_emailed_at TIMESTAMP,
+        last_emailed_note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS app_meta (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -413,6 +433,8 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS ix_profile_education_inst ON profile_education (institution_canonical_id, degree_level)",
         "CREATE INDEX IF NOT EXISTS ix_institution_aliases_canonical ON institution_aliases (canonical_id)",
         "CREATE INDEX IF NOT EXISTS ix_sourcing_comments_profile ON sourcing_comments (profile_id)",
+        "CREATE INDEX IF NOT EXISTS ix_vendor_contacts_owner ON vendor_contacts (owner_user_id, email_domain)",
+        "CREATE INDEX IF NOT EXISTS ix_vendor_contacts_company ON vendor_contacts (owner_user_id, company_norm)",
     ):
         try:
             cursor.execute(idx_sql)

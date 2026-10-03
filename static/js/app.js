@@ -69,6 +69,7 @@ const tabAliasMap = {
     'reporting': 'drafts',
     'drafts': 'drafts',
     'resumebot': 'resumebot',
+    'vendors': 'vendors',
     'settings': 'team',
     'team': 'team',
     'resumebot': 'resumebot'
@@ -104,6 +105,8 @@ function switchTab(rawTabId) {
         loadUnmappedInstitutions();
     } else if (paneKey === 'students') {
         eduOnTabOpen();
+    } else if (paneKey === 'vendors') {
+        loadVendors();
     } else if (paneKey === 'jobs') {
         if (!state.jobs || state.jobs.length === 0) {
             searchJobs(false);
@@ -4094,3 +4097,179 @@ function jobExperienceBadge(exp) {
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
+
+
+// =========================================================================
+// Vendors: each recruiter's private vendor contacts (admins see everyone's)
+// =========================================================================
+const vendorsState = { contacts: [], isAdmin: false, preview: null, filename: '', timer: null, wired: false };
+
+function vendorsWire() {
+    if (vendorsState.wired) return;
+    vendorsState.wired = true;
+    const $ = id => document.getElementById(id);
+    $('vendors-search').addEventListener('input', () => {
+        clearTimeout(vendorsState.timer);
+        vendorsState.timer = setTimeout(loadVendors, 250);
+    });
+    $('vendors-owner').addEventListener('change', loadVendors);
+    $('vendors-file').addEventListener('change', e => {
+        const f = e.target.files[0];
+        e.target.value = '';
+        if (f) vendorsUploadPreview(f);
+    });
+    $('vendors-add-btn').addEventListener('click', () => vendorsOpenForm(null));
+    $('vf-cancel').addEventListener('click', () => { $('vendors-form').style.display = 'none'; });
+    $('vf-save').addEventListener('click', vendorsSaveForm);
+    $('vp-cancel').addEventListener('click', () => { vendorsState.preview = null; $('vendors-preview').style.display = 'none'; });
+    $('vp-import').addEventListener('click', vendorsImport);
+}
+
+async function loadVendors() {
+    vendorsWire();
+    const q = document.getElementById('vendors-search').value.trim();
+    const owner = document.getElementById('vendors-owner').value;
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (owner) params.set('owner', owner);
+    try {
+        const res = await fetch('/api/vendors?' + params.toString());
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not load vendors');
+        vendorsState.contacts = data.contacts;
+        vendorsState.isAdmin = data.is_admin;
+        const sel = document.getElementById('vendors-owner');
+        if (data.is_admin) {
+            sel.style.display = '';
+            document.getElementById('vendors-subtitle').textContent =
+                "As an admin you see every recruiter's vendor list. Drafts only ever BCC the drafting recruiter's own contacts.";
+            if (!owner && !q) {
+                sel.innerHTML = '<option value="">All recruiters</option>' +
+                    data.owners.map(o => `<option value="${o.id}">${escapeHtml(o.name || ('User ' + o.id))}</option>`).join('');
+            }
+        }
+        const n = data.contacts.length;
+        document.getElementById('vendors-count').textContent =
+            `${n} contact${n === 1 ? '' : 's'} at ${data.companies} compan${data.companies === 1 ? 'y' : 'ies'}`;
+        renderVendors();
+    } catch (err) {
+        document.getElementById('vendors-count').textContent = err.message;
+    }
+}
+
+function renderVendors() {
+    const body = document.getElementById('vendors-body');
+    const showOwner = vendorsState.isAdmin;
+    document.querySelectorAll('.vendors-owner-col').forEach(el => { el.style.display = showOwner ? '' : 'none'; });
+    if (!vendorsState.contacts.length) {
+        body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#64748b; padding:24px;">No vendor contacts yet. Download the template, fill it in Excel and upload it - or add one contact at a time.</td></tr>`;
+        return;
+    }
+    const statuses = ['active', 'unsubscribed', 'bounced'];
+    body.innerHTML = vendorsState.contacts.map(c => `
+        <tr data-id="${c.id}">
+            <td style="color:#0f172a; font-weight:600;">${escapeHtml(c.company_name)}</td>
+            <td style="color:#0f172a;">${escapeHtml(c.contact_name || '')}${c.title ? `<div style="font-size:0.75rem; color:#64748b;">${escapeHtml(c.title)}</div>` : ''}</td>
+            <td style="color:#0f172a;">${escapeHtml(c.email)}</td>
+            <td style="color:#0f172a;">${escapeHtml(c.phone || '')}</td>
+            <td><select class="form-control vendor-status" style="padding:2px 6px; font-size:0.8rem;" onchange="vendorsSetStatus(${c.id}, this.value)">
+                ${statuses.map(s => `<option value="${s}" ${c.status === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}
+            </select></td>
+            <td style="font-size:0.8rem; color:#0f172a;">${c.last_emailed_at ? escapeHtml(c.last_emailed_at.slice(0, 10)) : '-'}</td>
+            <td class="vendors-owner-col" style="color:#0f172a;${showOwner ? '' : ' display:none;'}">${escapeHtml(c.owner_name || '')}</td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-secondary btn-xs" onclick="vendorsOpenForm(${c.id})">Edit</button>
+                <button class="btn btn-danger btn-xs" onclick="vendorsDelete(${c.id})">Delete</button>
+            </td>
+        </tr>`).join('');
+}
+
+function vendorsOpenForm(id) {
+    const c = id ? vendorsState.contacts.find(x => x.id === id) : null;
+    const $ = k => document.getElementById(k);
+    $('vf-id').value = c ? c.id : '';
+    $('vendors-form-title').textContent = c ? 'Edit contact' : 'Add contact';
+    $('vf-company').value = c ? c.company_name : '';
+    $('vf-name').value = c ? (c.contact_name || '') : '';
+    $('vf-email').value = c ? c.email : '';
+    $('vf-email').disabled = !!c;
+    $('vf-phone').value = c ? (c.phone || '') : '';
+    $('vf-title').value = c ? (c.title || '') : '';
+    $('vf-notes').value = c ? (c.notes || '') : '';
+    $('vendors-form').style.display = '';
+    $('vf-company').focus();
+}
+
+async function vendorsSaveForm() {
+    const v = k => document.getElementById(k).value.trim();
+    const id = v('vf-id');
+    const body = id
+        ? { company_name: v('vf-company'), contact_name: v('vf-name'), phone: v('vf-phone'), title: v('vf-title'), notes: v('vf-notes') }
+        : { company: v('vf-company'), name: v('vf-name'), email: v('vf-email'), phone: v('vf-phone'), title: v('vf-title'), notes: v('vf-notes') };
+    const res = await fetch(id ? `/api/vendors/${id}` : '/api/vendors', {
+        method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Could not save', 'error'); return; }
+    document.getElementById('vendors-form').style.display = 'none';
+    showToast(id ? 'Contact updated' : 'Contact added', 'success');
+    loadVendors();
+}
+
+async function vendorsSetStatus(id, status) {
+    const res = await fetch(`/api/vendors/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Could not update', 'error'); loadVendors(); return; }
+    const c = vendorsState.contacts.find(x => x.id === id);
+    if (c) c.status = status;
+    showToast(status === 'active' ? 'Contact will be used in drafts again' : `Marked ${status} - never put in a draft`, 'success');
+}
+
+async function vendorsDelete(id) {
+    const c = vendorsState.contacts.find(x => x.id === id);
+    if (!confirm(`Delete ${c ? c.email : 'this contact'}?`)) return;
+    const res = await fetch(`/api/vendors/${id}`, { method: 'DELETE' });
+    if (!res.ok) { showToast('Could not delete', 'error'); return; }
+    showToast('Contact deleted', 'success');
+    loadVendors();
+}
+
+async function vendorsUploadPreview(file) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/vendors/upload-preview', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Could not read that file', 'error'); return; }
+    vendorsState.preview = data.rows;
+    vendorsState.filename = data.filename;
+    const k = data.counts;
+    document.getElementById('vp-filename').textContent = data.filename;
+    document.getElementById('vp-counts').innerHTML =
+        `<b style="color:#059669;">${k.new} new</b> &middot; <span style="color:#64748b;">${k.duplicate} already in your list / repeated</span> &middot; <span style="color:#b91c1c;">${k.problem} with a problem (skipped)</span>`;
+    const label = { new: ['New', '#059669'], duplicate: ['Duplicate', '#64748b'], problem: ['Problem', '#b91c1c'] };
+    document.querySelector('#vp-table tbody').innerHTML = data.rows.slice(0, 500).map(r => `
+        <tr><td>${r.line}</td><td style="color:#0f172a;">${escapeHtml(r.company || '')}</td><td style="color:#0f172a;">${escapeHtml(r.name || '')}</td>
+        <td style="color:#0f172a;">${escapeHtml(r.email || '')}</td><td style="color:#0f172a;">${escapeHtml(r.phone || '')}</td>
+        <td style="color:${label[r.status][1]}; font-weight:600;">${label[r.status][0]}${r.reason ? ` <span style="font-weight:400;">- ${escapeHtml(r.reason)}</span>` : ''}</td></tr>`).join('');
+    const btn = document.getElementById('vp-import');
+    btn.disabled = k.new === 0;
+    btn.textContent = k.new ? `Import ${k.new} new contact${k.new === 1 ? '' : 's'}` : 'Nothing new to import';
+    document.getElementById('vendors-preview').style.display = '';
+}
+
+async function vendorsImport() {
+    if (!vendorsState.preview) return;
+    const rows = vendorsState.preview.filter(r => r.status === 'new');
+    const btn = document.getElementById('vp-import');
+    btn.disabled = true;
+    const res = await fetch('/api/vendors/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows, filename: vendorsState.filename })
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    if (!res.ok) { showToast(data.error || 'Import failed', 'error'); return; }
+    vendorsState.preview = null;
+    document.getElementById('vendors-preview').style.display = 'none';
+    showToast(`Imported ${data.added} vendor contact${data.added === 1 ? '' : 's'}`, 'success');
+    loadVendors();
+}

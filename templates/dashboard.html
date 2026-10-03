@@ -46,6 +46,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                     <span>Sourcing</span>
                 </a>
+                <a href="#vendors" class="nav-item" data-tab="vendors">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    <span>Vendors</span>
+                </a>
                 <a href="#resumebot" class="nav-item" data-tab="resumebot">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                     <span>Resume Optimizer</span>
@@ -604,6 +608,66 @@
                     </div>
                 </div>
 
+                <!-- VENDORS: each recruiter's private vendor contacts (vendors.py) -->
+                <div class="tab-pane" id="tab-vendors">
+                    <div class="section-header">
+                        <div>
+                            <h2>Vendors</h2>
+                            <p id="vendors-subtitle">Your own vendor contacts - only you see them. When a requirement comes from one of these companies, its contacts are BCC'd on your draft.</p>
+                        </div>
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
+                        <input type="search" id="vendors-search" class="form-control" placeholder="Search company, name or email" style="max-width:300px;">
+                        <select id="vendors-owner" class="form-control" style="max-width:220px; display:none;"><option value="">All recruiters</option></select>
+                        <span style="flex:1"></span>
+                        <a class="btn btn-secondary btn-sm" id="vendors-template" href="/api/vendors/template">Download template</a>
+                        <label class="btn btn-primary btn-sm" style="margin:0; cursor:pointer;">Upload Excel / CSV
+                            <input type="file" id="vendors-file" accept=".xlsx,.xlsm,.csv" style="display:none;">
+                        </label>
+                        <button class="btn btn-secondary btn-sm" id="vendors-add-btn" type="button">+ Add contact</button>
+                    </div>
+
+                    <div id="vendors-form" class="studio-card" style="display:none; margin-bottom:12px;">
+                        <h3 class="card-title" id="vendors-form-title">Add contact</h3>
+                        <input type="hidden" id="vf-id">
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px;">
+                            <input class="form-control" id="vf-company" placeholder="Company *">
+                            <input class="form-control" id="vf-name" placeholder="Contact name">
+                            <input class="form-control" id="vf-email" placeholder="Email *" type="email">
+                            <input class="form-control" id="vf-phone" placeholder="Phone">
+                            <input class="form-control" id="vf-title" placeholder="Title">
+                            <input class="form-control" id="vf-notes" placeholder="Notes">
+                        </div>
+                        <div style="margin-top:10px; display:flex; gap:8px;">
+                            <button class="btn btn-primary btn-sm" id="vf-save" type="button">Save</button>
+                            <button class="btn btn-secondary btn-sm" id="vf-cancel" type="button">Cancel</button>
+                        </div>
+                    </div>
+
+                    <div id="vendors-preview" class="studio-card" style="display:none; margin-bottom:12px;">
+                        <h3 class="card-title">Check before importing: <span id="vp-filename"></span></h3>
+                        <p id="vp-counts" style="margin:4px 0 10px;"></p>
+                        <div style="max-height:320px; overflow:auto;">
+                            <table class="data-table" id="vp-table">
+                                <thead><tr><th>Row</th><th>Company</th><th>Contact</th><th>Email</th><th>Phone</th><th>Result</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div style="margin-top:10px; display:flex; gap:8px;">
+                            <button class="btn btn-success btn-sm" id="vp-import" type="button">Import</button>
+                            <button class="btn btn-secondary btn-sm" id="vp-cancel" type="button">Cancel</button>
+                        </div>
+                    </div>
+
+                    <div class="jobs-table-wrap" style="overflow-x:auto;">
+                        <div class="table-header-info"><span id="vendors-count">Loading...</span></div>
+                        <table class="data-table" id="vendors-table">
+                            <thead><tr><th>Company</th><th>Contact</th><th>Email</th><th>Phone</th><th>Status</th><th>Last emailed</th><th class="vendors-owner-col">Recruiter</th><th></th></tr></thead>
+                            <tbody id="vendors-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- TAB 4: MASTER RESUME BOT STUDIO -->
                 <div class="tab-pane" id="tab-resumebot">
                     <div class="section-header">
@@ -1116,7 +1180,7 @@
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.49.0"></script>
+    <script src="/static/js/app.js?v=5.50.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

@@ -73,7 +73,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.46.0" in page.content(), "cache-buster not bumped to 5.46.0")
+        check("app.js?v=5.47.0" in page.content(), "cache-buster not bumped to 5.47.0")
         page.click("a.nav-item[data-tab=candidates]")
         page.click("#btn-add-consultant-tab")
         page.wait_for_selector("#modal-consultant", state="visible")
@@ -153,8 +153,9 @@ try:
         check(edited.get("resume_summary") == "Edited summary (test)", f"summary saved on edit: {edited.get('resume_summary')!r}")
         import models as _m  # noqa: E402
         check(_m.find_resume_file(edited) is not None, "a Gmail draft would now find the resume to attach")
+        # the consultant list refreshes asynchronously after saving - wait for the saved summary to arrive
+        page.wait_for_function(f"(state.consultants.find(c => c.id === {us['id']}) || {{}}).resume_summary === 'Edited summary (test)'", timeout=10000)
         page.evaluate(f"openConsultantModal(state.consultants.find(c => c.id === {us['id']}))")
-        page.wait_for_timeout(300)
         check(page.input_value("#c-summary") == "Edited summary (test)", "edit form shows the saved summary")
         browser.close()
 finally:

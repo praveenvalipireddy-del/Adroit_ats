@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+import job_experience
 import models
 
 HEADERS = {
@@ -125,7 +126,8 @@ def scrape_dice_us(keyword: str = "Java", location: str = "United States", limit
 
 # --- 2. DIRECT LINKEDIN US (LIVE 24H CONTRACT) ---
 
-def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United States", contract_only: bool = True, limit: int = 15) -> List[Dict]:
+def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United States", contract_only: bool = True, limit: int = 15,
+                       experience_years: Optional[int] = None) -> List[Dict]:
     """
     Scrapes 100% REAL live contract job postings from LinkedIn US posted within the last 24 hours.
     Returns direct https://www.linkedin.com/jobs/view/... links.
@@ -135,6 +137,10 @@ def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United Stat
     encoded_loc = urllib.parse.quote_plus(location if location else "United States")
 
     url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_kw}&location={encoded_loc}&f_TPR=r86400&f_JT=C"
+    # LinkedIn's own experience-level filter, so fewer clearly-too-senior postings come in at all.
+    levels = job_experience.linkedin_levels(experience_years)
+    if levels:
+        url += "&f_E=" + urllib.parse.quote(levels)
 
     jobs = []
     try:
@@ -185,7 +191,8 @@ def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United Stat
 
 # --- 3. MASTER MULTI-SOURCE US SCRAPER RUNNER ---
 
-def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: str = "United States", contract_only: bool = True, save_to_db: bool = True) -> Dict[str, Any]:
+def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: str = "United States", contract_only: bool = True, save_to_db: bool = True,
+                               experience_years: Optional[int] = None) -> Dict[str, Any]:
     if not keywords:
         keywords = ["Java Spring Boot", "Python AI", "AWS DevOps", "React TypeScript"]
 
@@ -202,7 +209,7 @@ def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: s
                 all_jobs.append(j)
 
         # 2. Direct LinkedIn US (24h)
-        li_jobs = scrape_linkedin_us(kw, location=location, contract_only=contract_only, limit=8)
+        li_jobs = scrape_linkedin_us(kw, location=location, contract_only=contract_only, limit=8, experience_years=experience_years)
         for j in li_jobs:
             key = f"{j['title'].lower()}|{j['company'].lower()}"
             if key not in seen_keys:

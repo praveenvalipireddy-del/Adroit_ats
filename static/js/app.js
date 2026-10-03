@@ -664,7 +664,7 @@ async function searchJobs(liveScrape = false) {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
+                <td colspan="8" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
                     <div class="spinner" style="display:inline-block; margin-right:8px;"></div>
                     ${liveScrape ? `Scraping fresh 24h ${country} contract jobs across portals...` : `Searching ${country} job requisitions...`}
                 </td>
@@ -682,7 +682,9 @@ async function searchJobs(liveScrape = false) {
                 country: country,
                 contract_only: true,
                 is_24h_only: true,
-                live_scrape: liveScrape
+                live_scrape: liveScrape,
+                my_experience: jobsMyExperience(),
+                include_unstated: document.getElementById('filter-exp-unstated')?.checked !== false
             })
         });
 
@@ -697,7 +699,7 @@ async function searchJobs(liveScrape = false) {
     } catch (err) {
         console.error('Error fetching jobs:', err);
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
         }
     }
 }
@@ -773,7 +775,7 @@ function renderJobsTable(jobs) {
     if (!jobs || jobs.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" style="text-align:center; padding: 40px; color: var(--text-muted);">
+                <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-muted);">
                     No jobs found matching your search. Try adjusting keywords or click <strong>"Live 24h Scrape"</strong> to fetch fresh postings.
                 </td>
             </tr>`;
@@ -794,7 +796,7 @@ function renderJobsTable(jobs) {
         return `
         <tr class="job-row" data-job-id="${j.id}">
             <td>
-                <div style="font-weight: 600; color: #fff; margin-bottom: 2px;">
+                <div style="font-weight: 600; color: #0f172a; margin-bottom: 2px;">
                     ${escapeHtml(j.title || 'Software Engineer')}
                 </div>
                 <div style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:8px;">
@@ -809,6 +811,7 @@ function renderJobsTable(jobs) {
             <td>
                 <span style="color: #34d399; font-weight: 600;">${escapeHtml(j.salary || j.job_type || 'C2C / Contract')}</span>
             </td>
+            <td>${jobExperienceBadge(j.experience)}</td>
             <td>
                 <div style="display:flex; align-items:center; gap:6px;">
                     <input type="email" class="form-control form-control-sm email-inline-input" data-job-id="${j.id}" value="${escapeHtml(j.recruiter_email || '')}" placeholder="Paste recruiter email..." style="min-width: 180px; font-size: 0.85rem;">
@@ -1005,7 +1008,7 @@ function renderPipeline(pipeline) {
                 const dateStr = app.created_at ? new Date(app.created_at).toLocaleDateString() : 'Recent';
                 return `
                 <div class="pipeline-card" data-app-id="${app.id}">
-                    <div style="font-weight: 600; color: #fff; margin-bottom: 4px;">${escapeHtml(app.job_title || 'Software Engineering Role')}</div>
+                    <div style="font-weight: 600; color: #0f172a; margin-bottom: 4px;">${escapeHtml(app.job_title || 'Software Engineering Role')}</div>
                     <div style="font-size: 0.8rem; color: #38bdf8; margin-bottom: 2px;">👤 ${escapeHtml(app.candidate_name || 'Consultant')}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px;">🏢 ${escapeHtml(app.company || 'Client')} (${escapeHtml(app.recruiter_email || 'No email')})</div>
                     <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 6px;">
@@ -2607,7 +2610,7 @@ async function loadRecruiters() {
                 <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);" id="recruiter-row-${r.id}">
                     <td style="padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
                         <img src="${r.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,255,255,0.2);">
-                        <span style="font-weight: 600; color: #fff;">${escapeHtml(r.name)}</span>
+                        <span style="font-weight: 600; color: #0f172a;">${escapeHtml(r.name)}</span>
                     </td>
                     <td style="padding: 14px 18px; color: #cbd5e1;">${escapeHtml(r.email)}</td>
                     <td style="padding: 14px 18px;">
@@ -3346,6 +3349,10 @@ function setActiveConsultant(candidateId) {
 }
 
 async function browseJobsForCandidate(candidateId, candidateTitle, candidateCountry) {
+    // The consultant's experience drives the Jobs experience filter (Any when not on file).
+    const consultant = (state.consultants || []).find(c => c.id === parseInt(candidateId));
+    setJobsExperience(consultant && consultant.experience_years ? consultant.experience_years : null);
+
     // 0. This consultant becomes the Target Candidate on every job row (it used to stay on
     //    whoever was selected before, e.g. the first consultant, instead of the one clicked).
     setActiveConsultant(candidateId);
@@ -4022,3 +4029,50 @@ function initSourcingTracker() {
     ['edu-f-mine', 'edu-f-followup', 'edu-f-contact'].forEach(id =>
         document.getElementById(id)?.addEventListener('change', trkRefreshTable));
 }
+
+// ---- Jobs: experience filter (slider) + Experience column ----
+const JOBS_EXP_ANY = 16;   // the slider's right end means "Any"
+
+function jobsMyExperience() {
+    const v = parseInt(document.getElementById('filter-experience')?.value ?? JOBS_EXP_ANY);
+    return (isNaN(v) || v >= JOBS_EXP_ANY) ? null : v;
+}
+
+function syncJobsExperienceLabel() {
+    const n = jobsMyExperience();
+    const out = document.getElementById('filter-experience-value');
+    if (out) out.textContent = n === null ? 'Any' : `${n} yr${n === 1 ? '' : 's'}`;
+    const wrap = document.getElementById('filter-exp-unstated-wrap');
+    if (wrap) wrap.style.display = n === null ? 'none' : 'flex';
+}
+
+function setJobsExperience(years) {
+    const slider = document.getElementById('filter-experience');
+    if (!slider) return;
+    slider.value = (years === null || years === undefined || years === '') ? JOBS_EXP_ANY : Math.min(JOBS_EXP_ANY - 1, Math.max(0, parseInt(years)));
+    syncJobsExperienceLabel();
+}
+
+function jobExperienceBadge(exp) {
+    if (!exp) return '';
+    const styles = {
+        posting: ['#ecfdf5', '#047857', 'From the posting'],
+        text: ['#eff6ff', '#1d4ed8', 'From the job description'],
+        title: ['#fff7ed', '#c2410c', 'Guessed from the job title - no years stated'],
+        '': ['#f1f5f9', '#64748b', 'The posting does not state experience'],
+    };
+    const [bg, fg, tip] = styles[exp.source] || styles[''];
+    return `<span title="${tip}" style="display:inline-block; padding:2px 8px; border-radius:9999px; font-size:0.75rem; font-weight:700; background:${bg}; color:${fg}; white-space:nowrap;">${escapeHtml(exp.label || 'Not stated')}</span>`;
+}
+
+(function initJobsExperienceFilter() {
+    const start = () => {
+        const slider = document.getElementById('filter-experience');
+        if (!slider) return;
+        syncJobsExperienceLabel();
+        slider.addEventListener('input', syncJobsExperienceLabel);
+        slider.addEventListener('change', () => searchJobs(false));
+        document.getElementById('filter-exp-unstated')?.addEventListener('change', () => searchJobs(false));
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();

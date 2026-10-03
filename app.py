@@ -583,6 +583,8 @@ def api_jobs_search():
     is_24h_only = data.get("is_24h_only", False)
     live_scrape = data.get("live_scrape", False)
     country = (data.get("country") or "United States").strip()
+    my_experience = _int_or_none(data.get("my_experience"))
+    include_unstated = data.get("include_unstated", True) is not False
 
     results = models.get_jobs(
         query=query if query else None,
@@ -591,7 +593,9 @@ def api_jobs_search():
         job_type=job_type if job_type != "All" else None,
         contract_only=contract_only,
         is_24h_only=is_24h_only,
-        country=country
+        country=country,
+        my_experience=my_experience,
+        include_unstated=include_unstated
     )
 
     # If 0 results or live_scrape requested, trigger a live scrape of the selected market. This no
@@ -611,7 +615,8 @@ def api_jobs_search():
                     keywords=[scrape_query],
                     location=location or "United States",
                     contract_only=True,
-                    save_to_db=True
+                    save_to_db=True,
+                    experience_years=my_experience
                 )
             results = models.get_jobs(
                 query=query if query else None,
@@ -620,7 +625,9 @@ def api_jobs_search():
                 job_type=job_type if job_type != "All" else None,
                 contract_only=False,
                 is_24h_only=is_24h_only,
-                country=country
+                country=country,
+                my_experience=my_experience,
+                include_unstated=include_unstated
             )
             if not results and scrape_res.get("jobs"):
                 results = scrape_res["jobs"]

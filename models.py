@@ -1262,7 +1262,11 @@ def _parse_db_timestamp(value):
     return None
 
 
-def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None):
+def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None,
+             my_experience=None, include_unstated=True):
+    """my_experience: the consultant's years - hides jobs that need clearly more (see job_experience).
+    Every returned job carries "experience": {min, max, source, level, label}."""
+    import job_experience
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -1283,6 +1287,10 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
         src = (j.get("source") or "").lower()
         jtype = (j.get("job_type") or "").lower()
         skills = (j.get("matched_skills") or "").lower()
+
+        j["experience"] = job_experience.classify(j)
+        if not job_experience.fits(j["experience"], my_experience, include_unstated):
+            continue
 
         # 0. Country / market filter - jobs scraped without an explicit country (older rows,
         # before this field existed) default to United States, matching what those scrapers

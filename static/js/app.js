@@ -174,6 +174,7 @@ async function fetchConsultants(recruiterId = null) {
         state.consultants = Array.isArray(data) ? data : [];
         populateConsultantDropdowns();
         updateActiveConsultantUI();
+        refreshJobConsultantSelects();
         if (typeof renderConsultantsTable === 'function') renderConsultantsTable();
         renderConsultantsGrid();
         if (typeof renderDashboardPipeline === 'function') renderDashboardPipeline();
@@ -237,6 +238,20 @@ function updateActiveConsultantUI() {
     if (rateBadge) {
         rateBadge.innerText = active.target_rate || '';
     }
+}
+
+// Job rows are often rendered before the consultant list has loaded (both load at startup, the
+// jobs answer can come first): their Target Candidate dropdowns were then left EMPTY for good, so
+// 1-Click Draft / Optimize Resume had no consultant. Refill them whenever consultants load.
+function refreshJobConsultantSelects() {
+    const options = (state.consultants || []).map(c =>
+        `<option value="${c.id}">${escapeHtml(c.name)} (${escapeHtml(c.title || 'Consultant')})</option>`).join('');
+    document.querySelectorAll('.job-consultant-select').forEach(sel => {
+        const keep = sel.value;
+        sel.innerHTML = options;
+        const want = keep && (state.consultants || []).some(c => String(c.id) === keep) ? keep : String(state.activeConsultantId);
+        sel.value = want;
+    });
 }
 
 function updateTableConsultantSelects() {
@@ -3462,6 +3477,9 @@ function eduRenderInstList(query) {
 function eduSelectInstitution(id) {
     const inst = (eduState.institutions[eduState.filter] || []).find(i => i.id === id);
     if (!inst) return;
+    // A different college: the previous search's summary no longer describes what's on screen.
+    const prev = eduState.selected[eduState.filter];
+    if ((!prev || prev.id !== inst.id) && !eduLiveRunning && !studentsLiveSearchRunning) setStudentsSearchStatus('');
     eduState.selected[eduState.filter] = inst;
     const input = document.getElementById('edu-inst-input');
     if (input) input.value = inst.name;

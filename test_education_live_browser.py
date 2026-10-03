@@ -98,7 +98,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.47.0" in page.content(), "cache-buster not bumped to 5.47.0")
+        check("app.js?v=5.49.0" in page.content(), "cache-buster not bumped to 5.49.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.click(".edu-tab[data-filter=A]")
@@ -123,6 +123,12 @@ try:
         check("Kiran Uilive" in table and "Lata Uilive" not in table, f"table after search: {table!r}")
         check(not page.is_disabled("#btn-apply-student-filter"), "button re-enabled after the search")
         page.screenshot(path=shot)
+
+        # picking a DIFFERENT college clears the previous search's summary (it no longer describes the table)
+        page.fill("#edu-inst-input", "osmania")
+        page.wait_for_selector(".edu-inst-option")
+        page.click(".edu-inst-option")
+        page.wait_for_function("document.getElementById('students-search-status').innerText.trim() === ''", timeout=5000)
 
         # Passout tab still uses its own search (button routes there; not exercised - it would start the Passout flow)
         page.click(".edu-tab[data-filter=P]")

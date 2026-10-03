@@ -306,18 +306,28 @@ def _token() -> str:
 def todays_spend_usd() -> float:
     """Sum of this actor's run costs since 00:00 UTC (from Apify itself, so it
     is accurate across gunicorn workers and restarts)."""
+    # Pages through ALL of today's runs (newest first). Reading only the latest 100 undercounted a
+    # busy team day (one run = one page of 25 profiles) and let spending pass the daily budget.
     try:
-        r = requests.get(f"{API}/acts/{ACTOR}/runs", params={"token": _token(), "desc": 1, "limit": 100}, timeout=20)
-        r.raise_for_status()
         midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        total = 0.0
-        for run in r.json().get("data", {}).get("items", []):
-            started = run.get("startedAt")
-            if not started:
-                continue
-            when = datetime.fromisoformat(started.replace("Z", "+00:00"))
-            if when >= midnight:
-                total += float(run.get("usageTotalUsd") or 0)
+        total, offset, limit = 0.0, 0, 100
+        for _ in range(50):   # hard stop: 5,000 runs
+            r = requests.get(f"{API}/acts/{ACTOR}/runs", params={"token": _token(), "desc": 1, "limit": limit, "offset": offset}, timeout=20)
+            r.raise_for_status()
+            items = r.json().get("data", {}).get("items", [])
+            reached_yesterday = False
+            for run in items:
+                started = run.get("startedAt")
+                if not started:
+                    continue
+                when = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                if when >= midnight:
+                    total += float(run.get("usageTotalUsd") or 0)
+                else:
+                    reached_yesterday = True
+            if reached_yesterday or len(items) < limit:
+                break
+            offset += limit
         return round(total, 4)
     except Exception as ex:
         logger.warning(f"Could not read today's Apify spend: {ex}")

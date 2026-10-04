@@ -111,7 +111,36 @@ check(r.status_code == 200 and r.get_json()["counts"]["new"] == 1 and r.get_json
 r = client.post("/api/vendors/upload-preview", data={"file": (io.BytesIO(b"x"), "v.pdf")}, content_type="multipart/form-data")
 check(r.status_code == 400 and "Excel" in r.get_json()["error"], "pdf rejected")
 r = client.post("/api/vendors/upload-preview", data={"file": (io.BytesIO(b"Name,Phone\nA,1\n"), "v.csv")}, content_type="multipart/form-data")
-check(r.status_code == 400 and "email column" in r.get_json()["error"], "no email column -> clear error")
+check(r.status_code == 400 and "No email" in r.get_json()["error"], "no emails at all -> clear error")
+
+# ---- a free-form sheet with NO header row (real-world shape: lists pasted side by side, notes,
+# LinkedIn links, a second block with its own headers further down). Regression: the upload used to
+# reject it ("no email column"), and a cell like "x@gmail.com" was taken for an "Email" header.
+wb = Workbook()
+ws = wb.active
+ws.append([None])
+ws.append(["ana@scan-one.example", None])
+ws.append(["ben@scan-one.example", "(732) 555-0101", "SAP Recruiter"])
+ws.append([None, None, None, None, None, "note", "cara@scan-two.example", "dev@gmail.com"])
+ws.append(["eli@scan-three.example", "https://www.linkedin.com/in/eli-test", "Phone: +1-602-555-0102"])
+ws.append([None, "FF", "Recruiter Name", "Mail id", "Contact", "Notes", "LinkedIn"])
+ws.append([None, 1, "Fay Test", "fay@scan-four.example", "Works for AT&T clients", "408-555-0103 / 510-555-0104", "linkedin.com/in/fay"])
+ws.append([None, 2, None, "ana@scan-one.example", None, None])       # repeated
+buf2 = io.BytesIO()
+wb.save(buf2)
+r = client.post("/api/vendors/upload-preview", data={"file": (io.BytesIO(buf2.getvalue()), "Book1.xlsx")}, content_type="multipart/form-data")
+d = r.get_json()
+check(r.status_code == 200 and d["counts"] == {"new": 5, "duplicate": 1, "problem": 1}, f"free-form sheet counts: {d.get('counts', d)}")
+got = {}
+for row in d.get("rows", []):
+    got.setdefault(row["email"], row)
+check(got["ben@scan-one.example"]["phone"] == "(732) 555-0101" and got["ben@scan-one.example"]["notes"] == "SAP Recruiter", f"phone + note beside the email: {got.get('ben@scan-one.example')}")
+check(got["ben@scan-one.example"]["company"] == "scan-one.example", "company from the email domain")
+check(got["cara@scan-two.example"]["phone"] == "" and got["dev@gmail.com"]["status"] == "problem", "emails in other columns found; personal email without company flagged")
+check(got["eli@scan-three.example"]["phone"] == "Phone: +1-602-555-0102" and got["eli@scan-three.example"]["notes"] == "", "LinkedIn link is not a note")
+check(got["fay@scan-four.example"]["phone"] == "408-555-0103 / 510-555-0104" and got["fay@scan-four.example"]["notes"] == "Works for AT&T clients", f"second block: {got.get('fay@scan-four.example')}")
+r = client.post("/api/vendors/upload-preview", data={"file": (io.BytesIO(b"just some text\nno addresses here\n"), "x.csv")}, content_type="multipart/form-data")
+check(r.status_code == 400 and "No email" in r.get_json()["error"], "a file without any email -> clear error")
 
 # ---- manual add (Ravi) - same email as Asha's is fine: lists are per recruiter
 login(RAVI)

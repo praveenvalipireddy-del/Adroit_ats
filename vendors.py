@@ -117,12 +117,21 @@ def parse_rows(table: List[List]) -> List[Dict]:
     """First row with an email-like header is the header row; returns raw row dicts (unvalidated)."""
     header_idx, mapping = None, {}
     for i, row in enumerate(table[:20]):
+        if any(find_emails(_cell_text(v)) for v in (row or [])):
+            continue   # a row holding real addresses ("...@gmail.com" contains "mail") is data, not headers
         m = _map_headers(row or [])
         if "email" in m:
             header_idx, mapping = i, m
             break
     if header_idx is None:
-        raise VendorError("No email column found. Use the template, or name a column 'Email'.")
+        return scan_rows(table)
+    # Trust the header row only when its email column holds (nearly) all of the sheet's emails;
+    # otherwise it's a small block inside a free-form sheet and the other emails would be lost.
+    col = mapping["email"]
+    total = sum(len(find_emails(_cell_text(v))) for row in table for v in (row or []))
+    in_col = sum(len(find_emails(_cell_text(row[col]))) for row in table[header_idx + 1:] if row and col < len(row))
+    if in_col < 0.9 * total:
+        return scan_rows(table)
     out = []
     for n, row in enumerate(table[header_idx + 1:], start=header_idx + 2):
         row = list(row or [])
@@ -139,6 +148,51 @@ def parse_rows(table: List[List]) -> List[Dict]:
                     "phone": cell("phone"), "title": cell("title"), "notes": cell("notes")})
         if len(out) > MAX_ROWS:
             raise VendorError(f"That file has more than {MAX_ROWS:,} rows - split it into smaller files.")
+    return out
+
+
+_URL_RE = re.compile(r"^(https?://|www\.|[a-z0-9-]+\.[a-z]{2,}/)", re.I)
+
+
+def _cell_text(v) -> str:
+    return re.sub(r"\s+", " ", str(v)).strip() if v not in (None, "") else ""
+
+
+def _looks_like_phone(text: str) -> bool:
+    digits = re.sub(r"\D", "", text)
+    return 10 <= len(digits) <= 26 and not _URL_RE.match(text) and "@" not in text \
+        and len(re.sub(r"[\d\s()+\-./#*:,;xXextEXTPphoneMmobileDdirectCcellTtel]", "", text)) <= 3
+
+
+def scan_rows(table: List[List]) -> List[Dict]:
+    """A sheet without a header row (lists pasted side by side, notes in between): every email in
+    any cell becomes a contact. Phone = the first phone-looking cell to its right (before the next
+    email); other text cells there (not links) become notes. Company comes from the email domain
+    in validate() - names aren't guessed, since a free-form sheet doesn't say which cell is a name."""
+    out = []
+    for n, row in enumerate(table, start=1):
+        cells = [_cell_text(v) for v in (row or [])]
+        for i, text in enumerate(cells):
+            found = find_emails(text)
+            if not found:
+                continue
+            phone, notes = "", []
+            for nxt in cells[i + 1:i + 3]:
+                if not nxt:
+                    continue
+                if find_emails(nxt):
+                    break
+                if not phone and _looks_like_phone(nxt):
+                    phone = nxt
+                elif not _URL_RE.match(nxt) and not re.fullmatch(r"\d{1,3}", nxt):
+                    notes.append(nxt)
+            for e in found:
+                out.append({"line": n, "company": "", "name": "", "email": e, "phone": phone[:60],
+                            "title": "", "notes": "; ".join(notes)[:300]})
+        if len(out) > MAX_ROWS:
+            raise VendorError(f"That file has more than {MAX_ROWS:,} emails - split it into smaller files.")
+    if not out:
+        raise VendorError("No email addresses found in that file.")
     return out
 
 

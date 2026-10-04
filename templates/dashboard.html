@@ -872,6 +872,18 @@
 
                     <!-- Education filters: school names from LinkedIn profiles that weren't recognised. Mapping one
                          makes every saved profile with that name count in Filter A / B. -->
+                    <div id="add-college-panel" style="margin-top:24px; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:16px 20px; box-shadow:var(--shadow-card);">
+                        <h3 style="font-size:1.05rem; font-weight:600; margin:0; color:#0f172a;">Add a college / university</h3>
+                        <p style="margin:4px 0 12px; font-size:0.8rem; color:#64748b;">For a college that isn't in the Filter A / B list. Use its real full name; add the short names and spellings people use on LinkedIn, separated by commas.</p>
+                        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                            <input id="ac-name" placeholder="Full name, e.g. Sreenidhi Institute of Science and Technology" style="flex:2 1 320px; height:38px; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; color:#0f172a; background:#fff;">
+                            <select id="ac-country" style="height:38px; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; color:#0f172a; background:#fff;"><option value="India">India</option><option value="USA">USA</option></select>
+                            <input id="ac-city" placeholder="City" style="flex:0 1 140px; height:38px; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; color:#0f172a; background:#fff;">
+                            <input id="ac-aliases" placeholder="Short names, e.g. SNIST, Srinidhi" style="flex:1 1 220px; height:38px; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; color:#0f172a; background:#fff;">
+                            <button type="button" id="ac-add" class="btn btn-primary btn-sm">+ Add college</button>
+                        </div>
+                        <div id="ac-status" style="margin-top:8px; font-size:0.85rem;"></div>
+                    </div>
                     <div id="unmapped-panel" style="margin-top:24px; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; box-shadow:var(--shadow-card);">
                         <div style="padding:16px 20px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
                             <h3 style="font-size:1.05rem; font-weight:600; margin:0; color:#0f172a;">Colleges not recognised (Education Filters)</h3>
@@ -1181,7 +1193,7 @@
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.55.0"></script>
+    <script src="/static/js/app.js?v=5.56.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

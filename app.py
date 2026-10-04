@@ -2483,6 +2483,55 @@ def api_vendors_match():
     return jsonify(m)
 
 
+@app.route("/api/education/institutions/add", methods=["POST", "OPTIONS"])
+def api_education_institution_add():
+    """Admin: add a college / university that isn't on the list (name, India/USA, city, short names).
+    It appears in Filter A / B straight away, and saved profiles that list any of its names count for it."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user, err = _edu_admin()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    name = re.sub(r"\s+", " ", str(data.get("name") or "")).strip()[:150]
+    country = str(data.get("country") or "").strip()
+    city = re.sub(r"\s+", " ", str(data.get("city") or "")).strip()[:80]
+    aliases = [re.sub(r"\s+", " ", a).strip()[:150] for a in str(data.get("aliases") or "").split(",") if a.strip()][:10]
+    if len(name) < 4 or country not in ("India", "USA"):
+        return jsonify({"error": "Enter the college's full name and choose India or USA."}), 400
+    names, norms = [], []
+    for n in [name] + aliases:
+        norm = education_match.normalize(n)
+        if norm and norm not in norms:
+            names.append(n)
+            norms.append(norm)
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        for n, norm in zip(names, norms):
+            cur.execute("SELECT MIN(canonical_name) FROM institution_aliases WHERE alias_norm = ?", (norm,))
+            row = cur.fetchone()
+            if row and row[0]:
+                return jsonify({"error": f"'{n}' is already on the list as {row[0]} - search for it in Filter A / B."}), 400
+        canonical_id = "custom-" + re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60]
+        cur.execute("SELECT 1 FROM institution_aliases WHERE canonical_id = ?", (canonical_id,))
+        if cur.fetchone():
+            return jsonify({"error": "A college with that name already exists."}), 400
+        for n, norm in zip(names, norms):
+            cur.execute("""INSERT INTO institution_aliases (canonical_id, canonical_name, alias, alias_norm, country, city)
+                           VALUES (?, ?, ?, ?, ?, ?)""", (canonical_id, name, n, norm, country, city))
+        cur.execute(f"DELETE FROM unmapped_institutions WHERE name_norm IN ({', '.join(['?'] * len(norms))})", norms)
+        conn.commit()
+        education_match.invalidate_cache()
+        updated = sum(linkedin_ingest.rematch_institution(conn, norm) for norm in norms)
+        conn.commit()
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Added Institution", "Sourcing", 0,
+                        f"{name} ({city or '-'}, {country}); names: {', '.join(names)}; {updated} saved education entries linked")
+    return jsonify({"success": True, "canonical_id": canonical_id, "name": name, "entries_linked": updated})
+
+
 @app.route("/api/education/unmapped", methods=["GET"])
 def api_education_unmapped():
     """Admin list: school names from LinkedIn profiles that didn't match the institution list."""

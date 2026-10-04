@@ -3474,12 +3474,22 @@ function eduRenderInstList(query) {
     if (!list) return;
     const insts = eduState.institutions[eduState.filter] || [];
     const q = (query || '').trim().toLowerCase();
+    // Look-alike spellings match too ("srinidhi" finds "Sreenidhi", "sri"/"sree", single/double letters).
+    // Generic words ("college of engineering") are ignored, so the distinctive name decides.
+    const keyWords = q.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !EDU_GENERIC_WORDS.has(w)).map(eduSoundsLike).filter(w => w.length >= 3);
+    const soundsMatch = i => keyWords.length > 0 && [i.name, ...(i.aliases || [])].some(a => {
+        const sa = eduSoundsLike(a);
+        return keyWords.every(w => sa.includes(w));
+    });
     const hits = insts.filter(i => !q
         || i.name.toLowerCase().includes(q)
         || (i.city || '').toLowerCase().includes(q)
-        || (i.aliases || []).some(a => a.toLowerCase().includes(q))).slice(0, 15);
+        || (i.aliases || []).some(a => a.toLowerCase().includes(q))
+        || soundsMatch(i)).slice(0, 15);
     if (!hits.length) {
-        list.innerHTML = `<div style="padding:10px 12px; color:#64748b; font-size:13px;">No college in the list matches "${escapeHtml(query)}".</div>`;
+        const how = (window.currentUserRole || '').includes('Admin') || document.getElementById('add-college-panel')
+            ? 'Add it in Admin &amp; Settings &rarr; "Add a college / university".' : 'Ask an admin to add it in Admin &amp; Settings.';
+        list.innerHTML = `<div style="padding:10px 12px; color:#64748b; font-size:13px;">No college in the list matches "${escapeHtml(query)}". ${how}</div>`;
     } else {
         list.innerHTML = hits.map(i => `
             <div class="edu-inst-option" role="option" data-id="${escapeHtml(i.id)}" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; gap:10px;">
@@ -3775,7 +3785,34 @@ function initEducationFilters() {
 }
 
 // ---- Admin: school names that didn't match the college list ----
+const EDU_GENERIC_WORDS = new Set(['college', 'colleges', 'engineering', 'engg', 'institute', 'institution', 'university', 'univ',
+    'technology', 'technological', 'science', 'sciences', 'and', 'the', 'for', 'women', 'school', 'campus', 'group', 'institutions']);
+
+function eduSoundsLike(text) {
+    return (text || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z]/g, '')
+        .replace(/ee|ea|ie|ii|y/g, 'i').replace(/oo|ou/g, 'u').replace(/ph/g, 'f').replace(/w/g, 'v')
+        .replace(/([bcdfgjklmnpqrstvxz])h/g, '$1').replace(/(.)\1+/g, '$1');
+}
+
+async function addCollege() {
+    const v = id => (document.getElementById(id)?.value || '').trim();
+    const status = document.getElementById('ac-status');
+    const res = await fetch('/api/education/institutions/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: v('ac-name'), country: v('ac-country'), city: v('ac-city'), aliases: v('ac-aliases') })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { status.innerHTML = `<span style="color:#b91c1c;">${escapeHtml(data.error || 'Could not add the college.')}</span>`; return; }
+    status.innerHTML = `<span style="color:#059669;">Added <b>${escapeHtml(data.name)}</b>. It is now in the Filter ${v('ac-country') === 'USA' ? 'B' : 'A'} list` +
+        (data.entries_linked ? `; ${data.entries_linked} saved education entr${data.entries_linked === 1 ? 'y' : 'ies'} linked to it.` : '.') + '</span>';
+    ['ac-name', 'ac-city', 'ac-aliases'].forEach(id => { document.getElementById(id).value = ''; });
+    eduState.institutions = { A: null, B: null };   // reload the autocomplete lists
+    loadUnmappedInstitutions();
+}
+
 async function loadUnmappedInstitutions() {
+    const addBtn = document.getElementById('ac-add');
+    if (addBtn && !addBtn.dataset.wired) { addBtn.dataset.wired = '1'; addBtn.addEventListener('click', addCollege); }
     const body = document.getElementById('unmapped-body');
     const status = document.getElementById('unmapped-status');
     if (!body) return;

@@ -550,6 +550,9 @@ def ensure_institution_aliases(conn):
                               (canonical_id, canonical_name, alias, alias_norm, country, city)
                               VALUES (?, ?, ?, ?, ?, ?)""",
                            (canonical_id, canonical_name, alias, norm, country, city))
+            # saved profiles that already list this school name now count for it too
+            cursor.execute("""UPDATE profile_education SET institution_canonical_id = ?, country = ?, match_method = 'seed_alias'
+                              WHERE institution_norm = ? AND institution_canonical_id IS NULL""", (canonical_id, country, norm))
             existing.add(norm)
             added += 1
     if row:

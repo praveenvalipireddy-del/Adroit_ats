@@ -16,7 +16,7 @@ Bump SEED_VERSION whenever this list changes: startup then inserts the NEW rows 
 admin deleted are not recreated unless their alias is newly added in that version).
 """
 
-SEED_VERSION = 1
+SEED_VERSION = 2   # v2: Srinidhi spellings for SNIST
 
 INDIA = "India"
 USA = "USA"
@@ -83,7 +83,9 @@ INSTITUTIONS = [
      ["GRIET"]),
     ("in-mgit", "Mahatma Gandhi Institute of Technology", INDIA, "Hyderabad", ["MGIT"]),
     ("in-cvr", "CVR College of Engineering", INDIA, "Hyderabad", []),
-    ("in-snist", "Sreenidhi Institute of Science and Technology", INDIA, "Hyderabad", ["SNIST"]),
+    ("in-snist", "Sreenidhi Institute of Science and Technology", INDIA, "Hyderabad",
+     ["SNIST", "Srinidhi Institute of Science and Technology", "Sri Nidhi Institute of Science and Technology",
+      "Sreenidhi Institute of Science & Technology"]),
     ("in-gitam", "GITAM University", INDIA, "Visakhapatnam",
      ["GITAM", "Gandhi Institute of Technology and Management", "GITAM Deemed to be University"]),
     ("in-kl-university", "Koneru Lakshmaiah Education Foundation", INDIA, "Guntur",

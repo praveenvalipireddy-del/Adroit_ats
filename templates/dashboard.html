@@ -610,6 +610,7 @@
 
                 <!-- VENDORS: each recruiter's private vendor contacts (vendors.py) -->
                 <div class="tab-pane" id="tab-vendors">
+                    <style>#vendors-table th, #vendors-table td { padding: 10px 10px; }</style>
                     <div class="section-header">
                         <div>
                             <h2>Vendors</h2>
@@ -649,7 +650,7 @@
                         <p id="vp-counts" style="margin:4px 0 10px;"></p>
                         <div style="max-height:320px; overflow:auto;">
                             <table class="data-table" id="vp-table">
-                                <thead><tr><th>Row</th><th>Company</th><th>Contact</th><th>Email</th><th>Phone</th><th>Result</th></tr></thead>
+                                <thead><tr><th>Row</th><th>Company</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th><th>Result</th></tr></thead>
                                 <tbody></tbody>
                             </table>
                         </div>
@@ -662,7 +663,7 @@
                     <div class="jobs-table-wrap" style="overflow-x:auto;">
                         <div class="table-header-info"><span id="vendors-count">Loading...</span></div>
                         <table class="data-table" id="vendors-table">
-                            <thead><tr><th>Company</th><th>Contact</th><th>Email</th><th>Phone</th><th>Status</th><th>Last emailed</th><th class="vendors-owner-col">Recruiter</th><th></th></tr></thead>
+                            <thead><tr><th>Company</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th><th>Status</th><th>Last emailed</th><th class="vendors-owner-col">Recruiter</th><th></th></tr></thead>
                             <tbody id="vendors-body"></tbody>
                         </table>
                     </div>
@@ -1182,7 +1183,7 @@
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.52.0"></script>
+    <script src="/static/js/app.js?v=5.53.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

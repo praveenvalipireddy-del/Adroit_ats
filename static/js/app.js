@@ -4172,7 +4172,7 @@ function renderVendors() {
     const showOwner = vendorsState.isAdmin;
     document.querySelectorAll('.vendors-owner-col').forEach(el => { el.style.display = showOwner ? '' : 'none'; });
     if (!vendorsState.contacts.length) {
-        body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#64748b; padding:24px;">No vendor contacts yet. Download the template, fill it in Excel and upload it - or add one contact at a time.</td></tr>`;
+        body.innerHTML = `<tr><td colspan="9" style="text-align:center; color:#64748b; padding:24px;">No vendor contacts yet. Download the template, fill it in Excel and upload it - or add one contact at a time.</td></tr>`;
         return;
     }
     const statuses = ['active', 'unsubscribed', 'bounced'];
@@ -4181,8 +4181,9 @@ function renderVendors() {
             <td style="color:#0f172a; font-weight:600;">${escapeHtml(c.company_name)}</td>
             <td style="color:#0f172a;">${escapeHtml(c.contact_name || '')}${c.title ? `<div style="font-size:0.75rem; color:#64748b;">${escapeHtml(c.title)}</div>` : ''}</td>
             <td style="color:#0f172a;">${escapeHtml(c.email)}</td>
-            <td style="color:#0f172a;">${escapeHtml(c.phone || '')}</td>
-            <td><select class="form-control vendor-status" style="padding:2px 6px; font-size:0.8rem;" onchange="vendorsSetStatus(${c.id}, this.value)">
+            <td style="color:#0f172a; white-space:nowrap;">${escapeHtml(c.phone || '')}</td>
+            <td class="vendor-notes" title="${escapeHtml(c.notes || '')}" style="color:#475569; font-size:0.8rem; max-width:170px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(c.notes || '')}</td>
+            <td><select class="form-control vendor-status" style="padding:2px 6px; font-size:0.8rem; min-width:100px;" onchange="vendorsSetStatus(${c.id}, this.value)">
                 ${statuses.map(s => `<option value="${s}" ${c.status === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}
             </select></td>
             <td style="font-size:0.8rem; color:#0f172a;">${c.last_emailed_at ? escapeHtml(c.last_emailed_at.slice(0, 10)) : '-'}</td>
@@ -4259,7 +4260,7 @@ async function vendorsUploadPreview(file) {
     const label = { new: ['New', '#059669'], duplicate: ['Duplicate', '#64748b'], problem: ['Problem', '#b91c1c'] };
     document.querySelector('#vp-table tbody').innerHTML = data.rows.slice(0, 500).map(r => `
         <tr><td>${r.line}</td><td style="color:#0f172a;">${escapeHtml(r.company || '')}</td><td style="color:#0f172a;">${escapeHtml(r.name || '')}</td>
-        <td style="color:#0f172a;">${escapeHtml(r.email || '')}</td><td style="color:#0f172a;">${escapeHtml(r.phone || '')}</td>
+        <td style="color:#0f172a;">${escapeHtml(r.email || '')}</td><td style="color:#0f172a;">${escapeHtml(r.phone || '')}</td><td class="vendor-notes" title="${escapeHtml(r.notes || '')}" style="color:#475569; font-size:0.8rem; max-width:170px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(r.notes || '')}</td>
         <td style="color:${label[r.status][1]}; font-weight:600;">${label[r.status][0]}${r.reason ? ` <span style="font-weight:400;">- ${escapeHtml(r.reason)}</span>` : ''}</td></tr>`).join('');
     const btn = document.getElementById('vp-import');
     btn.disabled = k.new === 0;

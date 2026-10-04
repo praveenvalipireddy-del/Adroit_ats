@@ -2100,6 +2100,10 @@ def _edu_live_params(data):
             names.append(re.sub(r"\s*\(campus not stated\)\s*$", "", row[0]))
     finally:
         conn.close()
+    # A paid search needs the exact passout year: without it every graduation year matched, and the
+    # recruiter paid for people from years they didn't want.
+    if not params["year_from"] or params["year_from"] != params["year_to"]:
+        raise education_filters.FilterError("Choose a passout year before searching LinkedIn.")
     return f, params["institution_id"], members, params["year_from"], params["year_to"], names
 
 
@@ -2117,14 +2121,16 @@ def api_education_live_start():
         f, inst_id, members, y_from, y_to, schools = _edu_live_params(request.get_json(silent=True) or {})
     except education_filters.FilterError as ex:
         return jsonify({"error": str(ex)}), 400
+    # LinkedIn's years-of-experience facet narrows the search to that cohort. Filter A's year is the
+    # Bachelor's year; Filter B's is the Master's year, so its Bachelor's was ~1-3 years earlier.
+    bachelor_years = [y_from] if f == "A" else [y_from - 3, y_from - 2, y_from - 1]
     exp_ids = []
-    if f == "A" and (y_from or y_to):
-        lo, hi = (y_from or y_to), (y_to or y_from)
-        for y in range(lo, min(hi, lo + 20) + 1):
-            for e in linkedin_sourcing.experience_ids_for_year(y):
-                if e not in exp_ids:
-                    exp_ids.append(e)
-    cursor_key = f"edu-{f}-{inst_id}"
+    for y in bachelor_years:
+        for e in linkedin_sourcing.experience_ids_for_year(y):
+            if e not in exp_ids:
+                exp_ids.append(e)
+    # Per year: a 2023 search must not skip pages that were only scanned for another year.
+    cursor_key = f"edu-{f}-{inst_id}-{y_from}"
     cursor = sourcing_store.get_cursor("apify", cursor_key)
     result = linkedin_sourcing.start_search(None, pages=1, start_page=cursor["next_page"],
                                             schools=schools, experience_ids=exp_ids)

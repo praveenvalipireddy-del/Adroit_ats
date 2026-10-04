@@ -41,7 +41,9 @@ def person(slug, first, education):
 
 started = []
 PAGES = {1: [person("ui-live-1", "Kiran", [edu("JNTU Kakinada", "B.Tech", 2018), edu("Example State University Testville", "MS", 2020)]),
-             person("ui-live-2", "Lata", [edu("Osmania University", "BE", 2016), edu("UT Dallas", "MS", 2018)])]}
+             person("ui-live-2", "Lata", [edu("Osmania University", "BE", 2016), edu("UT Dallas", "MS", 2018)]),
+             # JNTU + US Master's but passed out in 2019 - not the chosen 2018 -> never shown
+             person("ui-live-3", "Mohan", [edu("JNTUH", "B.Tech", 2019), edu("Example State University Testville", "MS", 2021)])]}
 
 
 def fake_start(bachelor_year, pages=1, location="United States", start_page=1, schools=None, experience_ids=None):
@@ -98,7 +100,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.54.0" in page.content(), "cache-buster not bumped to 5.54.0")
+        check("app.js?v=5.55.0" in page.content(), "cache-buster not bumped to 5.55.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.click(".edu-tab[data-filter=A]")
@@ -111,16 +113,21 @@ try:
         page.wait_for_selector(".edu-inst-option")
         page.click(".edu-inst-option")   # JNTU - any campus
         page.wait_for_function("document.getElementById('edu-status').innerText.includes('JNTU - any campus')")
+        # without a passout year it explains, and starts nothing (a paid search needs the exact year)
+        page.click("#btn-apply-student-filter")
+        check("Choose the Bachelor's passout year first" in page.inner_text("#edu-status") and not started, "needs a passout year first")
+        page.select_option("#edu-passout-year", "2018")
+        page.wait_for_timeout(500)
         page.click("#btn-apply-student-filter")
         page.wait_for_function("document.getElementById('students-search-status').innerText.includes('Finished')", timeout=20000)
         status = page.inner_text("#students-search-status")
-        check("scanned 2 LinkedIn profiles" in status and "1 new verified person" in status and "$0.40" in status
+        check("scanned 3 LinkedIn profiles" in status and "1 new verified person" in status and "$0.40" in status
               and "no more profiles" in status, f"summary: {status!r}")
         check(len(started) == 2 and started[0]["start_page"] == 1 and started[1]["start_page"] == 2
               and "Jawaharlal Nehru Technological University Kakinada" in started[0]["schools"], f"runs: {started}")
         page.wait_for_function("document.getElementById('edu-results').innerText.includes('Kiran Uilive')", timeout=10000)
         table = page.inner_text("#edu-results")
-        check("Kiran Uilive" in table and "Lata Uilive" not in table, f"table after search: {table!r}")
+        check("Kiran Uilive" in table and "Lata Uilive" not in table and "Mohan Uilive" not in table, f"table after search (2018 only): {table!r}")
         check(not page.is_disabled("#btn-apply-student-filter"), "button re-enabled after the search")
         page.screenshot(path=shot)
 

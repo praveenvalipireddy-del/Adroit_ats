@@ -93,24 +93,36 @@ check(start(filter="B", institution_id="in-osmania")[0].status_code == 400, "Fil
 check(start(filter="A")[0].status_code == 400, "college required")
 check(not started, "nothing may reach Apify for invalid requests")
 
-# ---- Filter A start: the chosen college's LinkedIn school names (all campuses for a group), no year -> no experience facet
-r, d = start(filter="A", institution_id="group-jntu")
+# ---- a paid search needs the exact passout year (without it every graduation year matched)
+check(start(filter="A", institution_id="group-jntu")[0].status_code == 400, "passout year required")
+check(start(filter="A", institution_id="group-jntu", year_from=2018, year_to=2019)[0].status_code == 400, "one exact year, not a range")
+check(not started, "nothing may reach Apify without a passout year")
+
+# ---- Filter A start: the chosen college's LinkedIn school names (all campuses for a group) + that cohort's experience facet
+r, d = start(filter="A", institution_id="group-jntu", year_from=2019, year_to=2019)
 check(r.status_code == 200 and d.get("runs"), f"A start: {r.status_code} {d}")
 s0 = started[-1]
 check(s0["schools"] == ["Jawaharlal Nehru Technological University Hyderabad", "Jawaharlal Nehru Technological University Kakinada",
                         "Jawaharlal Nehru Technological University Anantapur", "Jawaharlal Nehru Technological University"],
       f"JNTU group should search every campus by its real name: {s0['schools']}")
-check(s0["experience_ids"] == [] and s0["start_page"] == 1, f"no year range -> no experience filter, page 1: {s0}")
-# second click continues at the next page (team cursor), and it is separate from the Passout cursor
-start(filter="A", institution_id="group-jntu")
+check(s0["experience_ids"] == ls.experience_ids_for_year(2019) and s0["start_page"] == 1, f"2019 cohort's experience filter, page 1: {s0}")
+# second click continues at the next page (team cursor, per year), separate from the Passout cursor
+start(filter="A", institution_id="group-jntu", year_from=2019, year_to=2019)
 check(started[-1]["start_page"] == 2, f"repeat search must continue on new pages: {started[-1]['start_page']}")
+start(filter="A", institution_id="group-jntu", year_from=2023, year_to=2023)
+check(started[-1]["start_page"] == 1, f"another year starts at page 1 (its own cursor): {started[-1]['start_page']}")
 check(sourcing_store.get_cursor("apify", 2019)["next_page"] == 1, "Filter A cursor must not move the Passout cursor")
-start(filter="A", institution_id="in-osmania", year_from=2018, year_to=2019)
+start(filter="A", institution_id="in-osmania", year_from=2019, year_to=2019)
 check(started[-1]["schools"] == ["Osmania University"] and started[-1]["experience_ids"]
-      and started[-1]["start_page"] == 1, f"single college + years: {started[-1]}")
+      and started[-1]["start_page"] == 1, f"single college + year: {started[-1]}")
 start(filter="B", institution_id="us-ut-dallas", year_from=2020)
-check(started[-1]["schools"] == ["The University of Texas at Dallas"] and started[-1]["experience_ids"] == [],
-      f"Filter B: chosen university, no experience facet: {started[-1]}")
+b_exp = []
+for y in (2017, 2018, 2019):
+    for e in ls.experience_ids_for_year(y):
+        if e not in b_exp:
+            b_exp.append(e)
+check(started[-1]["schools"] == ["The University of Texas at Dallas"] and started[-1]["experience_ids"] == b_exp,
+      f"Filter B: chosen university, experience for a Bachelor's 1-3 years before the 2020 Master's: {started[-1]}")
 
 # ---- Filter A poll: strict verification
 run = {"run_id": "RunPollAAAA0001", "dataset_id": "DataPollAAAA0001"}
@@ -118,16 +130,19 @@ DATASETS[run["dataset_id"]] = [
     # JNTUH Bachelor's + US Master's at a school NOT on the college list -> verified
     person("live-a1", "Anil", [edu("JNTUH College of Engineering Hyderabad", "B.Tech", 2019), edu("Example State University Testville", "MS", 2021)]),
     # JNTU Bachelor's but the Master's is Indian -> no
-    person("live-a2", "Bala", [edu("JNTU Kakinada", "B.Tech", 2018), edu("Osmania University", "M.Tech", 2020)]),
+    person("live-a2", "Bala", [edu("JNTU Kakinada", "B.Tech", 2019), edu("Osmania University", "M.Tech", 2021)]),
+    # JNTU Bachelor's + US Master's but passed out in 2018, not the chosen 2019 -> no (exact year only)
+    person("live-a5", "Eshwar", [edu("JNTU Anantapur", "B.Tech", 2018), edu("Example State University Testville", "MS", 2020)]),
     # Bachelor's somewhere else -> no
     person("live-a3", "Chan", [edu("Osmania University", "BE", 2017), edu("Example Tech University Northville", "MS", 2019)]),
     # not in the US -> no
     person("live-a4", "Dev", [edu("JNTUH", "B.Tech", 2016), edu("Example Tech University Northville", "MS", 2018)], country="IN"),
 ]
-r, d = poll(run, filter="A", institution_id="group-jntu")
+r, d = poll(run, filter="A", institution_id="group-jntu", year_from=2019, year_to=2019)
 check(r.status_code == 200 and d.get("new_matches") == 1 and "raw_items" not in d, f"A poll: {r.status_code} {d}")
 check(d.get("skipped", {}).get("no_us_master") == 1 and d.get("skipped", {}).get("no_bachelor_at_college") == 1
-      and d.get("skipped", {}).get("not_in_us") == 1, f"skip reasons: {d.get('skipped')}")
+      and d.get("skipped", {}).get("not_in_us") == 1 and d.get("skipped", {}).get("wrong_year") == 1, f"skip reasons: {d.get('skipped')}")
+check("Eshwar Livetest" not in names("A", "group-jntu", year_from=2019, year_to=2019), "a 2018 passout is not shown for 2019")
 check(names("A", "group-jntu") == ["Anil Livetest"], f"verified person appears in Filter A (US school not on list): {names('A', 'group-jntu')}")
 check(names("A", "in-jntu-hyderabad") == ["Anil Livetest"], "...and under the single campus")
 check(names("A", "group-jntu", year_from=2020) == [], "year range applies to the verified Bachelor's year")
@@ -141,7 +156,7 @@ check("Anil Livetest" in [x["name"] for x in client.get("/api/education/search",
       "a Filter A match that also fits a passout year is banked for Passout too")
 check("Chan Livetest" not in names("A", "group-jntu"), "non-JNTU person must not be shown")
 # polling the same run again does not duplicate
-poll(run, filter="A", institution_id="group-jntu")
+poll(run, filter="A", institution_id="group-jntu", year_from=2019, year_to=2019)
 conn = models.get_db_connection()
 cur = conn.cursor()
 cur.execute("SELECT COUNT(*) FROM profile_verifications")
@@ -152,10 +167,10 @@ conn.close()
 runb = {"run_id": "RunPollBBBB0001", "dataset_id": "DataPollBBBB0001"}
 DATASETS[runb["dataset_id"]] = [
     person("live-b1", "Esha", [edu("Malla Reddy Engineering College", "B.Tech", 2017), edu("The University of Texas at Dallas", "Master of Science - MS", 2020)]),
-    person("live-b2", "Frank", [edu("Texas Tech University", "BS", 2016), edu("UT Dallas", "MS", 2019)]),   # US Bachelor's -> no
+    person("live-b2", "Frank", [edu("Texas Tech University", "BS", 2017), edu("UT Dallas", "MS", 2020)]),   # US Bachelor's -> no
     person("live-b3", "Gita", [edu("Osmania University", "BE", 2015), edu("UNT", "MS", 2018)]),            # other university -> no
 ]
-r, d = poll(runb, filter="B", institution_id="us-ut-dallas")
+r, d = poll(runb, filter="B", institution_id="us-ut-dallas", year_from=2020, year_to=2020)
 check(r.status_code == 200 and d.get("new_matches") == 1, f"B poll: {d}")
 check(names("B", "us-ut-dallas") == ["Esha Livetest"], f"Filter B verified: {names('B', 'us-ut-dallas')}")
 check(names("B", "group-ut") == ["Esha Livetest"], "...and under 'University of Texas - any campus'")
@@ -167,7 +182,7 @@ check(row["indian_college"] == "Malla Reddy Engineering College (2017)", f"B col
 runc = {"run_id": "RunPollCCCC0001", "dataset_id": "DataPollCCCC0001"}
 DATASETS[runc["dataset_id"]] = [person(f"live-c{i}", f"Many{i}", [edu("JNTUH", "B.Tech", 2018), edu("UT Dallas", "MS", 2020)]) for i in range(16)]
 ls.fetch_run = lambda rid, did, offset=0: {**fake_fetch(rid, did, offset), "status": "RUNNING"}
-r, d = poll(runc, filter="A", institution_id="in-jntu-hyderabad")
+r, d = poll(runc, filter="A", institution_id="in-jntu-hyderabad", year_from=2018, year_to=2018)
 check(d.get("new_matches") == 16 and runc["run_id"] in aborted and d.get("stopped_early"), f"early stop: {d} aborted={aborted}")
 ls.fetch_run = fake_fetch
 

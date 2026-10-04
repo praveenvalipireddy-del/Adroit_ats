@@ -88,7 +88,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.54.0" in page.content(), "cache-buster not bumped to 5.54.0")
+        check("app.js?v=5.55.0" in page.content(), "cache-buster not bumped to 5.55.0")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")
@@ -157,9 +157,9 @@ try:
         check(page.locator("#edu-results tr[data-pid]").count() == 2, "page 2 should show 2 rows")
 
         # year range: 2015 + i%5 == 2017 -> i in {2,7,12,17,22} -> 5 people
-        page.fill("#edu-year-from", "2017")
-        page.fill("#edu-year-to", "2017")
-        page.click("#btn-edu-search")
+        check(page.text_content("#edu-year-label") == "Bachelor's passout year", f"year label A: {page.text_content('#edu-year-label')!r}")
+        check(page.locator("#edu-year-from").count() == 0 and page.locator("#edu-year-to").count() == 0, "Year from / Year to boxes are gone")
+        page.select_option("#edu-passout-year", "2017")   # choosing the year searches straight away
         page.wait_for_function("document.getElementById('edu-status').innerText.includes('5 candidates')")
 
         # Excel download of the current (filtered) search
@@ -175,8 +175,8 @@ try:
         # Filter B tab
         page.click(".edu-tab[data-filter=B]")
         check(page.text_content("#edu-inst-label").startswith("US university"), f"Filter B label: {page.text_content('#edu-inst-label')!r}")
-        page.fill("#edu-year-from", "")
-        page.fill("#edu-year-to", "")
+        check(page.text_content("#edu-year-label") == "Master's passout year", f"year label B: {page.text_content('#edu-year-label')!r}")
+        page.select_option("#edu-passout-year", "")
         page.fill("#edu-inst-input", "UT Dallas")
         page.wait_for_selector(".edu-inst-option")
         page.click(".edu-inst-option")

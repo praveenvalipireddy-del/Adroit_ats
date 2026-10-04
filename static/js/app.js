@@ -3523,6 +3523,8 @@ async function eduSwitchFilter(filter) {
         const label = document.getElementById('edu-inst-label');
         const input = document.getElementById('edu-inst-input');
         if (label) label.textContent = t.label;
+        const yl = document.getElementById('edu-year-label');
+        if (yl) yl.textContent = filter === 'A' ? "Bachelor's passout year" : "Master's passout year";
         if (input) { input.placeholder = t.placeholder; input.value = eduState.selected[filter] ? eduState.selected[filter].name : ''; }
     }
     document.getElementById('edu-results-wrap').style.display = 'none';
@@ -3548,6 +3550,11 @@ async function eduLiveSearch() {
         eduSetStatus(`<span style="color:#b45309;">Pick ${f === 'A' ? 'an Indian college' : 'a US university'} first, then click Search LinkedIn.</span>`);
         return;
     }
+    const passoutYear = document.getElementById('edu-passout-year')?.value || '';
+    if (!passoutYear) {
+        eduSetStatus(`<span style="color:#b45309;">Choose the ${f === 'A' ? "Bachelor's" : "Master's"} passout year first, then click Search LinkedIn - only people who passed out in exactly that year are kept.</span>`);
+        return;
+    }
     if (eduLiveRunning || studentsLiveSearchRunning) {
         showToast('A LinkedIn search is already running - please wait for it to finish.', 'info');
         return;
@@ -3558,10 +3565,8 @@ async function eduLiveSearch() {
     if (btn) { btn.disabled = true; btn.innerHTML = '<span>Searching LinkedIn...</span>'; }
     const jsonHeaders = { 'Content-Type': 'application/json' };
     const body = { filter: f, institution_id: inst.id };
-    const yf = (document.getElementById('edu-year-from')?.value || '').trim();
-    const yt = (document.getElementById('edu-year-to')?.value || '').trim();
-    if (yf) body.year_from = yf;
-    if (yt) body.year_to = yt;
+    body.year_from = passoutYear;
+    body.year_to = passoutYear;
     const pollMs = (typeof window.EDU_LIVE_POLL_MS === 'number') ? window.EDU_LIVE_POLL_MS : 4000;   // tests shorten this
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const what = f === 'A' ? `a Bachelor's from <b>${escapeHtml(inst.name)}</b> and a US Master's`
@@ -3651,7 +3656,9 @@ function eduParams(page) {
     } else {
         const inst = eduState.selected[eduState.filter];
         p.set('institution_id', inst ? inst.id : '');
-        fields.push(['year_from', 'edu-year-from'], ['year_to', 'edu-year-to']);
+        // One passout year = exactly that year (the server treats year_from = year_to as exact).
+        const py = document.getElementById('edu-passout-year')?.value || '';
+        if (py) { p.set('year_from', py); p.set('year_to', py); }
     }
     for (const [key, id] of fields) {
         const v = (document.getElementById(id)?.value || '').trim();
@@ -3761,7 +3768,8 @@ function initEducationFilters() {
     document.getElementById('btn-edu-prev').addEventListener('click', () => eduSearch(Math.max(1, eduState.page - 1)));
     document.getElementById('btn-edu-next').addEventListener('click', () => eduSearch(Math.min(eduState.pages, eduState.page + 1)));
     document.getElementById('filter-student-bachelor-year')?.addEventListener('change', () => { if (eduState.filter === 'P') eduSearch(1); });
-    ['edu-year-from', 'edu-year-to', 'edu-location', 'edu-keyword'].forEach(id => {
+    document.getElementById('edu-passout-year')?.addEventListener('change', () => { if (eduState.filter !== 'P' && eduState.selected[eduState.filter]) eduSearch(1); });
+    ['edu-location', 'edu-keyword'].forEach(id => {
         document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); eduSearch(1); } });
     });
 }

@@ -418,6 +418,25 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # HarvestAPI direct sourcing runs (harvest_direct.py): one row per LinkedIn result page.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS harvest_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        status TEXT NOT NULL DEFAULT 'READY',
+        start_page INTEGER,
+        params_json TEXT,
+        items_json TEXT,
+        search_total INTEGER,
+        search_found INTEGER,
+        profiles_ok INTEGER,
+        profile_calls INTEGER,
+        cost_usd REAL DEFAULT 0,
+        error TEXT,
+        abort INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        finished_at TIMESTAMP
+    );
+    """)
     # Automatic known-vendor drafts made from Browse Jobs (limit: 10 per consultant per day, never
     # the same job + consultant twice).
     cursor.execute("""

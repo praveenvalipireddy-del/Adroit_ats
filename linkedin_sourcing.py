@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 import config
+import harvest_direct
 
 logger = logging.getLogger("linkedin_sourcing")
 
@@ -304,6 +305,16 @@ def _token() -> str:
 
 
 def todays_spend_usd() -> float:
+    """Today's LinkedIn sourcing spend (UTC day): Apify runs + HarvestAPI direct runs (estimated)."""
+    total = _apify_spend_today() if _token() else 0.0
+    try:
+        total += harvest_direct.todays_spend_usd()
+    except Exception as ex:
+        logger.warning(f"Could not read today's HarvestAPI spend: {ex}")
+    return round(total, 4)
+
+
+def _apify_spend_today() -> float:
     """Sum of this actor's run costs since 00:00 UTC (from Apify itself, so it
     is accurate across gunicorn workers and restarts)."""
     # Pages through ALL of today's runs (newest first). Reading only the latest 100 undercounted a
@@ -378,6 +389,8 @@ def start_search(bachelor_year: Optional[int], pages: int = 1, location: str = "
     Passout search; the education filters pass the one college the recruiter picked).
     experience_ids: LinkedIn years-of-experience facet ids; None = derive from bachelor_year,
     [] = no experience filter at all."""
+    if harvest_direct.enabled():
+        return _start_harvest(bachelor_year, pages, location, start_page, schools, experience_ids)
     if not _token():
         return {"error": "APIFY_API_TOKEN is not configured on the server.", "code": 503}
 
@@ -445,6 +458,32 @@ def start_search(bachelor_year: Optional[int], pages: int = 1, location: str = "
     }
 
 
+def _start_harvest(bachelor_year, pages, location, start_page, schools, experience_ids) -> Dict:
+    """start_search on HarvestAPI direct (SOURCING_PROVIDER=harvestapi): same inputs, same result shape."""
+    if not harvest_direct.configured():
+        return {"error": "SOURCING_PROVIDER is harvestapi but HARVESTAPI_API_KEY is not set on the server.", "code": 503}
+    try:
+        pages = max(1, min(int(pages or 1), MAX_WAVE, harvest_direct.MAX_PAGES))
+    except (TypeError, ValueError):
+        pages = 1
+    try:
+        start_page = max(1, min(int(start_page or 1), MAX_START_PAGE))
+    except (TypeError, ValueError):
+        start_page = 1
+    per_page = round(harvest_direct.SEARCH_PRICE_USD + 25 * harvest_direct.PROFILE_PRICE_USD, 2)
+    spent = todays_spend_usd()
+    if spent + pages * per_page > DAILY_BUDGET_USD:
+        return {"error": (f"Today's LinkedIn sourcing budget (${DAILY_BUDGET_USD:.2f}) is reached: ${spent:.2f} spent, "
+                          f"and this step could cost about ${pages * per_page:.2f}. Raise SOURCING_DAILY_BUDGET_USD on the server to continue."), "code": 429}
+    exp_ids = experience_ids_for_year(bachelor_year) if experience_ids is None else list(experience_ids)
+    runs = [harvest_direct.start_page_run(list(schools) if schools else INDIAN_SCHOOLS_FOR_SEARCH, location,
+                                          start_page + i, exp_ids) for i in range(pages)]
+    return {"runs": runs, "pages_started": len(runs), "next_start_page": start_page + len(runs),
+            "max_spend_usd": round(per_page * len(runs), 2), "spent_today_usd": spent, "warning": None,
+            "provider": "harvestapi",
+            "pages_per_search": harvest_direct.MAX_PAGES}   # the browser stops one Search click after this many pages
+
+
 _PROFILE_FIELDS = "linkedinUrl,firstName,lastName,headline,location,education,currentPosition"
 
 
@@ -461,6 +500,8 @@ def _provider_problem(run_id: str, status: str, status_message: str = ""):
       overloaded  'Acquire timeout - too many queued requests' (seen live whenever runs were started in parallel)
       plan_limit  the scraper refuses a FREE Apify account after 10 runs ('free user run limit reached') - retrying is pointless
       timeout / error"""
+    if harvest_direct.is_run(run_id):
+        return harvest_direct.problem(run_id)
     try:
         log = requests.get(f"{API}/actor-runs/{run_id}/log", params={"token": _token()}, timeout=20).text or ""
     except Exception:
@@ -488,6 +529,8 @@ def _provider_problem(run_id: str, status: str, status_message: str = ""):
 
 def fetch_run(run_id: str, dataset_id: str, offset: int = 0) -> Dict:
     """{run, status, raw_items} for the dataset items after `offset`, or {error, code}."""
+    if harvest_direct.is_run(run_id):
+        return harvest_direct.fetch_run(run_id, offset, POLL_BATCH)
     if not _token():
         return {"error": "APIFY_API_TOKEN is not configured on the server.", "code": 503}
     try:
@@ -509,6 +552,8 @@ def fetch_run(run_id: str, dataset_id: str, offset: int = 0) -> Dict:
 
 def abort_run(run_id: str) -> bool:
     """Stop a run early (stops the spending too). True if the abort was accepted."""
+    if harvest_direct.is_run(run_id):
+        return harvest_direct.abort(run_id)
     try:
         requests.post(f"{API}/actor-runs/{run_id}/abort", params={"token": _token()}, timeout=15)
         return True
@@ -535,6 +580,7 @@ def run_outcome(run_id: str, run: Dict, status: str, raw_items: List, offset: in
         "scanned_new": len(raw_items),
         "cost_usd": run.get("usageTotalUsd"),
         "stopped_early": aborted,
+        "harvest": run.get("harvest"),           # HarvestAPI direct only: search total, profiles fetched, cost is an estimate
     }
 
 

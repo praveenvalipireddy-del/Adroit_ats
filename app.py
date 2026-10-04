@@ -17,6 +17,7 @@ import models
 import resume_bot
 import apify_service
 import linkedin_sourcing
+import harvest_direct
 import sourcing_store
 import linkedin_ingest
 import education_filters
@@ -208,7 +209,7 @@ def dashboard():
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
-            has_apify=bool(config.APIFY_API_TOKEN),
+            has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
             has_grok=resume_bot.xai_configured(),
@@ -224,7 +225,7 @@ def dashboard():
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             env=config.ENV,
-            has_apify=bool(config.APIFY_API_TOKEN),
+            has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
             has_grok=resume_bot.xai_configured(),
@@ -1583,7 +1584,7 @@ def api_search_students():
         "results": candidates
     })
 
-_APIFY_ID_RE = re.compile(r"^[A-Za-z0-9]{8,40}$")
+_APIFY_ID_RE = re.compile(r"^(?:[A-Za-z0-9]{8,40}|hv-\d{1,12})$")   # Apify run ids, or HarvestAPI direct runs (hv-<n>)
 
 
 @app.route("/api/students/sourced-pool", methods=["GET"])

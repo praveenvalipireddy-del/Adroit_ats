@@ -1896,7 +1896,7 @@ async function loadStudents(runLive = false) {
         setStudentsSearchStatus('Starting live LinkedIn search...');
         if (imported.length > 0) renderStudentsGrid(state.students); else showSearching(0, 0);
 
-        const depthPages = parseInt(document.getElementById('filter-student-depth')?.value || '6', 10) || 6;
+        let depthPages = parseInt(document.getElementById('filter-student-depth')?.value || '6', 10) || 6;
         // Stop early (and stop paying) once this many verified matches have been found.
         const targetMatches = depthPages <= 3 ? 8 : (depthPages <= 6 ? 15 : 30);
         // ONE page at a time. Live test (2026-09-28): the LinkedIn data provider (the Apify actor) chokes when
@@ -1907,6 +1907,7 @@ async function loadStudents(runLive = false) {
         const retryDelayMs = (typeof window.SOURCING_RETRY_DELAY_MS === 'number') ? window.SOURCING_RETRY_DELAY_MS : 20000;   // tests shorten this
         const sleep = (ms) => new Promise(r => setTimeout(r, ms));
         const costByRun = {};
+        const harvestByRun = {};   // HarvestAPI direct (SOURCING_PROVIDER=harvestapi): search numbers per run
         let pagesUsed = 0;
         let stopMessage = '';
         const retryPages = [];          // pages whose run failed at the provider: one more try each
@@ -1936,6 +1937,7 @@ async function loadStudents(runLive = false) {
             if (!startRes.ok) { stopMessage = start.error || 'Could not start the LinkedIn search.'; break; }
             const runs = (start.runs || []).map(r => ({ ...r, offset: 0, done: false, failures: 0, retried: isRetry }));
             if (!isRetry) pagesUsed += runs.length;
+            if (start.pages_per_search) depthPages = Math.min(depthPages, start.pages_per_search);   // HarvestAPI trial cap per click
             if (start.warning) stopMessage = start.warning;
             if (runs.length === 0) break;
 
@@ -1955,6 +1957,7 @@ async function loadStudents(runLive = false) {
                         scanned += poll.scanned_new || 0;
                         Object.entries(poll.skipped || {}).forEach(([k, n]) => { skipped[k] = (skipped[k] || 0) + n; });
                         if (poll.cost_usd !== null && poll.cost_usd !== undefined) costByRun[r.run_id] = Number(poll.cost_usd);
+                        if (poll.harvest) harvestByRun[r.run_id] = poll.harvest;
                         const knownUrls = new Set(found.map(c => c.profile_url));
                         const fresh = (poll.new_matches || []).filter(c => !knownUrls.has(c.profile_url));
                         fresh.forEach(c => found.push(c));
@@ -2007,7 +2010,9 @@ async function loadStudents(runLive = false) {
         // was found (see search-poll), so nothing needs to be persisted from here.
         const skipText = summarizeStudentSkips(skipped);
         // Apify finalizes a run's cost slightly after it ends, so only show it when it is a real figure.
-        const costText = (cost !== null && Number(cost) > 0) ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '';
+        const harvestRuns = Object.values(harvestByRun);
+        const costText = harvestRuns.length ? harvestSummary(harvestRuns, cost)
+            : ((cost !== null && Number(cost) > 0) ? ` Apify cost for this search: about $${Number(cost).toFixed(2)}.` : '');
         setStudentsSearchStatus(`Finished: scanned <b>${scanned}</b> profiles from Indian colleges, <b>${matches.length}</b> new verified match(es) (<b>${found.length}</b> total for ${escapeHtml(by)} across your team). ${skipText ? 'Not shown: ' + escapeHtml(skipText).replace(/ · /g, '; ') + '.' : ''}${costText} Click Search LinkedIn again to scan the next pages for more.${failNote}${stopMessage ? ' <span style="color:#b45309;">Note: ' + escapeHtml(stopMessage) + '</span>' : ''}`);
         if (found.length === 0) {
             studentsEmptyMessage = `The search finished: none of the ${scanned} profiles scanned had an Indian Bachelor's ending in ${by} together with a US Master's. Click "Search LinkedIn" again to scan the next pages of results (each search moves on to new profiles).`;
@@ -3562,9 +3567,11 @@ async function eduLiveSearch() {
     const what = f === 'A' ? `a Bachelor's from <b>${escapeHtml(inst.name)}</b> and a US Master's`
         : `a Master's from <b>${escapeHtml(inst.name)}</b> and an Indian Bachelor's`;
     let pages = 0, scanned = 0, found = 0, banked = 0, cost = 0, stopMsg = '', exhausted = false;
+    const harvestRuns = [];
     const progress = () => setStudentsSearchStatus(`Searching LinkedIn for people with ${what}: scanned <b>${scanned}</b> profiles, <b>${found}</b> verified so far...`);
     try {
-        while (pages < EDU_LIVE_MAX_PAGES && found < EDU_LIVE_TARGET) {
+        let maxPages = EDU_LIVE_MAX_PAGES;
+        while (pages < maxPages && found < EDU_LIVE_TARGET) {
             progress();
             const sr = await fetch('/api/education/live-start', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) });
             if (sr.status === 401) { window.location.href = '/login'; return; }
@@ -3573,6 +3580,7 @@ async function eduLiveSearch() {
             const run = (sd.runs || [])[0];
             if (!run) { stopMsg = 'Could not start the LinkedIn search.'; break; }
             pages++;
+            if (sd.pages_per_search) maxPages = Math.min(maxPages, sd.pages_per_search);   // HarvestAPI trial cap per click
             let offset = 0, done = false, runCost = 0, runScanned = 0;
             const startedAt = Date.now();
             while (!done && Date.now() - startedAt < 6 * 60 * 1000) {
@@ -3589,6 +3597,7 @@ async function eduLiveSearch() {
                 found += pd.new_matches || 0;
                 banked += pd.passout_banked || 0;
                 if (typeof pd.cost_usd === 'number') runCost = pd.cost_usd;
+                if (pd.harvest && pd.done) harvestRuns.push(pd.harvest);
                 if (pd.provider_error) stopMsg = pd.provider_error;
                 done = !!pd.done;
                 progress();
@@ -3604,7 +3613,7 @@ async function eduLiveSearch() {
         if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
         let summary = `Finished: scanned <b>${scanned}</b> LinkedIn profiles, <b>${found}</b> new verified ${found === 1 ? 'person' : 'people'} with ${what}.`;
         if (banked) summary += ` ${banked} also saved under their Passout year.`;
-        summary += ` Apify cost: about $${cost.toFixed(2)}.`;
+        summary += harvestRuns.length ? harvestSummary(harvestRuns, cost) : ` Apify cost: about $${cost.toFixed(2)}.`;
         if (stopMsg) summary += ` <span style="color:#b91c1c;">${escapeHtml(stopMsg)}</span>`;
         else if (exhausted) summary += ' LinkedIn has no more profiles for this school.';
         else summary += ' Click Search LinkedIn again to scan the next profiles.';
@@ -4428,4 +4437,16 @@ async function autoVendorDrafts(candidateId) {
             showToast(`Daily limit reached: ${name} already has 10 automatic known-vendor drafts today.`, 'info', 6000);
         }
     } catch (err) { /* browsing still works without the automatic drafts */ }
+}
+
+// HarvestAPI direct trial: what the provider actually returned, and the ESTIMATED cost (HarvestAPI's
+// docs publish no per-call prices - the exact figure is in the HarvestAPI dashboard).
+function harvestSummary(runs, cost) {
+    const found = runs.reduce((a, h) => a + (h.search_found || 0), 0);
+    const fetched = runs.reduce((a, h) => a + (h.profiles_ok || 0), 0);
+    const totals = runs.map(h => h.search_total).filter(t => typeof t === 'number');
+    const total = totals.length ? Math.max(...totals) : null;
+    return ` HarvestAPI: the search returned ${found} profile${found === 1 ? '' : 's'}` +
+        (total !== null ? ` (LinkedIn reports ${total.toLocaleString()} in total)` : '') +
+        `, ${fetched} full profile${fetched === 1 ? '' : 's'} fetched. Estimated cost: about $${Number(cost || 0).toFixed(2)} - check the exact usage in your HarvestAPI dashboard.`;
 }

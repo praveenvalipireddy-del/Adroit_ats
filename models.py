@@ -129,17 +129,31 @@ def is_postgres(conn):
     return isinstance(conn, PgConnectionWrapper)
 
 
-def get_db_connection():
-    # If DATABASE_URL is configured (Render PostgreSQL), connect via psycopg2
-    if getattr(config, "DATABASE_URL", None):
-        try:
-            import psycopg2
-            raw_conn = psycopg2.connect(config.DATABASE_URL)
-            return PgConnectionWrapper(raw_conn)
-        except Exception as e:
-            print(f"[WARN] Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
+class DatabaseUnavailable(RuntimeError):
+    pass
 
-    # Local development fallback: SQLite
+
+def get_db_connection():
+    # If DATABASE_URL is configured (Render PostgreSQL), connect via psycopg2. Never fall back to
+    # SQLite here: that silently saved data (e.g. an uploaded vendor list) into a throwaway file on
+    # Render's disk, which every deploy wipes - the recruiter saw it once and then it was gone.
+    # Retry briefly instead, then fail loudly so nothing is "saved" where it won't last.
+    if getattr(config, "DATABASE_URL", None):
+        import time as _time
+        import psycopg2
+        last = None
+        for wait in (0, 0.5, 1.5):
+            if wait:
+                _time.sleep(wait)
+            try:
+                return PgConnectionWrapper(psycopg2.connect(config.DATABASE_URL, connect_timeout=10))
+            except Exception as e:
+                last = e
+                logger.warning("PostgreSQL connection failed (%s); retrying.", e.__class__.__name__)
+        logger.error("PostgreSQL unavailable after retries: %s", last)
+        raise DatabaseUnavailable("The database is unavailable right now - nothing was saved. Please try again in a minute.")
+
+    # Local development (no DATABASE_URL): SQLite
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn

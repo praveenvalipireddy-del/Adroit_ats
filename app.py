@@ -53,6 +53,14 @@ os.makedirs(TOKENS_DIR, exist_ok=True)
 # Initialize database
 models.init_db()
 
+@app.errorhandler(models.DatabaseUnavailable)
+def _database_unavailable(ex):
+    """Postgres unreachable: say so plainly (503) - never pretend something was saved."""
+    if request.path.startswith("/api/"):
+        return jsonify({"error": str(ex)}), 503
+    return make_response(f"<h3>{ex}</h3>", 503)
+
+
 def current_user():
     return session.get("user")
 

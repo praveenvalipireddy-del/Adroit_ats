@@ -5,6 +5,7 @@ import base64
 import difflib
 import json
 import time
+import hashlib
 import logging
 import requests
 import docx
@@ -242,6 +243,96 @@ _REWRITE_FORMAT_DOCX = """- The resume is given as the NUMBERED PARAGRAPHS of th
 
 _REWRITE_CONTRACT_TEXT = _REWRITE_INTRO.replace("@@FORMAT@@", _REWRITE_FORMAT_TEXT)
 _REWRITE_CONTRACT_DOCX = _REWRITE_INTRO.replace("@@FORMAT@@", _REWRITE_FORMAT_DOCX)
+
+# Speed: step 2 used to repeat the WHOLE resume word for word - writing that long answer was most of
+# the wait. In "changes" mode (default) the AI returns only the paragraphs it changes; every other
+# paragraph stays exactly as it is. RESUME_REWRITE_MODE=full brings back the old behaviour (e.g. to
+# compare timings on the live site).
+REWRITE_MODE = "full" if os.getenv("RESUME_REWRITE_MODE", "changes").strip().lower() == "full" else "changes"
+
+_REWRITE_CHANGES_CONTRACT = """=== HOW THIS APP READS YOUR ANSWER - STEP 2 OF 2: ONLY THE CHANGED PARAGRAPHS (this replaces the 'FINAL OUTPUT FORMAT' and 'OUTPUT' wording above for this step) ===
+The analysis and the match decision are already done - see APPROVED ANALYSIS in the message. The resume is given as NUMBERED PARAGRAPHS, for example "[12] (bullet) Built batch pipelines". This app applies your changes paragraph by paragraph, so the original formatting is preserved.
+
+Return ONLY the paragraphs you change - never repeat a paragraph you leave unchanged:
+- A changed paragraph: its number in square brackets, then its complete new text, on one line, for example "[12] Built batch pipelines on AWS Glue and Spark". Do not copy the tags in parentheses.
+- A NEW paragraph (for example a new bullet): "[+12] text" puts it directly after paragraph 12 with that paragraph's formatting, so add new bullets only after a bullet of the same section.
+- Plain text only - no JSON, no markdown fences, no commentary before or after.
+
+Rules:
+- Apply the enhancement level from the approved match decision (Moderate / Strong / Minimal), following every STRICT RESUME SAFETY RULE, the PROJECT ENHANCEMENT LOGIC and the SKILL INSERTION RULES above: the changes belong mainly in the Professional Summary, Technical Skills, and the most recent project with its Environment line.
+- You may add ONLY the skills listed under 'Skills you may add' in the approved analysis. Never add a technology that is neither in that list nor already in the resume, and never add anything under 'Skills NOT to add'.
+- Never change a paragraph tagged 'heading/title line' or 'locked'. Never change a date, an employer, a job title, education, contact details or the total years of experience, and never state a new number of years for any technology. Never delete a paragraph."""
+
+
+def _text_paragraphs(resume_text: str):
+    """A plain-text resume as numbered 'paragraphs' (its non-empty lines) for the changes-only rewrite."""
+    return [{"index": k, "line": i, "text": line, "bullet": False, "heading": False, "locked": False}
+            for k, (i, line) in enumerate((i, l) for i, l in enumerate(resume_text.split("\n")) if l.strip())]
+
+
+def _apply_text_changes(resume_text: str, raw: str, truncated: bool) -> str:
+    """Applies a changes-only answer to a plain-text resume: replaced lines and inserted lines."""
+    lines = resume_text.split("\n")
+    paras = _text_paragraphs(resume_text)
+    entries = docx_editor.parse_numbered(raw)
+    if truncated and entries:
+        entries = entries[:-1]
+    edits, _ = docx_editor.edits_from_rewrite(entries, paras)
+    pos = {p["index"]: p["line"] for p in paras}
+    inserts = {}
+    for e in edits:
+        if e["op"] == "replace":
+            lines[pos[e["paragraph"]]] = e["new_text"]
+        else:
+            inserts.setdefault(pos[e["paragraph"]], []).append(e["new_text"])
+    out = []
+    for i, line in enumerate(lines):
+        out.append(line)
+        out.extend(inserts.get(i, []))
+    return "\n".join(out)
+
+
+# Speed: the same resume + JD (e.g. "Re-optimize") reuses step 1's analysis instead of asking again.
+_ANALYSIS_CACHE = {}
+_ANALYSIS_CACHE_TTL = 6 * 3600
+_ANALYSIS_CACHE_MAX = 200
+
+
+def _analysis_cache_key(master: str, jd_text: str, resume_text: str, custom: str) -> str:
+    return hashlib.sha256("\x1f".join((master, jd_text, resume_text, custom)).encode("utf-8")).hexdigest()
+
+
+def _cached_analysis(key: str):
+    hit = _ANALYSIS_CACHE.get(key)
+    if hit and time.time() - hit[2] < _ANALYSIS_CACHE_TTL:
+        return hit[0], hit[1]
+    _ANALYSIS_CACHE.pop(key, None)
+    return None
+
+
+def _store_analysis(key: str, raw: str, model: str):
+    if len(_ANALYSIS_CACHE) >= _ANALYSIS_CACHE_MAX:
+        _ANALYSIS_CACHE.pop(min(_ANALYSIS_CACHE, key=lambda k: _ANALYSIS_CACHE[k][2]))
+    _ANALYSIS_CACHE[key] = (raw, model, time.time())
+
+
+# Speed: JD boilerplate (benefits, EEO / legal statements, "about us") is sent to the AI twice and
+# says nothing about the skills. Whole paragraphs that are ONLY such boilerplate are dropped; a
+# paragraph that also mentions a requirement is kept. Very long JDs are capped.
+_JD_BOILERPLATE_RE = re.compile(
+    r"equal (employment )?opportunity|\bEEO\b|without regard to (race|color|religion)|reasonable accommodation|"
+    r"affirmative action|e-verify|privacy (notice|policy)|401\(?k\)?|paid time off|\bPTO\b|dental|vision (insurance|coverage)|"
+    r"medical (insurance|benefits)|benefits (include|package)|we offer|perks|about (us|the company|our company)|"
+    r"pay transparency|applicants with arrest|drug[- ]free|veteran status|genetic information", re.I)
+_JD_REQUIREMENT_RE = re.compile(r"experience|years|skill|required|requirement|must|responsibilit|knowledge|proficien|qualification", re.I)
+JD_MAX_CHARS = 9000
+
+
+def trim_jd(jd_text: str) -> str:
+    paras = re.split(r"\n\s*\n", (jd_text or "").strip())
+    kept = [p for p in paras if not (_JD_BOILERPLATE_RE.search(p) and not _JD_REQUIREMENT_RE.search(p))]
+    out = "\n\n".join(kept).strip() or (jd_text or "").strip()
+    return out[:JD_MAX_CHARS]
 
 _BREAKDOWN_CAPS = {
     "mandatory_skills": 40, "recent_project_relevance": 25, "domain_experience": 15,
@@ -503,7 +594,7 @@ def _finish_rewrite(result, plan, raw, truncated, resume_text, docx_bytes):
         if truncated and entries:
             entries = entries[:-1]              # the last paragraph may have been cut off mid-sentence
         edits, seen = docx_editor.edits_from_rewrite(entries, paragraphs)
-        if seen < max(1, int(0.8 * len(paragraphs))):
+        if REWRITE_MODE == "full" and seen < max(1, int(0.8 * len(paragraphs))):
             problem = (f"the rewritten resume came back incomplete ({seen} of {len(paragraphs)} paragraphs"
                        f"{' - it hit the length limit' if truncated else ''})")
         elif not edits:
@@ -526,8 +617,8 @@ def _finish_rewrite(result, plan, raw, truncated, resume_text, docx_bytes):
                     if problem:
                         new_docx, changes, updated = None, [], resume_text
     else:
-        updated = _strip_fences(raw)
-        if truncated:
+        updated = _apply_text_changes(resume_text, _strip_fences(raw), truncated) if REWRITE_MODE == "changes" else _strip_fences(raw)
+        if truncated and REWRITE_MODE == "full":
             problem = "the rewritten resume hit the length limit and was cut off"
         elif not updated:
             problem = "the AI returned no resume"
@@ -680,7 +771,32 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
     raise first_error
 
 
-def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_bytes: bytes = None):
+_GEMINI_CLIENT = None
+
+
+def _gemini_client():
+    """(client, types) - created once per server process and reused. Building a client loads the SSL
+    certificate store (~0.4 s) and a new client also means a new HTTPS connection for every call;
+    reusing it keeps the connection open between step 1 and step 2."""
+    global _GEMINI_CLIENT
+    from google import genai
+    from google.genai import types
+    key = config.GEMINI_API_KEY.strip()
+    if _GEMINI_CLIENT is None or _GEMINI_CLIENT[0] != key:
+        _GEMINI_CLIENT = (key, genai.Client(api_key=key, http_options=types.HttpOptions(timeout=80000)), types)
+    return _GEMINI_CLIENT[1], _GEMINI_CLIENT[2]
+
+
+def prewarm():
+    """Import the Gemini library ahead of the first optimization (it takes ~1.3 s to import)."""
+    if gemini_configured():
+        try:
+            _gemini_client()
+        except Exception as ex:
+            logger.warning(f"Gemini prewarm skipped: {ex}")
+
+
+def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_bytes: bytes = None, timings: dict = None):
     """Runs the master prompt through Gemini in two steps (analysis, then the complete rewritten
     resume). Returns (result, reason): result is the app's response dict, or None - never an
     exception - when AI is unavailable, with `reason` saying why (no key, free quota used up,
@@ -693,15 +809,25 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
         return None, "MASTER_RESUME_PROMPT.md is missing on the server"
 
     custom = custom_instructions or "None"
+    timings = timings if timings is not None else {}
+    jd_text = trim_jd(jd_text)
+    cache_key = _analysis_cache_key(master, jd_text, resume_text, custom)
     try:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=config.GEMINI_API_KEY.strip(), http_options=types.HttpOptions(timeout=80000))
-        raw1, _, model1 = _generate(
-            client, types, master + "\n\n" + _ANALYSIS_CONTRACT,
-            f"JOB DESCRIPTION:\n{jd_text}\n\nRESUME:\n{resume_text}\n\nOPTIONAL INSTRUCTIONS:\n{custom}\n",
-            want_json=True, max_tokens=8192)
+        t0 = time.monotonic()
+        client, types = _gemini_client()
+        timings["client_s"] = round(time.monotonic() - t0, 2)
+        t0 = time.monotonic()
+        cached = _cached_analysis(cache_key)
+        if cached:
+            raw1, model1 = cached
+            timings["analysis_cached"] = True
+        else:
+            raw1, _, model1 = _generate(
+                client, types, master + "\n\n" + _ANALYSIS_CONTRACT,
+                f"JOB DESCRIPTION:\n{jd_text}\n\nRESUME:\n{resume_text}\n\nOPTIONAL INSTRUCTIONS:\n{custom}\n",
+                want_json=True, max_tokens=8192)
+            timings["analysis_cached"] = False
+        timings["analysis_s"] = round(time.monotonic() - t0, 2)
     except Exception as ex:
         reason = _explain_gemini_error(ex)
         logger.warning(f"Gemini analysis unavailable: {reason}")
@@ -712,6 +838,8 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
     data = _parse_json_object(raw1)
     if data is None:
         return None, "Gemini's answer was not valid JSON (it may have been cut off) - try again"
+    if not timings.get("analysis_cached"):
+        _store_analysis(cache_key, raw1, model1)
     result, plan = _analysis_result(data, resume_text)
     if result is None:
         return None, plan                       # (None, reason)
@@ -729,11 +857,18 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
 
     # Step 2: the complete updated resume, as plain text.
     try:
-        resume_block = docx_editor.numbered_listing(docx_editor.load_paragraphs(docx_bytes)[1]) if docx_bytes is not None else resume_text
+        t0 = time.monotonic()
+        if REWRITE_MODE == "changes":
+            paras = docx_editor.load_paragraphs(docx_bytes)[1] if docx_bytes is not None else _text_paragraphs(resume_text)
+            resume_block, contract, max_out = docx_editor.numbered_listing(paras), _REWRITE_CHANGES_CONTRACT, 6144
+        else:
+            resume_block = docx_editor.numbered_listing(docx_editor.load_paragraphs(docx_bytes)[1]) if docx_bytes is not None else resume_text
+            contract, max_out = (_REWRITE_CONTRACT_DOCX if docx_bytes is not None else _REWRITE_CONTRACT_TEXT), 16384
         raw2, truncated, model2 = _generate(
-            client, types, master + "\n\n" + (_REWRITE_CONTRACT_DOCX if docx_bytes is not None else _REWRITE_CONTRACT_TEXT),
+            client, types, master + "\n\n" + contract,
             f"{_approved_block(result, plan)}\nJOB DESCRIPTION:\n{jd_text}\n\nRESUME:\n{resume_block}\n\nOPTIONAL INSTRUCTIONS:\n{custom}\n",
-            want_json=False, max_tokens=16384)
+            want_json=False, max_tokens=max_out)
+        timings["rewrite_s"] = round(time.monotonic() - t0, 2)
         if model2 != model1:
             result["ai_model"] = f"{model1} (analysis) + {model2} (resume)"
     except Exception as ex:
@@ -742,7 +877,10 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
         result["not_optimized_reason"] = (f"The match analysis worked, but the step that writes the updated resume failed: "
                                           f"{reason}. Your resume was left unchanged - click Optimize again to retry.")
         return result, ""
-    return _finish_rewrite(result, plan, raw2, truncated, resume_text, docx_bytes), ""
+    t0 = time.monotonic()
+    out = _finish_rewrite(result, plan, raw2, truncated, resume_text, docx_bytes)
+    timings["apply_s"] = round(time.monotonic() - t0, 2)
+    return out, ""
 
 
 def _cert_edu_points(text: str) -> int:
@@ -828,6 +966,8 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_by
     `docx_base64`, that same file with only the AI's targeted edits applied, so the original
     formatting is preserved. If the file can't be read, it falls back to the plain-text path."""
     jd_text = (jd_text or "").strip()
+    started = time.monotonic()
+    timings = {"rewrite_mode": REWRITE_MODE}
     if docx_bytes is not None:
         try:
             resume_text = docx_editor.extract_text(docx_bytes)
@@ -838,9 +978,13 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_by
     if not resume_text or not jd_text:
         return {"error": "Both resume and job description are required."}
 
-    result, reason = _ai_optimize(resume_text, jd_text, (custom_instructions or "").strip(), docx_bytes)
+    timings["read_resume_s"] = round(time.monotonic() - started, 2)
+    result, reason = _ai_optimize(resume_text, jd_text, (custom_instructions or "").strip(), docx_bytes, timings)
     if result is None:
         result = _keyword_analysis(resume_text, jd_text, reason)
+    timings["total_s"] = round(time.monotonic() - started, 2)
+    result["timings"] = timings
+    logger.info("Resume optimizer timings: %s", timings)
     result.setdefault("format_preserved", False)
     result.setdefault("docx_base64", "")
     result.setdefault("changes", [])

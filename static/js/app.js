@@ -1251,7 +1251,20 @@ function initResumeBot() {
             }
 
             btnOptimize.disabled = true;
-            btnOptimize.innerHTML = '⚡ Running your master prompt: analysis, then writing the resume (up to 2 minutes)...';
+            // Progress: a live timer (the server works in one request, so the page shows elapsed time and
+            // what happens in order - it does not pretend to know which step the server is on).
+            const optStarted = Date.now();
+            const progressEl = document.getElementById('resumebot-progress');
+            const tick = () => {
+                const s = Math.round((Date.now() - optStarted) / 1000);
+                btnOptimize.innerHTML = `<span class="spinner" style="display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2px;"></span>Optimizing... ${s}s`;
+                if (progressEl) {
+                    progressEl.style.display = 'block';
+                    progressEl.innerHTML = `<b>Working - ${s}s.</b> 1) The AI checks the match against the JD, 2) writes only the changes, 3) the changes go into the Word file. Usually under a minute.`;
+                }
+            };
+            tick();
+            const optTimer = setInterval(tick, 1000);
 
             try {
                 // What is sent is always the resume the box says is in use:
@@ -1321,7 +1334,7 @@ function initResumeBot() {
                     else if (data.ai_powered) badge = `<span class="badge" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">✨ AI analysis - resume left unchanged${modelTag}</span>`;
                     else badge = `<span class="badge" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;">⚙️ Keyword scan only (no AI)</span>`
                         + (data.ai_unavailable_reason ? `<div style="font-size:0.78rem; color:#b45309; margin-top:4px;">AI skipped: ${escapeHtml(data.ai_unavailable_reason)}</div>` : '');
-                    aiBadge.innerHTML = badge;
+                    aiBadge.innerHTML = badge + optimizerTimingsHtml(data.timings);
                 }
 
                 const banner = byId('result-not-optimized');
@@ -1395,6 +1408,9 @@ function initResumeBot() {
             } catch (err) {
                 showToast('Optimization error: ' + err.message, 'error');
             } finally {
+                clearInterval(optTimer);
+                const progressDone = document.getElementById('resumebot-progress');
+                if (progressDone) progressDone.style.display = 'none';
                 btnOptimize.disabled = false;
                 btnOptimize.innerHTML = '⚡ Optimize & Calculate Match %';
             }
@@ -4520,4 +4536,14 @@ function harvestSummary(runs, cost) {
     return ` HarvestAPI: the search returned ${found} profile${found === 1 ? '' : 's'}` +
         (total !== null ? ` (LinkedIn reports ${total.toLocaleString()} in total)` : '') +
         `, ${fetched} full profile${fetched === 1 ? '' : 's'} fetched. Estimated cost: about $${Number(cost || 0).toFixed(2)} - check the exact usage in your HarvestAPI dashboard.`;
+}
+
+// "Took 38.2s - AI analysis 14.1s (reused) - AI rewrite 22.9s - Word file 0.3s" under the result.
+function optimizerTimingsHtml(t) {
+    if (!t || typeof t.total_s !== 'number') return '';
+    const parts = [];
+    if (typeof t.analysis_s === 'number') parts.push(`AI analysis ${t.analysis_cached ? 'reused (0s)' : t.analysis_s.toFixed(1) + 's'}`);
+    if (typeof t.rewrite_s === 'number') parts.push(`AI rewrite ${t.rewrite_s.toFixed(1)}s${t.rewrite_mode === 'full' ? ' (full-resume mode)' : ''}`);
+    if (typeof t.apply_s === 'number') parts.push(`Word file ${t.apply_s.toFixed(1)}s`);
+    return `<div class="optimizer-timings" style="font-size:0.75rem; color:#64748b; margin-top:4px;">Took ${t.total_s.toFixed(1)}s${parts.length ? ' &middot; ' + parts.join(' &middot; ') : ''}</div>`;
 }

@@ -215,7 +215,7 @@ def edit_problem(old, new, inserting=False):
 
 
 _TAG_RE = re.compile(r"^\((?:bullet|heading/title line - do not edit|locked - do not edit)\)\s*")
-_LINE_RE = re.compile(r"^\[(\d+|\+)\]\s?(.*)$")
+_LINE_RE = re.compile(r"^\[(\d+|\+\d*)\]\s?(.*)$")
 
 
 def _norm(text):
@@ -234,7 +234,10 @@ def parse_numbered(text):
         m = _LINE_RE.match(line.strip())
         if m:
             tag, body = m.groups()
-            entries.append(["+" if tag == "+" else "n", None if tag == "+" else int(tag), _TAG_RE.sub("", body.lstrip())])
+            if tag.startswith("+"):   # "[+]" = after the previous line; "[+12]" = after paragraph 12
+                entries.append(["+", int(tag[1:]) if tag[1:] else None, _TAG_RE.sub("", body.lstrip())])
+            else:
+                entries.append(["n", int(tag), _TAG_RE.sub("", body.lstrip())])
         elif entries and line.strip():
             entries[-1][2] += "\n" + line.rstrip()
     return entries
@@ -260,6 +263,8 @@ def edits_from_rewrite(entries, paragraphs):
                 edits.append({"op": "replace", "paragraph": idx, "new_text": body})
         else:
             body = body.strip().split("\n")[0].strip()          # a new paragraph is one line
+            if idx is not None and idx in originals:
+                anchor = idx                                      # "[+12]": explicitly after paragraph 12
             if anchor is not None and body:
                 edits.append({"op": "insert_after", "paragraph": anchor, "new_text": body})
     return edits, len(seen)

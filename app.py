@@ -15,6 +15,7 @@ import msal
 import config
 import models
 import resume_bot
+import threading
 import apify_service
 import linkedin_sourcing
 import harvest_direct
@@ -52,6 +53,8 @@ os.makedirs(TOKENS_DIR, exist_ok=True)
 
 # Initialize database
 models.init_db()
+# Load the Gemini library in the background so the first Resume Optimizer run doesn't wait for it.
+threading.Thread(target=resume_bot.prewarm, daemon=True).start()
 
 @app.errorhandler(models.DatabaseUnavailable)
 def _database_unavailable(ex):

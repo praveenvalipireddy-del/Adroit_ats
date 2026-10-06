@@ -139,6 +139,14 @@ res3 = rb.optimize_resume_for_jd(text_resume, JD)
 check(res3.get("optimized") and "Spark, Kafka, Python and SQL" in res3["updated_resume_text"]
       and res3["updated_resume_text"].count("\n") == text_resume.count("\n"), f"text path: {res3.get('not_optimized_reason')}")
 
+# ---- in pasted text, heading lines and the name are protected like in a Word file
+heading_idx = next(p["index"] for p in tp if p["text"] == "TECHNICAL SKILLS")
+check(tp[0]["heading"] and next(p for p in tp if p["index"] == heading_idx)["heading"], "name + headings tagged")
+check("(heading/title line - do not edit) TECHNICAL SKILLS" in docx_editor.numbered_listing(tp), "the AI is told not to edit headings")
+out = rb._apply_text_changes(text_resume, f"[{heading_idx}] Data Engineer summary text\n[0] Someone Else", False)
+check("TECHNICAL SKILLS" in out and "Someone Else" not in out and out.splitlines()[0] == text_resume.splitlines()[0],
+      "a change to a heading or the name is ignored")
+
 # ---- RESUME_REWRITE_MODE=full still works (the old behaviour)
 rb.REWRITE_MODE = "full"
 full_ans = "\n".join(f"[{p['index']}] {p['text'].replace('Spark, Python and SQL', 'Spark, Kafka, Python and SQL')}" for p in paras)

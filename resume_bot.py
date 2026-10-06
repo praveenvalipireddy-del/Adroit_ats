@@ -15,6 +15,7 @@ import pypdf
 
 import config
 import docx_editor
+import cloud_align
 
 logger = logging.getLogger("resume_bot")
 
@@ -266,7 +267,8 @@ Rules:
 
 def _text_paragraphs(resume_text: str):
     """A plain-text resume as numbered 'paragraphs' (its non-empty lines) for the changes-only rewrite."""
-    return [{"index": k, "line": i, "text": line, "bullet": False, "heading": False, "locked": False}
+    # Heading lines (and the name on the first line) are tagged "do not edit", like in a Word file.
+    return [{"index": k, "line": i, "text": line, "bullet": False, "heading": k == 0 or _looks_like_heading(line.strip()), "locked": False}
             for k, (i, line) in enumerate((i, l) for i, l in enumerate(resume_text.split("\n")) if l.strip())]
 
 
@@ -279,8 +281,11 @@ def _apply_text_changes(resume_text: str, raw: str, truncated: bool) -> str:
         entries = entries[:-1]
     edits, _ = docx_editor.edits_from_rewrite(entries, paras)
     pos = {p["index"]: p["line"] for p in paras}
+    headings = {p["index"] for p in paras if p["heading"]}
     inserts = {}
     for e in edits:
+        if e["op"] == "replace" and e["paragraph"] in headings:
+            continue                                   # a heading / the name is never rewritten
         if e["op"] == "replace":
             lines[pos[e["paragraph"]]] = e["new_text"]
         else:
@@ -979,9 +984,16 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_by
         return {"error": "Both resume and job description are required."}
 
     timings["read_resume_s"] = round(time.monotonic() - started, 2)
-    result, reason = _ai_optimize(resume_text, jd_text, (custom_instructions or "").strip(), docx_bytes, timings)
+    # Cloud alignment: the JD's primary cloud goes to the AI as a judged priority (never "relabel the
+    # projects"), and the final resume is checked for it - see cloud_align.
+    jd_info = cloud_align.jd_cloud(jd_text)
+    block = cloud_align.prompt_block(jd_info, cloud_align.clouds_in(resume_text))
+    instructions = "\n\n".join(x for x in ((custom_instructions or "").strip(), block) if x)
+    result, reason = _ai_optimize(resume_text, jd_text, instructions, docx_bytes, timings)
     if result is None:
         result = _keyword_analysis(resume_text, jd_text, reason)
+    result["jd_cloud"] = jd_info
+    result["cloud_check"] = cloud_align.validate(result.get("updated_resume_text") or resume_text, jd_info["primary"])
     timings["total_s"] = round(time.monotonic() - started, 2)
     result["timings"] = timings
     logger.info("Resume optimizer timings: %s", timings)

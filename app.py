@@ -15,6 +15,7 @@ import msal
 import config
 import models
 import resume_bot
+import cloud_align
 import threading
 import apify_service
 import linkedin_sourcing
@@ -1444,6 +1445,24 @@ def _ensure_resume_text(cand):
     cand["resume_filename"] = cand.get("resume_filename") or filename
     logger.info(f"Extracted stored resume text for consultant #{cand['id']} ({filename}, {len(text)} chars)")
     return cand
+
+
+@app.route("/api/jd/cloud", methods=["POST"])
+def api_jd_cloud():
+    """The JD's primary cloud (AWS / Azure / GCP) and whether the chosen consultant's profile shows it."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    info = cloud_align.jd_cloud(str(data.get("jd_text") or "")[:20000])
+    consultant = []
+    cid = _int_or_none(data.get("candidate_id"))
+    if cid and can_access_candidate(user, cid):
+        cand = models.get_candidate_by_id(cid) or {}
+        consultant = cloud_align.clouds_in(" ".join(str(cand.get(k) or "") for k in ("primary_skills", "title", "resume_summary", "resume_text")))
+    info["consultant_clouds"] = consultant
+    info["mismatch"] = bool(info["primary"] and consultant and info["primary"] not in consultant)
+    return jsonify(info)
 
 
 @app.route("/api/resume-bot/extract-text", methods=["POST", "OPTIONS"])

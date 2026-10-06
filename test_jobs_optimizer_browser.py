@@ -138,7 +138,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.58.0" in page.content(), "cache-buster not bumped to 5.58.0")
+        check("app.js?v=5.59.0" in page.content(), "cache-buster not bumped to 5.59.0")
 
         # 1. Browse Jobs on Karun (not the first consultant)
         page.click("a.nav-item[data-tab=candidates]")

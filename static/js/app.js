@@ -569,6 +569,8 @@ function openPasteDraftModal(candId = null) {
     const form = document.getElementById('form-paste-draft');
     if (form) form.reset();
     pdVendorReset();
+    const cloudNote = document.getElementById('pd-cloud-note');
+    if (cloudNote) { cloudNote.style.display = 'none'; cloudNote.innerHTML = ''; }
 
     const select = document.getElementById('pd-consultant-select');
     if (select && candId) {
@@ -1337,6 +1339,8 @@ function initResumeBot() {
                     aiBadge.innerHTML = badge + optimizerTimingsHtml(data.timings);
                 }
 
+                renderCloudCheck(byId('result-cloud-check'), data.cloud_check);
+
                 const banner = byId('result-not-optimized');
                 if (banner) {
                     banner.style.display = data.optimized ? 'none' : 'block';
@@ -1692,6 +1696,10 @@ function initModals() {
     const formPasteDraft = document.getElementById('form-paste-draft');
     const rawTextarea = document.getElementById('pd-raw-text');
 
+    ['pd-raw-text', 'pd-consultant-select'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener(id === 'pd-raw-text' ? 'input' : 'change', pdCloudSchedule);
+    });
     ['pd-raw-text', 'pd-email', 'pd-company'].forEach(id => {
         document.getElementById(id)?.addEventListener('input', pdVendorSchedule);
     });
@@ -4546,4 +4554,57 @@ function optimizerTimingsHtml(t) {
     if (typeof t.rewrite_s === 'number') parts.push(`AI rewrite ${t.rewrite_s.toFixed(1)}s${t.rewrite_mode === 'full' ? ' (full-resume mode)' : ''}`);
     if (typeof t.apply_s === 'number') parts.push(`Word file ${t.apply_s.toFixed(1)}s`);
     return `<div class="optimizer-timings" style="font-size:0.75rem; color:#64748b; margin-top:4px;">Took ${t.total_s.toFixed(1)}s${parts.length ? ' &middot; ' + parts.join(' &middot; ') : ''}</div>`;
+}
+
+// =========================================================================
+// Cloud alignment (cloud_align.py): the JD's primary cloud vs the resume / consultant.
+// Equivalent services are talking points to CONFIRM with the consultant - never written into the resume.
+// =========================================================================
+function renderCloudCheck(el, cc) {
+    if (!el) return;
+    if (!cc || !cc.target) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const ok = !!cc.ok;
+    el.style.display = 'block';
+    el.style.background = ok ? '#ecfdf5' : '#fffbeb';
+    el.style.border = ok ? '1px solid #a7f3d0' : '1px solid #fde68a';
+    el.style.color = ok ? '#065f46' : '#92400e';
+    const ticks = Object.entries(cc.sections || {}).map(([k, v]) => `${v ? '✓' : '✗'} ${escapeHtml(k.replace('_', ' '))}`).join(' &middot; ');
+    const eq = (cc.equivalents || []).length
+        ? `<div style="margin-top:6px; color:#78350f;">Equivalent services to ask the consultant about (only if they really used them): ` +
+          cc.equivalents.slice(0, 8).map(e => `${escapeHtml(e.from)} &rarr; ${escapeHtml(e.to)}`).join(', ') + '</div>'
+        : '';
+    el.innerHTML = `<b>${ok ? '☁ Cloud check passed' : '⚠ Cloud mismatch'}:</b> ${escapeHtml(cc.message)}<div style="margin-top:4px; font-size:0.8rem;">${ticks}</div>${eq}`;
+}
+
+let pdCloudTimer = null;
+function pdCloudSchedule() {
+    clearTimeout(pdCloudTimer);
+    pdCloudTimer = setTimeout(pdCloudCheck, 450);
+}
+
+async function pdCloudCheck() {
+    const note = document.getElementById('pd-cloud-note');
+    const jd = document.getElementById('pd-raw-text')?.value || '';
+    if (!note) return;
+    if (jd.trim().length < 20) { note.style.display = 'none'; return; }
+    const cid = parseInt(document.getElementById('pd-consultant-select')?.value || '');
+    try {
+        const res = await fetch('/api/jd/cloud', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jd_text: jd, candidate_id: cid || null }) });
+        const d = await res.json();
+        if (!res.ok || !d.primary) { note.style.display = 'none'; return; }
+        const others = (d.mentioned || []).filter(c => c !== d.primary);
+        const cand = (state.consultants || []).find(c => c.id === cid);
+        note.style.display = 'block';
+        if (d.mismatch) {
+            note.style.background = '#fffbeb'; note.style.border = '1px solid #fde68a'; note.style.color = '#92400e';
+            note.innerHTML = `⚠ <b>JD cloud: ${escapeHtml(d.primary)}</b>${others.length ? ` (also mentions ${escapeHtml(others.join(', '))})` : ''} - ` +
+                `${escapeHtml(cand ? cand.name : 'this consultant')}'s profile shows ${escapeHtml(d.consultant_clouds.join(', '))}. ` +
+                `Optimize the resume for this JD and confirm their ${escapeHtml(d.primary)} experience before sending.`;
+        } else {
+            note.style.background = '#eff6ff'; note.style.border = '1px solid #bfdbfe'; note.style.color = '#1e3a8a';
+            note.innerHTML = `☁ <b>JD cloud: ${escapeHtml(d.primary)}</b>${others.length ? ` (also mentions ${escapeHtml(others.join(', '))})` : ''}` +
+                (d.consultant_clouds && d.consultant_clouds.length ? ` - matches the consultant's profile.` : '');
+        }
+    } catch (err) { note.style.display = 'none'; }
 }

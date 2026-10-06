@@ -322,7 +322,7 @@ function renderConsultantsGrid() {
                 <div class="integration-item">
                     <span><strong>Gmail Mailbox:</strong></span>
                     ${gmailConnected ? 
-                        `<span style="color: #34d399; font-weight: 600;">✓ Connected (${escapeHtml(c.gmail_account || 'Active')})</span>` : 
+                        `<span style="color: #34d399; font-weight: 600;">✓ Connected (${escapeHtml(c.gmail_account || 'Active')})</span> ${gmailManageButtons(c)}` : 
                         `<div>
                             <button class="btn btn-success btn-xs btn-open-app-pass" data-id="${c.id}" data-name="${escapeHtml(c.name)}" data-email="${escapeHtml(c.email || '')}">🔑 App Password</button>
                             ${window.HAS_GOOGLE_OAUTH ? `<a href="/api/consultants/${c.id}/connect-gmail" class="btn btn-outline-primary btn-xs" style="margin-left:4px;">OAuth</a>` : ''}
@@ -524,6 +524,30 @@ function openUploadResumeModal(candId, candName) {
 function closeUploadResumeModal() {
     const modal = document.getElementById('modal-upload-resume');
     if (modal) modal.style.display = 'none';
+}
+
+// A connected Gmail can be changed (connect another one - it replaces the old one once Google
+// accepts the new App Password) or disconnected (forgets the address, App Password and OAuth token).
+function gmailManageButtons(c) {
+    return `<button type="button" class="btn-change-gmail" title="Connect a different Gmail for this consultant" onclick="changeConsultantGmail(${c.id})" style="display:inline-flex; align-items:center; padding:2px 8px; border-radius:6px; font-size:0.72rem; font-weight:600; cursor:pointer; background:#fff; white-space:nowrap; color:#2563eb; border:1px solid #bfdbfe;">Change Gmail</button>` +
+        `<button type="button" class="btn-disconnect-gmail" title="Remove the connected Gmail" onclick="disconnectConsultantGmail(${c.id})" style="display:inline-flex; align-items:center; padding:2px 8px; border-radius:6px; font-size:0.72rem; font-weight:600; cursor:pointer; background:#fff; white-space:nowrap; color:#b91c1c; border:1px solid #fecaca;">Disconnect</button>`;
+}
+
+function changeConsultantGmail(candId) {
+    const c = (state.consultants || []).find(x => x.id === candId);
+    openAppPasswordModal(candId, c ? c.name : 'this consultant', '');   // empty: type the NEW Gmail
+}
+
+async function disconnectConsultantGmail(candId) {
+    const c = (state.consultants || []).find(x => x.id === candId);
+    const who = c ? c.name : 'this consultant';
+    const mail = c && c.gmail_account ? ` (${c.gmail_account})` : '';
+    if (!confirm(`Disconnect the Gmail${mail} from ${who}?\n\nDrafts already in that Gmail stay there. You can then connect a different Gmail.`)) return;
+    const res = await fetch(`/api/consultants/${candId}/disconnect-gmail`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Could not disconnect the Gmail.', 'error'); return; }
+    showToast(`Gmail disconnected from ${who}. Click "App Password" to connect the new Gmail.`, 'success', 6000);
+    await fetchConsultants();
 }
 
 function openAppPasswordModal(candId, candName, candEmail) {
@@ -2930,6 +2954,8 @@ function renderConsultantsTable() {
                         <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; color: #059669;">
                             <span style="width: 7px; height: 7px; border-radius: 50%; background: #059669;"></span> Connected
                         </span>
+                        ${c.gmail_account ? `<span style="font-size:0.72rem; color:#475569;">${escapeHtml(c.gmail_account)}</span>` : ''}
+                        <div style="display:flex; gap:4px;">${gmailManageButtons(c)}</div>
                     ` : `
                         <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
                             <button class="btn btn-xs btn-open-app-pass" data-id="${c.id}" data-name="${escapeHtml(c.name)}" data-email="${escapeHtml(c.email || '')}" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; cursor:pointer;">

@@ -44,6 +44,20 @@ def verify_gmail_app_password(gmail_address: str, app_password: str) -> Tuple[bo
     except Exception as e:
         return False, str(e)
 
+def disconnect_candidate_gmail(candidate_id: int) -> None:
+    """Forget a consultant's Gmail: the App Password, the Gmail address it belonged to, and any
+    Google OAuth token file - so a different Gmail can be connected. Drafts already in that Gmail
+    stay there (nothing in Gmail is touched)."""
+    cand = models.get_candidate_by_id(candidate_id) or {}
+    for p in {TOKENS_DIR / f"token_{candidate_id}.json", Path(cand["gmail_token_path"]) if cand.get("gmail_token_path") else None} - {None}:
+        try:
+            if p.exists():
+                p.unlink()
+        except OSError:
+            pass
+    models.update_candidate(candidate_id, gmail_account="", gmail_app_password="", gmail_token_path="")
+
+
 def is_candidate_connected(candidate_id: int) -> Dict[str, Any]:
     cand = models.get_candidate_by_id(candidate_id)
     if not cand:

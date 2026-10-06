@@ -517,6 +517,22 @@ def api_set_consultant_app_password(candidate_id):
         "message": f"Gmail ({gmail_account}) verified and connected successfully via App Password!"
     })
 
+@app.route("/api/consultants/<int:candidate_id>/disconnect-gmail", methods=["POST"])
+def api_disconnect_consultant_gmail(candidate_id):
+    """Remove the connected Gmail (App Password / OAuth) so another Gmail can be connected."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
+    cand = models.get_candidate_by_id(candidate_id) or {}
+    old = cand.get("gmail_account") or ""
+    gmail_multi_manager.disconnect_candidate_gmail(candidate_id)
+    models.log_activity(user["id"], user["name"], "Disconnected Gmail", "Candidate", candidate_id,
+                        f"Removed Gmail {old or '(none)'} from consultant #{candidate_id}")
+    return jsonify({"success": True, "candidate_id": candidate_id, "removed": old})
+
+
 @app.route("/api/consultants/<int:candidate_id>/connect-gmail")
 def api_connect_candidate_gmail(candidate_id):
     user = current_user()

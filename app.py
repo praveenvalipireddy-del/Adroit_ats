@@ -16,6 +16,7 @@ import config
 import models
 import resume_bot
 import cloud_align
+import resume_versions
 import threading
 import apify_service
 import linkedin_sourcing
@@ -975,12 +976,17 @@ def api_paste_and_draft():
     })
 
     # Call multi-manager to draft in Gmail with attached .docx resume
+    version_id = _int_or_none(data.get("optimized_resume_id"))
+    attachment = _resume_version_for(user, candidate_id, version_id) if version_id else None
+    if version_id and not attachment:
+        return jsonify({"error": "That saved resume version doesn't belong to this consultant."}), 400
     result = gmail_multi_manager.create_candidate_draft(
         candidate_id=int(candidate_id),
         job_id=job_id,
         custom_to_email=recruiter_email,
         custom_notes=custom_notes,
-        bcc=[c["email"] for c in bcc_contacts]
+        bcc=[c["email"] for c in bcc_contacts],
+        attachment=attachment
     )
 
     if not result.get("success"):
@@ -1036,7 +1042,8 @@ def api_create_outreach_draft():
         custom_notes=custom_notes,
         custom_subject=custom_subject,
         custom_body=custom_body,
-        bcc=[c["email"] for c in bcc_contacts]
+        bcc=[c["email"] for c in bcc_contacts],
+        attachment=_resume_version_for(user, candidate_id, _int_or_none(data.get("optimized_resume_id")), job_id)
     )
 
     if not result.get("success"):
@@ -1407,6 +1414,15 @@ def api_resume_bot_optimize():
         format_note = ("Original formatting is only kept when the resume is a .docx file (attached or stored). This download is a clean "
                        "Word file built from the resume text.")
     result["format_note"] = "" if result.get("format_preserved") else format_note
+    # Item: <Name>_<PrimarySkill>.docx - the name the version gets when the recruiter clicks Save.
+    named_cand = None
+    name_cid = _int_or_none((request.form.get("candidate_id") if request.form else None) or (request.get_json(silent=True) or {}).get("candidate_id"))
+    if name_cid and can_access_candidate(user, name_cid):
+        named_cand = models.get_candidate_by_id(name_cid)
+    result["primary_skill"] = resume_versions.primary_skill(result, named_cand, jd_text)
+    person = (named_cand or {}).get("name") or (result.get("candidate_name") if result.get("candidate_name_detected") else "") or "Consultant"
+    result["suggested_filename"] = resume_versions.make_filename(
+        person, result["primary_skill"], resume_versions.taken_names(name_cid) if named_cand else [])
     return jsonify(result)
 
 
@@ -1445,6 +1461,68 @@ def _ensure_resume_text(cand):
     cand["resume_filename"] = cand.get("resume_filename") or filename
     logger.info(f"Extracted stored resume text for consultant #{cand['id']} ({filename}, {len(text)} chars)")
     return cand
+
+
+@app.route("/api/optimized-resumes", methods=["GET", "POST"])
+def api_optimized_resumes():
+    """POST: save the version the recruiter reviewed / edited (never automatic) as
+    <Name>_<PrimarySkill>.docx (_v2, _v3 ... if taken). GET ?candidate_id=: that consultant's versions."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if request.method == "GET":
+        cid = _int_or_none(request.args.get("candidate_id"))
+        if not cid or not can_access_candidate(user, cid):
+            return jsonify({"error": "Consultant not found"}), 404
+        return jsonify({"versions": resume_versions.list_for(cid)})
+    data = request.get_json(silent=True) or {}
+    cid = _int_or_none(data.get("candidate_id"))
+    if not cid or not can_access_candidate(user, cid):
+        return jsonify({"error": "Choose the consultant this resume belongs to."}), 404
+    edited = str(data.get("edited_text") or "").strip()
+    if len(edited) < 50:
+        return jsonify({"error": "The resume text is empty - optimize first, or undo the deletion."}), 400
+    cand = models.get_candidate_by_id(cid)
+    ai_docx = resume_versions.decode_docx(data.get("docx_base64") or "")
+    if data.get("docx_base64") and ai_docx is None:
+        return jsonify({"error": "The optimized Word file was not readable - optimize again."}), 400
+    jd_text = str(data.get("jd_text") or "")
+    skill = str(data.get("primary_skill") or "").strip() or resume_versions.primary_skill({}, cand, jd_text)
+    filename = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cid))
+    file_bytes, kept, note = resume_versions.build_final_docx(ai_docx, str(data.get("ai_text") or ""), edited, cand.get("name") or "Consultant")
+    job_id = _int_or_none(data.get("job_id"))
+    if job_id and not models.get_job_by_id(job_id):
+        job_id = None
+    version_id = resume_versions.save(cid, job_id, filename, file_bytes, skill, cloud_align.jd_cloud(jd_text)["primary"] or "",
+                                      jd_text.strip()[:300], user["id"])
+    models.log_activity(user["id"], user["name"], "Saved Tailored Resume", "Candidate", cid,
+                        f"{filename}" + (f" for job #{job_id}" if job_id else ""))
+    return jsonify({"success": True, "id": version_id, "filename": filename, "format_preserved": kept, "note": note})
+
+
+@app.route("/api/optimized-resumes/<int:version_id>/download", methods=["GET"])
+def api_optimized_resume_download(version_id):
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    v = resume_versions.get(version_id)
+    if not v or not can_access_candidate(user, v["candidate_id"]):
+        return jsonify({"error": "Not found"}), 404
+    return send_file(io.BytesIO(v["data"]), as_attachment=True, download_name=v["filename"],
+                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+def _resume_version_for(user, candidate_id, version_id, job_id=None):
+    """(filename, bytes) of the saved version to attach: the one chosen, else the latest saved for
+    this consultant + job, else None (the original resume is attached)."""
+    v = None
+    if version_id:
+        v = resume_versions.get(version_id)
+        if not v or v["candidate_id"] != int(candidate_id):
+            return None
+    elif job_id:
+        v = resume_versions.latest_for_job(int(candidate_id), int(job_id))
+    return (v["filename"], v["data"]) if v and v.get("data") else None
 
 
 @app.route("/api/jd/cloud", methods=["POST"])

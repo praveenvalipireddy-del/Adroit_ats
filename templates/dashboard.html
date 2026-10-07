@@ -738,6 +738,8 @@
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                 Download Tailored .DOCX Resume
                             </button>
+                            <button class="btn btn-primary" id="btn-save-optimized-version" style="display:none; margin-left:6px;" title="Save this version (with your edits) to the consultant as Name_Skill.docx">💾 Save version</button>
+                            <div id="save-version-status" style="font-size:0.78rem; color:#475569; margin-top:4px;"></div>
                         </div>
 
                         <div id="result-cloud-check" style="display:none; margin:12px 0; padding:12px 14px; border-radius:8px; font-size:0.86rem;"></div>
@@ -1100,6 +1102,10 @@
                         </div>
                     </div>
 
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-pd-optimize" title="Tailor this consultant's resume to the pasted requirement - you review and edit it, and only what you save is attached">⚡ Optimize Resume for this JD</button>
+                        <span id="pd-resume-version" style="font-size:0.82rem; color:#475569;">Attaching: the consultant's original resume.</span>
+                    </div>
                     <div id="pd-cloud-note" style="display:none; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:0.85rem;"></div>
                     <div id="pd-vendor-box" style="display:none; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:0.875rem;"></div>
 
@@ -1115,6 +1121,37 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+
+    <!-- MODAL: optimize the resume for the requirement being drafted (resume_versions.py) -->
+    <div class="modal-backdrop" id="modal-draft-optimize" style="display: none; z-index: 1150;">
+        <div class="modal-dialog" style="max-width: 1180px; width: 96vw;">
+            <div class="modal-header">
+                <h3>⚡ Optimize Resume for this Requirement</h3>
+                <button class="modal-close" type="button" id="btn-close-draft-optimize">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="do-status" role="status" aria-live="polite" style="font-size:0.85rem; color:#1e3a8a; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 10px; margin-bottom:10px;"></div>
+                <div id="do-cloud" style="display:none; margin-bottom:10px; padding:10px 12px; border-radius:8px; font-size:0.85rem;"></div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:12px;">
+                    <div>
+                        <label style="font-size:0.8rem; font-weight:700; color:#475569;">Original resume</label>
+                        <textarea id="do-original" rows="18" class="form-control" readonly style="font-size:0.82rem; background:#f8fafc;"></textarea>
+                    </div>
+                    <div>
+                        <label style="font-size:0.8rem; font-weight:700; color:#475569;">Optimized for this JD - <span style="color:#059669;">edit anything before saving</span></label>
+                        <textarea id="do-optimized" rows="18" class="form-control" style="font-size:0.82rem;"></textarea>
+                    </div>
+                </div>
+                <div id="do-filename" style="font-size:0.82rem; color:#475569; margin-top:8px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btn-do-discard">Discard</button>
+                <button type="button" class="btn btn-secondary" id="btn-do-reoptimize">↻ Re-optimize</button>
+                <button type="button" class="btn btn-success" id="btn-do-save">💾 Save &amp; use in this draft</button>
+            </div>
         </div>
     </div>
 
@@ -1196,7 +1233,7 @@
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.59.0"></script>
+    <script src="/static/js/app.js?v=5.60.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

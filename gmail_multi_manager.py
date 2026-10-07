@@ -345,7 +345,7 @@ def generate_consultant_pitch(candidate: Dict, job: Dict, custom_notes: str = ""
     return "\n\n".join(paragraphs) + "\n"
 
 
-def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None, bcc: Optional[List[str]] = None, save_to_email: bool = True) -> Dict[str, Any]:
+def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None, bcc: Optional[List[str]] = None, save_to_email: bool = True, attachment: Optional[Tuple[str, bytes]] = None) -> Dict[str, Any]:
     cand = models.get_candidate_by_id(candidate_id)
     if not cand:
         return {"success": False, "error": f"Candidate #{candidate_id} not found."}
@@ -397,7 +397,8 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
     # earlier server no longer exists after a redeploy, which left drafts without the resume.
     resume_attached, resume_note = False, ""
     file_name, file_data = None, None
-    found = models.find_resume_file(cand)
+    # A saved JD-tailored version (resume_versions) when the caller chose one, else the original resume.
+    found = attachment or models.find_resume_file(cand)
     if found:
         file_name, file_data = found
 
@@ -448,6 +449,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                 "company": company,
                 "resume_attached": resume_attached,
                 "resume_note": resume_note,
+                "resume_filename": file_name if resume_attached else "",
                 "bcc": bcc,
                 "preview": body_text[:280] + "..."
             }
@@ -503,6 +505,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                     "company": company,
                     "resume_attached": resume_attached,
                     "resume_note": resume_note,
+                    "resume_filename": file_name if resume_attached else "",
                     "bcc": bcc,
                     "preview": body_text[:280] + "..."
                 }

@@ -571,6 +571,7 @@ function openPasteDraftModal(candId = null) {
     pdVendorReset();
     const cloudNote = document.getElementById('pd-cloud-note');
     if (cloudNote) { cloudNote.style.display = 'none'; cloudNote.innerHTML = ''; }
+    pdResumeReset();
 
     const select = document.getElementById('pd-consultant-select');
     if (select && candId) {
@@ -1403,8 +1404,19 @@ function initResumeBot() {
                 if (byId('result-preview-label')) byId('result-preview-label').innerText = data.optimized
                     ? (data.format_preserved ? 'Optimized Resume - text preview (the download keeps your original layout)' : 'Optimized Resume Preview')
                     : 'Resume (unchanged - original text)';
-                if (byId('result-preview-text')) byId('result-preview-text').value = data.updated_resume_text || '';
+                if (byId('result-preview-text')) {
+                    byId('result-preview-text').value = data.updated_resume_text || '';
+                    byId('result-preview-text').readOnly = !data.optimized;   // editable once optimized; edits are kept on Save
+                }
                 if (btnDownload) btnDownload.style.display = data.optimized ? '' : 'none';
+                state.lastOptimized = data.optimized ? {
+                    candidateId: candSelect ? parseInt(candSelect.value) : null, jdText: jd, aiText: data.updated_resume_text || '',
+                    docxB64: data.format_preserved ? (data.docx_base64 || '') : '', primarySkill: data.primary_skill || '',
+                    filename: data.suggested_filename || '' } : null;
+                const saveBtn = byId('btn-save-optimized-version');
+                if (saveBtn) saveBtn.style.display = data.optimized ? '' : 'none';
+                if (byId('save-version-status')) byId('save-version-status').innerText = data.optimized && data.suggested_filename
+                    ? `Saves as ${data.suggested_filename}. Edit the preview first if needed - nothing is saved until you click Save.` : '';
 
                 showToast(data.optimized ? '✨ Resume optimized against the JD with your master prompt.' : 'Analysis done - the resume was not changed (see the note in the results).', data.optimized ? 'success' : 'info', 5000);
                 if (resultsCard) resultsCard.scrollIntoView({ behavior: 'smooth' });
@@ -1439,7 +1451,7 @@ function initResumeBot() {
                     const fileUrl = window.URL.createObjectURL(fileBlob);
                     const link = document.createElement('a');
                     link.href = fileUrl;
-                    link.download = `${safeName}_ATS_Tailored_Resume.docx`;
+                    link.download = (state.lastOptimized && state.lastOptimized.filename) || `${safeName}_ATS_Tailored_Resume.docx`;
                     document.body.appendChild(link);
                     link.click();
                     link.remove();
@@ -1467,7 +1479,7 @@ function initResumeBot() {
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `${safeName}_ATS_Tailored_Resume.docx`;
+                a.download = (state.lastOptimized && state.lastOptimized.filename) || `${safeName}_ATS_Tailored_Resume.docx`;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
@@ -1762,7 +1774,8 @@ function initModals() {
                         company: company,
                         salary: rate,
                         custom_notes: notes,
-                        bcc_contact_ids: pdVendorSelectedIds()
+                        bcc_contact_ids: pdVendorSelectedIds(),
+                        optimized_resume_id: pdResume.versionId || null
                     })
                 });
 
@@ -4607,4 +4620,125 @@ async function pdCloudCheck() {
                 (d.consultant_clouds && d.consultant_clouds.length ? ` - matches the consultant's profile.` : '');
         }
     } catch (err) { note.style.display = 'none'; }
+}
+
+// =========================================================================
+// Saved, JD-tailored resume versions (resume_versions.py): nothing is saved until the recruiter
+// clicks Save; the file is named Name_PrimarySkill.docx (_v2, _v3 ... never overwritten).
+// =========================================================================
+async function saveResumeVersion(v) {
+    const res = await fetch('/api/optimized-resumes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidate_id: v.candidateId, job_id: v.jobId || null, jd_text: v.jdText, ai_text: v.aiText,
+            edited_text: v.editedText, docx_base64: v.docxB64 || '', primary_skill: v.primarySkill || '' })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not save the resume.');
+    return data;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('btn-save-optimized-version');
+    if (btn) btn.addEventListener('click', async () => {
+        const lo = state.lastOptimized;
+        const status = document.getElementById('save-version-status');
+        if (!lo || !lo.candidateId) { showToast('Select the consultant this resume belongs to, then optimize and save.', 'warning'); return; }
+        btn.disabled = true;
+        try {
+            const d = await saveResumeVersion({ ...lo, editedText: document.getElementById('result-preview-text').value });
+            status.innerHTML = `<span style="color:#059669;">✓ Saved as <b>${escapeHtml(d.filename)}</b></span>` +
+                ` &middot; <a href="/api/optimized-resumes/${d.id}/download">download</a>` + (d.note ? ` <span style="color:#b45309;">${escapeHtml(d.note)}</span>` : '');
+            showToast(`Saved ${d.filename}`, 'success');
+        } catch (err) { showToast(err.message, 'error', 6000); }
+        finally { btn.disabled = false; }
+    });
+    initDraftOptimize();
+});
+
+// ---- Paste Requirement & Draft: Optimize -> review / edit -> Save (attached) / Discard / Re-optimize
+const pdResume = { versionId: null, filename: '', result: null, candId: null };
+
+function pdResumeReset() {
+    pdResume.versionId = null; pdResume.filename = ''; pdResume.result = null; pdResume.candId = null;
+    const el = document.getElementById('pd-resume-version');
+    if (el) el.innerHTML = "Attaching: the consultant's original resume.";
+}
+
+function initDraftOptimize() {
+    const $ = id => document.getElementById(id);
+    if (!$('btn-pd-optimize')) return;
+    $('btn-pd-optimize').addEventListener('click', () => draftOptimizeRun(true));
+    $('btn-do-reoptimize').addEventListener('click', () => draftOptimizeRun(false));
+    const close = () => { $('modal-draft-optimize').style.display = 'none'; };
+    $('btn-close-draft-optimize').addEventListener('click', close);
+    $('btn-do-discard').addEventListener('click', () => { pdResume.result = null; close(); showToast('Discarded - nothing was saved.', 'info'); });
+    $('btn-do-save').addEventListener('click', draftOptimizeSave);
+    $('pd-consultant-select')?.addEventListener('change', () => { if (pdResume.versionId) pdResumeReset(); });
+}
+
+async function draftOptimizeRun(firstTime) {
+    const $ = id => document.getElementById(id);
+    const candId = parseInt($('pd-consultant-select')?.value || '');
+    const jd = ($('pd-raw-text')?.value || '').trim();
+    if (!candId) { showToast('Select the consultant first.', 'warning'); return; }
+    if (jd.length < 30) { showToast('Paste the requirement (JD) first.', 'warning'); return; }
+    $('modal-draft-optimize').style.display = 'flex';
+    $('do-cloud').style.display = 'none';
+    $('btn-do-save').disabled = true;
+    $('btn-do-reoptimize').disabled = true;
+    if (firstTime || pdResume.candId !== candId) {
+        $('do-original').value = 'Loading...';
+        $('do-optimized').value = '';
+        try {
+            const r = await fetch(`/api/consultants/${candId}`);
+            const c = await r.json();
+            $('do-original').value = (c.resume_text || '').trim() || 'No resume text on file for this consultant.';
+        } catch (err) { $('do-original').value = 'Could not load the original resume.'; }
+    }
+    pdResume.candId = candId;
+    const started = Date.now();
+    const tick = () => { $('do-status').innerHTML = `<b>Optimizing - ${Math.round((Date.now() - started) / 1000)}s.</b> The AI checks the match, then writes only the changes. Nothing is saved until you click Save.`; };
+    tick();
+    const timer = setInterval(tick, 1000);
+    try {
+        const res = await fetch('/api/resume-bot/optimize', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jd_text: jd, candidate_id: candId, use_stored_file: true }) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) throw new Error(data.error || 'Optimization failed.');
+        pdResume.result = data;
+        $('do-optimized').value = data.updated_resume_text || '';
+        renderCloudCheck($('do-cloud'), data.cloud_check);
+        $('do-status').innerHTML = (data.optimized
+            ? `<b>Optimized</b> - match ${data.initial_match_percentage ?? '?'}% &rarr; ${data.target_match_percentage ?? '?'}%. Review and edit on the right, then Save.`
+            : `<b>Not changed:</b> ${escapeHtml(data.not_optimized_reason || 'the resume was left as it is.')}`) + optimizerTimingsHtml(data.timings);
+        $('do-filename').innerHTML = data.suggested_filename ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b> and attached to this draft.` : '';
+        $('btn-do-save').disabled = !data.optimized;
+    } catch (err) {
+        $('do-status').innerHTML = `<span style="color:#b91c1c;">${escapeHtml(err.message)}</span>`;
+    } finally {
+        clearInterval(timer);
+        $('btn-do-reoptimize').disabled = false;
+    }
+}
+
+async function draftOptimizeSave() {
+    const $ = id => document.getElementById(id);
+    const data = pdResume.result;
+    if (!data || !data.optimized) return;
+    $('btn-do-save').disabled = true;
+    try {
+        const d = await saveResumeVersion({ candidateId: pdResume.candId, jdText: $('pd-raw-text').value, aiText: data.updated_resume_text || '',
+            editedText: $('do-optimized').value, docxB64: data.format_preserved ? (data.docx_base64 || '') : '', primarySkill: data.primary_skill || '' });
+        pdResume.versionId = d.id;
+        pdResume.filename = d.filename;
+        $('pd-resume-version').innerHTML = `Attaching: <b style="color:#059669;">${escapeHtml(d.filename)}</b> (tailored, saved) ` +
+            `&middot; <a href="/api/optimized-resumes/${d.id}/download">view</a> &middot; <a href="#" id="pd-use-original">use original instead</a>` +
+            (d.note ? `<div style="color:#b45309;">${escapeHtml(d.note)}</div>` : '');
+        $('pd-use-original').addEventListener('click', (e) => { e.preventDefault(); pdResumeReset(); });
+        $('modal-draft-optimize').style.display = 'none';
+        showToast(`Saved ${d.filename} - it will be attached to this draft.`, 'success', 6000);
+    } catch (err) {
+        showToast(err.message, 'error', 6000);
+        $('btn-do-save').disabled = false;
+    }
 }

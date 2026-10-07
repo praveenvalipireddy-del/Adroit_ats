@@ -315,6 +315,22 @@ def init_db():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # JD-tailored resume versions the recruiter reviewed and chose to SAVE (resume_versions.py).
+    # Several per consultant; the original resume in resume_files is never touched.
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS optimized_resumes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        candidate_id INTEGER NOT NULL,
+        job_id INTEGER,
+        filename TEXT NOT NULL,
+        data {blob_type},
+        primary_skill TEXT,
+        jd_cloud TEXT,
+        jd_excerpt TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
 
     # 9. Education-based Sourcing (Filter A: Indian college -> US Master's; Filter B: US university
     # -> Indian undergrad). One row per LinkedIn profile (deduplicated on linkedin_url), its

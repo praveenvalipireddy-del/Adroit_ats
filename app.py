@@ -78,6 +78,15 @@ def _int_or_none(value):
         return None
 
 
+_PRIVATE_CANDIDATE_FIELDS = ("gmail_app_password", "gmail_token_path")
+
+
+def _public_candidate(cand):
+    """A consultant record for the browser: never the Gmail App Password (or the OAuth token file path).
+    `SELECT c.*` returned the password in /api/consultants responses - the page never used it."""
+    return {k: v for k, v in (cand or {}).items() if k not in _PRIVATE_CANDIDATE_FIELDS}
+
+
 def can_access_candidate(user, candidate_id) -> bool:
     """Admins can act on any consultant; a recruiter only on consultants assigned to them."""
     try:
@@ -385,7 +394,7 @@ def api_consultants():
         c_status = gmail_multi_manager.is_candidate_connected(c["id"])
         c["gmail_connected"] = c_status.get("connected", False)
 
-    return jsonify(candidates)
+    return jsonify([_public_candidate(c) for c in candidates])
 
 @app.route("/api/consultants/<int:candidate_id>", methods=["GET", "PUT", "DELETE", "OPTIONS"])
 def api_consultant_detail(candidate_id):
@@ -405,7 +414,7 @@ def api_consultant_detail(candidate_id):
         _ensure_resume_text(cand)
         cand_status = gmail_multi_manager.is_candidate_connected(candidate_id)
         cand["gmail_connected"] = cand_status.get("connected", False)
-        return jsonify(cand)
+        return jsonify(_public_candidate(cand))
 
     if request.method == "DELETE":
         models.delete_candidate(candidate_id, user_id=user["id"], is_admin=is_admin)

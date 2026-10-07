@@ -710,7 +710,7 @@ async function searchJobs(liveScrape = false) {
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
+                <td colspan="9" class="loading-cell" style="text-align:center; padding: 30px; color: var(--text-muted);">
                     <div class="spinner" style="display:inline-block; margin-right:8px;"></div>
                     ${liveScrape ? `Scraping fresh 24h ${country} contract jobs across portals...` : `Searching ${country} job requisitions...`}
                 </td>
@@ -745,7 +745,7 @@ async function searchJobs(liveScrape = false) {
     } catch (err) {
         console.error('Error fetching jobs:', err);
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
         }
     }
 }
@@ -821,7 +821,7 @@ function renderJobsTable(jobs) {
     if (!jobs || jobs.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" style="text-align:center; padding: 40px; color: var(--text-muted);">
+                <td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">
                     No jobs found matching your search. Try adjusting keywords or click <strong>"Live 24h Scrape"</strong> to fetch fresh postings.
                 </td>
             </tr>`;
@@ -866,9 +866,14 @@ function renderJobsTable(jobs) {
                 </div>
             </td>
             <td>
-                <button type="button" class="btn btn-sm btn-optimize-job" data-job-id="${j.id}" title="Open the Resume Optimizer with this job and the Target Candidate's resume" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd; font-weight:700; font-size:0.78rem; padding:6px 10px; border-radius:6px; white-space:nowrap;">
+                <button type="button" class="btn btn-sm btn-optimize-job" data-job-id="${j.id}" title="Tailor the Target Candidate's resume to this job - review, download and create the draft right here" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd; font-weight:700; font-size:0.78rem; padding:6px 10px; border-radius:6px; white-space:nowrap;">
                     ⚡ Optimize Resume
                 </button>
+            </td>
+            <td>
+                <select class="form-control form-control-sm job-apply-status" data-job-id="${j.id}" title="How this job was applied to" style="font-size:0.8rem; min-width:120px; ${j.apply_status ? 'background:#ecfdf5;' : ''}">
+                    ${[['', 'Not applied'], ['portal', 'Applied in portal'], ['email', 'Email sent'], ['both', 'Portal + email']].map(([v, l]) => `<option value="${v}" ${(j.apply_status || '') === v ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
             </td>
             <td>
                 <select class="form-control form-control-sm job-consultant-select" data-job-id="${j.id}" style="font-size: 0.85rem;">
@@ -906,6 +911,10 @@ function renderJobsTable(jobs) {
         });
     });
 
+    tbody.querySelectorAll('.job-apply-status').forEach(sel => {
+        sel.addEventListener('change', () => setJobApplyStatus(parseInt(sel.getAttribute('data-job-id')), sel.value, sel));
+    });
+
     // Attach 1-Click Draft listeners
     tbody.querySelectorAll('.btn-draft-job').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -930,7 +939,7 @@ function renderJobsTable(jobs) {
                 showToast('Please select a Target Candidate first', 'warning');
                 return;
             }
-            openResumeOptimizerForJob(parseInt(btn.getAttribute('data-job-id')), candId);
+            jobOptimizeOpen(parseInt(btn.getAttribute('data-job-id')), candId, row);
         });
     });
 
@@ -970,7 +979,7 @@ async function saveRecruiterEmail(jobId, email) {
     }
 }
 
-async function createJobDraft(jobId, candId, customToEmail = '', btnElement = null) {
+async function createJobDraft(jobId, candId, customToEmail = '', btnElement = null, optimizedResumeId = null) {
     if (!candId) {
         showToast('Please select a consultant first', 'warning');
         return;
@@ -988,14 +997,16 @@ async function createJobDraft(jobId, candId, customToEmail = '', btnElement = nu
             body: JSON.stringify({
                 job_id: jobId,
                 candidate_id: candId,
-                custom_to_email: customToEmail
+                custom_to_email: customToEmail,
+                optimized_resume_id: optimizedResumeId
             })
         });
 
         const data = await res.json();
         if (data.success) {
             const bccNote = (data.bcc && data.bcc.length) ? ` BCC: ${data.bcc.length} vendor contact${data.bcc.length === 1 ? '' : 's'}.` : '';
-            showToast(`✉️ Gmail Draft Created for ${data.candidate_name}! To: ${data.to_email || data.recruiter_email || 'Recruiter'}.${bccNote}`, 'success', 6000);
+            const attNote = data.resume_filename ? ` Attached: ${data.resume_filename}.` : '';
+            showToast(`✉️ Gmail Draft Created for ${data.candidate_name}! To: ${data.to_email || data.recruiter_email || 'Recruiter'}.${attNote}${bccNote}`, 'success', 7000);
             if (!data.resume_attached) {
                 showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
             }
@@ -3373,63 +3384,6 @@ async function submitCopilotDraftToGmail() {
 const FULL_JD_MIN_CHARS = 400;
 // LinkedIn / Dice postings: the server reads the full description from the posting (free).
 const JD_AUTO_FETCH_RE = /^https?:\/\/([a-z0-9-]+\.)*(linkedin\.com\/jobs|dice\.com\/job-detail)\//i;
-let jdFetchCounter = 0;
-
-function openResumeOptimizerForJob(jobId, candidateId) {
-    const job = (state.jobs || []).find(j => j.id === jobId);
-    if (!job) { showToast('Job not found - refresh the Jobs list.', 'error'); return; }
-    setActiveConsultant(candidateId);
-    const candSelect = document.getElementById('resumebot-consultant-select');
-    if (candSelect) candSelect.value = String(candidateId);
-    switchTab('resumebot');
-    if (candSelect) candSelect.dispatchEvent(new Event('change'));   // (re)load that consultant's resume on file
-
-    const desc = (job.description || '').trim();
-    const full = (job.full_description || '').trim()
-        || ((job.source === 'Manual Paste' || desc.length >= FULL_JD_MIN_CHARS) ? desc : '');
-    const header = [job.title, job.company].filter(Boolean).join(' - ') + (job.location ? ` (${job.location})` : '');
-    const summary = [header, desc, job.url ? `Posting: ${job.url}` : ''].filter(Boolean).join('\n\n');
-    const jdBox = document.getElementById('resumebot-jd-text');
-    const note = document.getElementById('resumebot-jd-note');
-    const postingLink = job.url
-        ? `<a href="${escapeHtml(job.url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; font-weight:600;">open the posting ↗</a>`
-        : 'open the posting';
-    const setNote = (color, html) => { if (note) { note.style.display = 'block'; note.style.color = color; note.innerHTML = html; } };
-    const askToPaste = (why) => setNote('#b45309', `${why ? escapeHtml(why) + ' ' : ''}Only a short summary is saved for <b>${escapeHtml(header)}</b>. For a good result, ${postingLink}, copy the full job description and paste it into the box above.`);
-    const fetchToken = ++jdFetchCounter;
-
-    if (full) {
-        if (jdBox) jdBox.value = full;
-        setNote('#047857', `Full job description filled in for <b>${escapeHtml(header)}</b>. Review it, then click Optimize.`);
-    } else {
-        if (jdBox) jdBox.value = summary;
-        if (JD_AUTO_FETCH_RE.test(job.url || '')) {
-            setNote('#475569', `Reading the full job description from the posting for <b>${escapeHtml(header)}</b>...`);
-            const optBtn = document.getElementById('btn-run-resume-optimization');
-            if (optBtn) optBtn.disabled = true;
-            fetch(`/api/jobs/${job.id}/full-description`, { method: 'POST' })
-                .then(r => r.json().then(d => ({ ok: r.ok, d })).catch(() => ({ ok: false, d: {} })))
-                .then(({ ok, d }) => {
-                    if (fetchToken !== jdFetchCounter) return;   // the recruiter moved on to another job
-                    if (ok && d.description) {
-                        job.full_description = d.description;
-                        if (jdBox && jdBox.value === summary) jdBox.value = d.description;   // never overwrite their edits
-                        setNote('#047857', `Full job description read from the posting (${postingLink}). Review it, then click Optimize.`);
-                    } else {
-                        askToPaste(d.error || 'The full description could not be read automatically.');
-                    }
-                })
-                .catch(() => { if (fetchToken === jdFetchCounter) askToPaste('The full description could not be read automatically.'); })
-                .finally(() => {
-                    const b = document.getElementById('btn-run-resume-optimization');
-                    if (b && fetchToken === jdFetchCounter) b.disabled = false;
-                });
-        } else {
-            askToPaste('');
-        }
-    }
-    if (jdBox) jdBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
 
 function setActiveConsultant(candidateId) {
     const id = parseInt(candidateId);
@@ -4655,8 +4609,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initDraftOptimize();
 });
 
-// ---- Paste Requirement & Draft: Optimize -> review / edit -> Save (attached) / Discard / Re-optimize
+// ---- The optimize panel, opened from Paste Requirement & Draft (mode 'paste') or a Jobs row (mode 'job'):
+// Optimize -> review / edit side by side -> Save (+ use in the draft / create the job's draft) | Download | Re-optimize | Discard.
+// Nothing is saved until the recruiter clicks Save / Download / Create Draft.
 const pdResume = { versionId: null, filename: '', result: null, candId: null };
+const optPanel = { mode: 'paste', candId: null, jobId: null, emailInput: null, saved: null, savedText: '' };
 
 function pdResumeReset() {
     pdResume.versionId = null; pdResume.filename = ''; pdResume.result = null; pdResume.candId = null;
@@ -4667,25 +4624,48 @@ function pdResumeReset() {
 function initDraftOptimize() {
     const $ = id => document.getElementById(id);
     if (!$('btn-pd-optimize')) return;
-    $('btn-pd-optimize').addEventListener('click', () => draftOptimizeRun(true));
+    $('btn-pd-optimize').addEventListener('click', () => {
+        const candId = parseInt($('pd-consultant-select')?.value || '');
+        const jd = ($('pd-raw-text')?.value || '').trim();
+        if (!candId) { showToast('Select the consultant first.', 'warning'); return; }
+        if (jd.length < 30) { showToast('Paste the requirement (JD) first.', 'warning'); return; }
+        openOptimizePanel({ mode: 'paste', candId, jdText: jd });
+    });
     $('btn-do-reoptimize').addEventListener('click', () => draftOptimizeRun(false));
     const close = () => { $('modal-draft-optimize').style.display = 'none'; };
     $('btn-close-draft-optimize').addEventListener('click', close);
     $('btn-do-discard').addEventListener('click', () => { pdResume.result = null; close(); showToast('Discarded - nothing was saved.', 'info'); });
-    $('btn-do-save').addEventListener('click', draftOptimizeSave);
+    $('btn-do-save').addEventListener('click', () => (optPanel.mode === 'job' ? jobOptimizeSaveAndDraft() : draftOptimizeSave()));
+    $('btn-do-download').addEventListener('click', optimizeDownload);
     $('pd-consultant-select')?.addEventListener('change', () => { if (pdResume.versionId) pdResumeReset(); });
+}
+
+// opts: {mode, candId, jdText?, jobId?, emailInput?}
+function openOptimizePanel(opts) {
+    const $ = id => document.getElementById(id);
+    Object.assign(optPanel, { mode: opts.mode, candId: opts.candId, jobId: opts.jobId || null, emailInput: opts.emailInput || null, saved: null, savedText: '' });
+    pdResume.result = null;
+    $('do-jd').value = opts.jdText || '';
+    $('do-jd-wrap').style.display = opts.mode === 'job' ? '' : 'none';
+    $('do-title').textContent = opts.title ? `⚡ Optimize Resume - ${opts.title}` : '⚡ Optimize Resume for this Requirement';
+    $('btn-do-save').innerHTML = opts.mode === 'job' ? '✉️ Save &amp; Create Draft' : '💾 Save &amp; use in this draft';
+    $('btn-do-download').style.display = 'none';
+    $('modal-draft-optimize').style.display = 'flex';
+    if (opts.mode === 'job' && !opts.jdText) return;     // the job's JD is still loading (jobOptimizeOpen)
+    draftOptimizeRun(true);
 }
 
 async function draftOptimizeRun(firstTime) {
     const $ = id => document.getElementById(id);
-    const candId = parseInt($('pd-consultant-select')?.value || '');
-    const jd = ($('pd-raw-text')?.value || '').trim();
+    const candId = optPanel.candId;
+    const jd = ($('do-jd').value || '').trim();
     if (!candId) { showToast('Select the consultant first.', 'warning'); return; }
-    if (jd.length < 30) { showToast('Paste the requirement (JD) first.', 'warning'); return; }
-    $('modal-draft-optimize').style.display = 'flex';
+    if (jd.length < 30) { $('do-status').innerHTML = '<span style="color:#b45309;">Paste the job description into the box above, then click Re-optimize.</span>'; $('btn-do-reoptimize').disabled = false; return; }
     $('do-cloud').style.display = 'none';
     $('btn-do-save').disabled = true;
+    $('btn-do-download').style.display = 'none';
     $('btn-do-reoptimize').disabled = true;
+    optPanel.saved = null;
     if (firstTime || pdResume.candId !== candId) {
         $('do-original').value = 'Loading...';
         $('do-optimized').value = '';
@@ -4709,12 +4689,14 @@ async function draftOptimizeRun(firstTime) {
         $('do-optimized').value = data.updated_resume_text || '';
         renderCloudCheck($('do-cloud'), data.cloud_check);
         $('do-status').innerHTML = (data.optimized
-            ? `<b>Optimized</b> - match ${data.initial_match_percentage ?? '?'}% &rarr; ${data.target_match_percentage ?? '?'}%. Review and edit on the right, then Save.`
+            ? `<b>Optimized</b> - match ${data.initial_match_percentage ?? '?'}% &rarr; ${data.target_match_percentage ?? '?'}%. Review and edit on the right, then ${optPanel.mode === 'job' ? 'Download or Create Draft' : 'Save'}.`
             : `<b>Not changed:</b> ${escapeHtml(data.not_optimized_reason || 'the resume was left as it is.')}` +
               (data.ai_unavailable_reason ? `<div style="color:#b45309; margin-top:4px;"><b>Why the AI didn't run:</b> ${escapeHtml(data.ai_unavailable_reason)}</div>` : '')) +
             optimizerTimingsHtml(data.timings);
-        $('do-filename').innerHTML = data.suggested_filename ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b> and attached to this draft.` : '';
+        $('do-filename').innerHTML = data.suggested_filename
+            ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b>${optPanel.mode === 'job' ? ' and attached to this job\'s draft' : ' and attached to this draft'}.` : '';
         $('btn-do-save').disabled = !data.optimized;
+        $('btn-do-download').style.display = data.optimized ? '' : 'none';
     } catch (err) {
         $('do-status').innerHTML = `<span style="color:#b91c1c;">${escapeHtml(err.message)}</span>`;
     } finally {
@@ -4723,14 +4705,33 @@ async function draftOptimizeRun(firstTime) {
     }
 }
 
-async function draftOptimizeSave() {
+// Save once per edited text: Download and Create Draft reuse the saved version unless the text changed.
+async function optimizeEnsureSaved() {
     const $ = id => document.getElementById(id);
     const data = pdResume.result;
-    if (!data || !data.optimized) return;
+    if (!data || !data.optimized) throw new Error('Optimize the resume first.');
+    const edited = $('do-optimized').value;
+    if (optPanel.saved && optPanel.savedText === edited) return optPanel.saved;
+    const d = await saveResumeVersion({ candidateId: optPanel.candId, jobId: optPanel.jobId, jdText: $('do-jd').value, aiText: data.updated_resume_text || '',
+        editedText: edited, docxB64: data.format_preserved ? (data.docx_base64 || '') : '', primarySkill: data.primary_skill || '' });
+    optPanel.saved = d;
+    optPanel.savedText = edited;
+    $('do-filename').innerHTML = `✓ Saved as <b>${escapeHtml(d.filename)}</b>` + (d.note ? ` <span style="color:#b45309;">${escapeHtml(d.note)}</span>` : '');
+    return d;
+}
+
+async function optimizeDownload() {
+    try {
+        const d = await optimizeEnsureSaved();
+        window.location.href = `/api/optimized-resumes/${d.id}/download`;
+    } catch (err) { showToast(err.message, 'error', 6000); }
+}
+
+async function draftOptimizeSave() {
+    const $ = id => document.getElementById(id);
     $('btn-do-save').disabled = true;
     try {
-        const d = await saveResumeVersion({ candidateId: pdResume.candId, jdText: $('pd-raw-text').value, aiText: data.updated_resume_text || '',
-            editedText: $('do-optimized').value, docxB64: data.format_preserved ? (data.docx_base64 || '') : '', primarySkill: data.primary_skill || '' });
+        const d = await optimizeEnsureSaved();
         pdResume.versionId = d.id;
         pdResume.filename = d.filename;
         $('pd-resume-version').innerHTML = `Attaching: <b style="color:#059669;">${escapeHtml(d.filename)}</b> (tailored, saved) ` +
@@ -4743,4 +4744,68 @@ async function draftOptimizeSave() {
         showToast(err.message, 'error', 6000);
         $('btn-do-save').disabled = false;
     }
+}
+
+// ---- Jobs tab: Optimize Resume opens the panel in place (no tab switch)
+async function jobOptimizeOpen(jobId, candId, row) {
+    const job = (state.jobs || []).find(j => j.id === jobId);
+    if (!job) { showToast('Job not found - refresh the Jobs list.', 'error'); return; }
+    if (!candId) { showToast('Please select a Target Candidate first', 'warning'); return; }
+    const header = [job.title, job.company].filter(Boolean).join(' - ');
+    const desc = (job.description || '').trim();
+    let full = (job.full_description || '').trim() || ((job.source === 'Manual Paste' || desc.length >= FULL_JD_MIN_CHARS) ? desc : '');
+    const emailInput = row ? row.querySelector('.email-inline-input') : null;
+    openOptimizePanel({ mode: 'job', candId, jobId, emailInput, title: header, jdText: full });
+    if (full) return;
+    const $ = id => document.getElementById(id);
+    const summary = [header + (job.location ? ` (${job.location})` : ''), desc].filter(Boolean).join('\n\n');
+    $('do-jd').value = summary;
+    let why = '';
+    if (JD_AUTO_FETCH_RE.test(job.url || '')) {
+        $('do-status').innerHTML = '<b>Reading the full job description from the posting...</b>';
+        try {
+            const r = await fetch(`/api/jobs/${job.id}/full-description`, { method: 'POST' });
+            const d = await r.json().catch(() => ({}));
+            if (r.ok && d.description) {
+                job.full_description = d.description;
+                if ($('do-jd').value === summary) $('do-jd').value = d.description;
+                return draftOptimizeRun(true);
+            }
+            why = d.error || '';
+        } catch (err) { why = 'The full description could not be read automatically.'; }
+    }
+    $('do-jd-wrap').open = true;
+    $('do-original').value = '';
+    $('do-status').innerHTML = `<span style="color:#b45309;">${why ? escapeHtml(why) + ' ' : ''}Only a short summary is saved for this job. ${job.url ? `<a href="${escapeHtml(job.url)}" target="_blank" rel="noopener noreferrer">Open the posting ↗</a>, copy` : 'Copy'} the full job description into the box above, then click Re-optimize.</span>`;
+    $('btn-do-reoptimize').disabled = false;
+}
+
+async function jobOptimizeSaveAndDraft() {
+    const $ = id => document.getElementById(id);
+    $('btn-do-save').disabled = true;
+    try {
+        const d = await optimizeEnsureSaved();
+        const email = (optPanel.emailInput ? optPanel.emailInput.value : '').trim();
+        if (!email || !email.includes('@')) {
+            showToast(`Saved ${d.filename}. Paste the recruiter email in the job row, then click 1-Click Draft - it attaches this resume.`, 'warning', 9000);
+            $('btn-do-save').disabled = false;
+            return;
+        }
+        $('modal-draft-optimize').style.display = 'none';
+        await createJobDraft(optPanel.jobId, optPanel.candId, email, null, d.id);
+    } catch (err) {
+        showToast(err.message, 'error', 6000);
+        $('btn-do-save').disabled = false;
+    }
+}
+
+// ---- Jobs tab: "Applied" column (per job)
+async function setJobApplyStatus(jobId, status, selectEl) {
+    const res = await fetch(`/api/jobs/${jobId}/apply-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(d.error || 'Could not save the status.', 'error'); return; }
+    const job = (state.jobs || []).find(j => j.id === jobId);
+    if (job) job.apply_status = status;
+    if (selectEl) selectEl.style.background = status ? '#ecfdf5' : '#fff';
+    showToast(`Marked: ${d.label}`, 'success', 2500);
 }

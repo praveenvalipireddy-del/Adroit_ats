@@ -7,7 +7,7 @@ selected another consultant (Praveen), the slow load finished LAST and replaced 
 the dropdown said "Praveen" while the box (and an Optimize click) used Sai Teja's resume.
 
 The server delays Sai Teja's resume by 2.5 s to recreate that timing. No AI call is ever made: the
-optimizer endpoint is blocked and must not be requested. All people are labelled test fixtures.
+optimizer endpoint is blocked (requests are recorded, then aborted). All people are labelled test fixtures.
 Run: python test_resume_select_race_browser.py
 """
 import os
@@ -75,7 +75,7 @@ def check(cond, msg):
 
 def guard(route):
     if "/api/resume-bot/optimize" in route.request.url:
-        optimize_calls.append(route.request.url)
+        optimize_calls.append(route.request.post_data_json or {})
         route.abort()
     else:
         route.continue_()
@@ -92,7 +92,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.61.0" in page.content(), "cache-buster not bumped to 5.61.0")
+        check("app.js?v=5.62.0" in page.content(), "cache-buster not bumped to 5.62.0")
 
         # 1. open the optimizer on Saiteja (slow), then immediately pick Praveen
         page.click("a.nav-item[data-tab=resumebot]")
@@ -108,22 +108,27 @@ try:
         note = page.inner_text("#resumebot-source-note")
         check("Praveen Racetest" in note and "Saiteja" not in note, f"source note names the wrong person: {note!r}")
 
-        # 2. Jobs -> Optimize Resume for Praveen while the optimizer was last on Saiteja
+        check(not optimize_calls, f"Optimize sent a request while the selected consultant's resume was not loaded: {optimize_calls}")
+
+        # 2. Jobs -> Optimize Resume for Praveen while the optimizer tab was last on Saiteja: the in-place
+        #    panel uses the ROW's Target Candidate - Praveen's resume shown, Praveen's id sent
         page.select_option("#resumebot-consultant-select", str(sai_id))
         page.wait_for_function("document.getElementById('resumebot-resume-text').value.includes('SAITEJA')", timeout=8000)
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_selector(f".job-row[data-job-id='{job_id}']", timeout=45000)
         page.select_option(f".job-row[data-job-id='{job_id}'] .job-consultant-select", str(pra_id))
         page.click(f".job-row[data-job-id='{job_id}'] .btn-optimize-job")
-        page.wait_for_timeout(3500)
-        box = page.input_value("#resumebot-resume-text")
-        check(page.input_value("#resumebot-consultant-select") == str(pra_id), "optimizer should have Praveen selected")
-        check("PRAVEEN RACE RESUME" in box and "SAITEJA" not in box, f"Jobs -> Optimize: box holds {box[:80]!r}")
+        page.wait_for_selector("#modal-draft-optimize", state="visible", timeout=5000)
+        page.wait_for_function("document.getElementById('do-original').value.includes('RACE RESUME')", timeout=10000)
+        box = page.input_value("#do-original")
+        check("PRAVEEN RACE RESUME" in box and "SAITEJA" not in box, f"Jobs -> Optimize panel shows {box[:80]!r}")
+        page.wait_for_timeout(500)
+        sent = [c.get("candidate_id") for c in optimize_calls]
+        check(sent == [pra_id], f"the panel's optimize request is for Praveen ({pra_id}): {sent}")
         browser.close()
 finally:
     server.shutdown()
 
-check(not optimize_calls, f"Optimize sent a request while the selected consultant's resume was not loaded: {optimize_calls}")
 check(not js_errors, f"JavaScript errors: {js_errors}")
 
 if failures:

@@ -56,16 +56,23 @@ def detect(text: str) -> Dict[str, int]:
 def jd_cloud(jd_text: str) -> Dict:
     """{'primary': 'Azure' | None, 'mentioned': [...], 'scores': {...}} for a JD."""
     scores = {c: 0.0 for c in CLOUDS}
+    firm = {c: 0.0 for c in CLOUDS}          # mentions outside "nice to have / a plus" lines
     for line in re.split(r"[\n.;]", jd_text or ""):
         hits = detect(line)
         if not any(hits.values()):
             continue
-        weight = 0.5 if _OPTIONAL_RE.search(line) else (3.0 if _REQUIRED_RE.search(line) else 1.0)
+        optional = bool(_OPTIONAL_RE.search(line))
+        weight = 0.5 if optional else (3.0 if _REQUIRED_RE.search(line) else 1.0)
         for c, n in hits.items():
             scores[c] += n * weight
+            if not optional:
+                firm[c] += n * weight
     mentioned = [c for c in CLOUDS if scores[c] > 0]
-    primary = max(mentioned, key=lambda c: scores[c]) if mentioned else None
-    return {"primary": primary, "mentioned": mentioned, "scores": {c: round(s, 1) for c, s in scores.items()}}
+    # A cloud named ONLY as "a plus / nice to have" is not the JD's required cloud - no mismatch warning for it.
+    required = [c for c in CLOUDS if firm[c] > 0]
+    primary = max(required, key=lambda c: scores[c]) if required else None
+    return {"primary": primary, "mentioned": mentioned, "optional_only": [c for c in mentioned if c not in required],
+            "scores": {c: round(s, 1) for c, s in scores.items()}}
 
 
 def clouds_in(text: str) -> List[str]:

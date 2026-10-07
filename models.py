@@ -649,7 +649,9 @@ def migrate_db(conn):
         "country": "TEXT DEFAULT 'United States'",
         # Full job description read from the posting on demand (Resume Optimizer); the scraped
         # one-line summary stays in `description`.
-        "full_description": "TEXT"
+        "full_description": "TEXT",
+        # How the team applied to this job (Jobs tab "Applied" column): '', portal, email, both.
+        "apply_status": "TEXT"
     }
     for col, c_type in job_new_cols.items():
         if col.lower() not in j_cols:

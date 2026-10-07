@@ -45,6 +45,8 @@ check(j["primary"] == "Azure" and set(j["mentioned"]) == {"AWS", "Azure", "GCP"}
 check(ca.jd_cloud("Strong AWS (EC2, S3, Lambda functions) required. Azure nice to have.")["primary"] == "AWS", "required beats nice-to-have")
 check(ca.jd_cloud("BigQuery, Dataflow and GKE are mandatory.")["primary"] == "GCP", "GCP via services")
 check(ca.jd_cloud("Java 17 developer: streams, lambda expressions, Spring Boot.")["primary"] is None, "Java lambdas are not AWS")
+only_plus = ca.jd_cloud("Requirements: 5+ years SQL, Power BI, Python, Azure Synapse a plus, strong communication.")
+check(only_plus["primary"] is None and only_plus["optional_only"] == ["Azure"], f"a cloud named only as 'a plus' is not required: {only_plus}")
 check(ca.clouds_in("Pipelines on AWS EMR, S3 and Glue; some BigQuery") == ["AWS", "GCP"], "resume clouds, most first")
 
 # ---- validation of sections

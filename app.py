@@ -1472,6 +1472,32 @@ def _ensure_resume_text(cand):
     return cand
 
 
+APPLY_STATUSES = {"": "Not applied", "portal": "Applied in portal", "email": "Email sent", "both": "Applied in portal + email sent"}
+
+
+@app.route("/api/jobs/<int:job_id>/apply-status", methods=["POST"])
+def api_job_apply_status(job_id):
+    """Jobs tab "Applied" column: how this job was applied to (per job)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    status = str((request.get_json(silent=True) or {}).get("status") or "").strip()
+    if status not in APPLY_STATUSES:
+        return jsonify({"error": "Unknown status."}), 400
+    job = models.get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    conn = models.get_db_connection()
+    try:
+        conn.cursor().execute("UPDATE jobs SET apply_status = ? WHERE id = ?", (status, job_id))
+        conn.commit()
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Job Apply Status", "Job", job_id,
+                        f"{job.get('title', '')} at {job.get('company', '')}: {APPLY_STATUSES[status]}")
+    return jsonify({"success": True, "job_id": job_id, "status": status, "label": APPLY_STATUSES[status]})
+
+
 @app.route("/api/optimized-resumes", methods=["GET", "POST"])
 def api_optimized_resumes():
     """POST: save the version the recruiter reviewed / edited (never automatic) as

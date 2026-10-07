@@ -23,6 +23,8 @@ logger = logging.getLogger("resume_bot")
 # needed). Kept on the "-latest" alias so it keeps pointing at a free-tier-eligible Flash
 # model as Google updates what that alias means, rather than pinning a dated version here.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+# Per Gemini call. Both AI steps + a backup must finish inside gunicorn's 240 s request limit.
+GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "45")) * 1000
 
 # Optional backups for when Gemini's whole free-tier chain fails (see _generate). Never the
 # default: Gemini answers every ordinary request, so a normal day costs nothing extra. The FREE
@@ -139,7 +141,9 @@ def _explain_gemini_error(ex: Exception) -> str:
     if "404" in msg or "not found" in low or "is not supported" in low:
         return f"Gemini model '{GEMINI_MODEL}' isn't available on this key - set GEMINI_MODEL to a current model name"
     if "timeout" in low or "timed out" in low or "deadline" in low:
-        return "Gemini took too long to answer (over 80 seconds) - try again"
+        return ("Gemini (free tier) took too long to answer (over 45 seconds)"
+                + (" and the backup AI failed too" if (openrouter_configured() or xai_configured()) else " and no backup AI is configured")
+                + " - click Optimize again in a minute")
     if _is_transient_gemini_error(ex):
         return ("Google's Gemini is overloaded right now (503 - high demand), even after retrying and switching to backup models. "
                 "Nothing is wrong with your resume or the JD - click Optimize again in a minute or two")
@@ -149,6 +153,11 @@ def _explain_gemini_error(ex: Exception) -> str:
 def _is_transient_gemini_error(ex: Exception) -> bool:
     low = str(ex).lower()
     return any(t in low for t in ("503", "unavailable", "overloaded", "high demand", "500 internal", "temporarily"))
+
+
+def _is_timeout_error(ex: Exception) -> bool:
+    low = (str(ex) + " " + ex.__class__.__name__).lower()
+    return "timeout" in low or "timed out" in low or "deadline" in low
 
 
 def _is_quota_error(ex: Exception) -> bool:
@@ -693,7 +702,7 @@ def _generate_openrouter(system: str, prompt: str, want_json: bool, max_tokens: 
     resp = requests.post(
         OPENROUTER_API_URL,
         headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY.strip()}", "Content-Type": "application/json"},
-        json=payload, timeout=80,
+        json=payload, timeout=60,
     )
     if resp.status_code != 200:
         raise RuntimeError(f"OpenRouter call failed: HTTP {resp.status_code}: {resp.text[:200]}")
@@ -721,7 +730,7 @@ def _generate_grok(system: str, prompt: str, want_json: bool, max_tokens: int):
     resp = requests.post(
         XAI_API_URL,
         headers={"Authorization": f"Bearer {config.XAI_API_KEY.strip()}", "Content-Type": "application/json"},
-        json=payload, timeout=80,
+        json=payload, timeout=60,
     )
     if resp.status_code != 200:
         raise RuntimeError(f"xAI Grok call failed: HTTP {resp.status_code}: {resp.text[:200]}")
@@ -743,6 +752,7 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
     chain = _model_chain()
     started = time.monotonic()
     first_error = None
+    timed_out = False
     for model in chain:
         for attempt in range(2):
             try:
@@ -756,6 +766,12 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
                 return text, truncated, model
             except Exception as ex:
                 first_error = first_error or ex
+                if _is_timeout_error(ex):
+                    # Gemini is answering too slowly: its other free models usually are too, so go
+                    # straight to the configured backup instead of waiting again (it used to give up
+                    # here without trying the backup at all).
+                    timed_out = True
+                    break
                 transient = _is_transient_gemini_error(ex)
                 if not (transient or _is_quota_error(ex) or _is_model_missing_error(ex)) and model == chain[0]:
                     raise
@@ -763,7 +779,7 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
                     time.sleep(3)
                     continue
                 break                                   # give up on this model, try the next one
-        if time.monotonic() - started > 75:
+        if timed_out or time.monotonic() - started > 75:
             break                                       # don't let one step run past the server's time limit
     # Gemini's whole free-tier chain failed. Try the optional backups, if configured, before
     # giving up - this is the ONLY place either is ever called, so a day where Gemini works fine
@@ -788,7 +804,7 @@ def _gemini_client():
     from google.genai import types
     key = config.GEMINI_API_KEY.strip()
     if _GEMINI_CLIENT is None or _GEMINI_CLIENT[0] != key:
-        _GEMINI_CLIENT = (key, genai.Client(api_key=key, http_options=types.HttpOptions(timeout=80000)), types)
+        _GEMINI_CLIENT = (key, genai.Client(api_key=key, http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_MS)), types)
     return _GEMINI_CLIENT[1], _GEMINI_CLIENT[2]
 
 

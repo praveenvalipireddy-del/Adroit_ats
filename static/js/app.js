@@ -4710,7 +4710,9 @@ async function draftOptimizeRun(firstTime) {
         renderCloudCheck($('do-cloud'), data.cloud_check);
         $('do-status').innerHTML = (data.optimized
             ? `<b>Optimized</b> - match ${data.initial_match_percentage ?? '?'}% &rarr; ${data.target_match_percentage ?? '?'}%. Review and edit on the right, then Save.`
-            : `<b>Not changed:</b> ${escapeHtml(data.not_optimized_reason || 'the resume was left as it is.')}`) + optimizerTimingsHtml(data.timings);
+            : `<b>Not changed:</b> ${escapeHtml(data.not_optimized_reason || 'the resume was left as it is.')}` +
+              (data.ai_unavailable_reason ? `<div style="color:#b45309; margin-top:4px;"><b>Why the AI didn't run:</b> ${escapeHtml(data.ai_unavailable_reason)}</div>` : '')) +
+            optimizerTimingsHtml(data.timings);
         $('do-filename').innerHTML = data.suggested_filename ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b> and attached to this draft.` : '';
         $('btn-do-save').disabled = !data.optimized;
     } catch (err) {

@@ -1,10 +1,11 @@
-"""Draft emails: a professional HTML version next to the plain text.
+"""Draft emails look like a normal email typed in Gmail.
 
-The draft has text/plain (unchanged wording) AND text/html: table-based layout with inline CSS
-only (Outlook / Microsoft 365), 760px max width, centred, Arial/Calibri 14px, line-height 1.6, a
-signature block (name in bold, contact lines, clickable email/LinkedIn), everything HTML-escaped,
-the resume still attached. The HTML is opened in Microsoft Edge at desktop and phone width: content
-is at most 760px wide and never wider than the phone screen.
+The draft has text/plain AND text/html. The HTML is what Gmail itself writes when someone types an
+email: left-aligned, full width, the reader's normal font, a blank line between paragraphs, the
+signature as plain lines - no centred fixed-width column, tables or styled blocks (the recruiter
+asked for "realistic", not a newsletter look). Everything is HTML-escaped; email / LinkedIn links
+are clickable; the resume is still attached. Rendered in Microsoft Edge: the text starts at the
+left edge and uses the full width at desktop size, and never scrolls sideways on a phone.
 Gmail is never contacted (imaplib stubbed). People are labelled test fixtures.
 Run: python test_email_html.py
 """
@@ -26,10 +27,9 @@ config.DATABASE_URL = ""
 import docx  # noqa: E402
 import gmail_multi_manager as gm  # noqa: E402
 import models  # noqa: E402
-
-models.init_db()
 from playwright.sync_api import sync_playwright  # noqa: E402
 
+models.init_db()
 failures, captured = [], []
 
 
@@ -73,37 +73,37 @@ res = gm.create_candidate_draft(cid, jid)
 check(res.get("success") and res.get("resume_attached"), f"draft created with resume: {res}")
 msg = captured[-1]
 plain = msg.get_body(preferencelist=("plain",)).get_content()
-html = msg.get_body(preferencelist=("html",)).get_content()
+html = msg.get_body(preferencelist=("html",)).get_content().strip()
 check("Hi Hiring Team," in plain and "Best regards," in plain, "plain text version unchanged")
 check(any(p.get_filename() == "Koushik_Mailtest.docx" for p in msg.iter_attachments()), "resume still attached")
-check("max-width:760px" in html and 'width="760"' in html and "<!--[if mso]>" in html, "760px, with an Outlook (mso) fixed-width wrapper")
-check("font-family:Arial, Calibri" in html and "font-size:14px" in html and "line-height:1.6" in html, "font + size + line height")
-check("<style" not in html and "class=" not in html, "inline CSS only (Outlook ignores <style> classes)")
-check('role="presentation"' in html, "table-based layout")
-check("Koushik Mailtest &lt;b&gt;" in html and "Koushik Mailtest <b>" not in html, "name is HTML-escaped")
-check('font-weight:bold; color:#111827;">Koushik Mailtest &lt;b&gt;</div>' in html, "signature: name in bold")
-check('href="mailto:koushik-mailtest@example.invalid"' in html and 'href="https://www.linkedin.com/in/koushik-mailtest"' in html,
+check(html.startswith('<div dir="ltr"><div>Hi Hiring Team,</div><div><br></div>'), f"Gmail-style lines: {html[:80]!r}")
+for banned in ("<table", "max-width", "width=", "font-family", "font-size", "text-align:center", "align=\"center\"", "<style", "<!--[if"):
+    check(banned not in html, f"no newsletter layout: found {banned!r}")
+check("Best regards,<br>Koushik Mailtest &lt;b&gt;<br>Java Full Stack Developer<br>Phone: +1 555 0100<br>Email: " in html,
+      "signature = plain lines, name escaped")
+check('<a href="mailto:koushik-mailtest@example.invalid">' in html and '<a href="https://www.linkedin.com/in/koushik-mailtest">' in html,
       "email + LinkedIn clickable")
+check(html.count("<div><br></div>") == plain.strip().count("\n\n"), "one blank line between paragraphs, like the plain text")
 
-# custom (AI Copilot) bodies get the same HTML treatment
+# custom (AI Copilot) bodies get the same treatment
 gm.create_candidate_draft(cid, jid, custom_subject="Hello", custom_body="Hi Sam,\n\nShort note.\n\nThanks,\nKoushik")
 h2 = captured[-1].get_body(preferencelist=("html",)).get_content()
-check("Short note." in h2 and 'font-weight:bold; color:#111827;">Koushik</div>' in h2, "custom body rendered with signature")
+check("<div>Short note.</div>" in h2 and "<div>Thanks,<br>Koushik</div>" in h2, f"custom body: {h2!r}")
 
-# ---- render in Edge: desktop and phone
+# ---- render in Edge: flush left, full width on desktop, no sideways scroll on a phone
 path = os.path.join(tmp_dir, "email.html")
-open(path, "w", encoding="utf-8").write(html)
+open(path, "w", encoding="utf-8").write("<!doctype html><meta charset='utf-8'><body style='margin:16px'>" + html + "</body>")
 shots = []
 with sync_playwright() as p:
     browser = p.chromium.launch(channel="msedge", headless=True)
     for w in (1280, 390):
         page = browser.new_page(viewport={"width": w, "height": 900})
         page.goto("file:///" + path.replace("\\", "/"))
-        content_w = page.evaluate("Math.max(...[...document.querySelectorAll('table[style*=\"max-width\"]')].map(t => t.getBoundingClientRect().width))")
+        box = page.eval_on_selector("div[dir=ltr]", "e => { const r = e.getBoundingClientRect(); return [r.left, r.width]; }")
         overflow = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
-        check(content_w <= 760.5 and overflow <= 1, f"{w}px wide: content {content_w}px, sideways scroll {overflow}px")
+        check(box[0] <= 17 and overflow <= 1, f"{w}px: starts at the left edge ({box[0]}px), sideways scroll {overflow}px")
         if w == 1280:
-            check(content_w > 700, f"desktop uses the full 760px: {content_w}")
+            check(box[1] > 1200, f"desktop: uses the full width, not a narrow column ({box[1]}px)")
         shots.append(os.path.join(tmp_dir, f"email_{w}.png"))
         page.screenshot(path=shots[-1], full_page=True)
         page.close()
@@ -115,4 +115,4 @@ if failures:
         print("  -", f)
     print("screenshots:", shots)
     sys.exit(1)
-print(f"PASS: draft email HTML - text+html, 760px table layout, inline CSS, signature, escaped, Edge desktop+phone. Screenshots: {shots}")
+print(f"PASS: draft email looks hand-typed - Gmail-style lines, left-aligned full width, plain signature, escaped, links. Screenshots: {shots}")

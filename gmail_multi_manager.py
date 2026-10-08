@@ -224,8 +224,6 @@ def matching_skills(candidate: Dict, job_text: str, emphasis: str = "", limit: i
     return (first + [s for s in in_job if s not in first])[:limit]
 
 
-EMAIL_MAX_WIDTH = 760
-_SIGNOFF_RE = re.compile(r"^(best regards|kind regards|regards|thanks(?: and regards| & regards)?|thank you|sincerely|warm regards|cheers),?\s*$", re.I)
 _LINK_RE = re.compile(r"(https?://[^\s<]+|[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
 
 
@@ -234,46 +232,25 @@ def _linkify(escaped_line: str) -> str:
     def repl(m):
         v = m.group(0)
         href = v if v.startswith("http") else f"mailto:{v}"
-        return f'<a href="{href}" style="color:#1d4ed8; text-decoration:none;">{v}</a>'
+        return f'<a href="{href}">{v}</a>'
     return _LINK_RE.sub(repl, escaped_line)
 
 
 def render_email_html(body_text: str) -> str:
-    """The plain-text email as a professional HTML email that renders the same in Outlook / Microsoft
-    365, Gmail and phones: table-based layout, inline CSS only, 760px wide (centred) and full width on
-    small screens, Arial/Calibri 14px. The closing ("Best regards," + name, title, phone, email,
-    LinkedIn) becomes a signature block with the name in bold. Everything is HTML-escaped."""
+    """The email as a person would type it in Gmail: left-aligned, full width, the reader's normal
+    email font, one blank line between paragraphs, a plain signature (one line each). No centred
+    column, fixed width, tables or styled blocks - a recruiter should see an ordinary personal email,
+    not a newsletter. Same markup Gmail itself writes (div per line, <br> for blank lines), so it
+    looks the same in Gmail, Outlook / Microsoft 365 and on phones. Everything is HTML-escaped;
+    email addresses and links stay clickable."""
     import html as _html
-    paragraphs = [p.strip("\n") for p in re.split(r"\n\s*\n", (body_text or "").replace("\r\n", "\n").strip()) if p.strip()]
-    font = "font-family:Arial, Calibri, Helvetica, sans-serif; font-size:14px; line-height:1.6; color:#1f2937;"
-    rows = []
+    text = (body_text or "").replace("\r\n", "\n").strip()
+    paragraphs = [p.strip("\n") for p in re.split(r"\n\s*\n", text) if p.strip()]
+    blocks = []
     for para in paragraphs:
-        lines = para.split("\n")
-        if _SIGNOFF_RE.match(lines[0].strip()) and len(lines) > 1:
-            signoff = _html.escape(lines[0].strip())
-            name = _html.escape(lines[1].strip())
-            rest = "".join(f'<div style="font-size:13px; line-height:1.5; color:#4b5563;">{_linkify(_html.escape(l.strip()))}</div>'
-                           for l in lines[2:] if l.strip())
-            rows.append(f'<tr><td style="{font} padding:6px 0 0 0;">{signoff}</td></tr>'
-                        f'<tr><td style="padding:10px 0 0 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" '
-                        f'style="border-top:2px solid #1d4ed8;"><tr><td style="{font} padding:10px 0 0 0;">'
-                        f'<div style="font-size:15px; font-weight:bold; color:#111827;">{name}</div>{rest}</td></tr></table></td></tr>')
-        else:
-            text = "<br>".join(_linkify(_html.escape(l)) for l in lines)
-            rows.append(f'<tr><td style="{font} padding:0 0 14px 0;">{text}</td></tr>')
-    w = EMAIL_MAX_WIDTH
-    return (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1"></head>'
-        '<body style="margin:0; padding:0; background:#ffffff;">'
-        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;"><tr><td align="center" style="padding:16px 12px;">'
-        f'<!--[if mso]><table role="presentation" width="{w}" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->'
-        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:{w}px; width:100%;">'
-        f'<tr><td style="padding:8px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">{"".join(rows)}</table></td></tr>'
-        '</table>'
-        '<!--[if mso]></td></tr></table><![endif]-->'
-        '</td></tr></table></body></html>'
-    )
+        lines = [_linkify(_html.escape(l.rstrip())) for l in para.split("\n")]
+        blocks.append("<div>" + "<br>".join(lines) + "</div>")
+    return '<div dir="ltr">' + "<div><br></div>".join(blocks) + "</div>"
 
 
 def build_subject(candidate: Dict, job: Dict) -> str:

@@ -529,6 +529,11 @@ def init_db():
     # Apply schema migrations for missing columns in existing databases
     migrate_db(conn)
     try:
+        import regions
+        regions.backfill(conn)          # existing users get a region once (from their consultants' countries)
+    except Exception as ex:
+        print("[WARN] region backfill:", ex)
+    try:
         cursor.execute("CREATE INDEX IF NOT EXISTS ix_profile_education_norm ON profile_education (institution_norm)")
         conn.commit()
     except Exception as ex:
@@ -624,6 +629,11 @@ def migrate_db(conn):
     if "password_hash" not in u_cols:
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        except Exception:
+            pass
+    if "region" not in u_cols:          # USA / India team (regions.py)
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN region TEXT")
         except Exception:
             pass
 
@@ -967,7 +977,7 @@ def get_or_create_user(name, email, role="Recruiter", avatar_url=None, password=
     conn.close()
     return dict(user)
 
-def create_user(name, email, password, role="Recruiter", avatar_url=None):
+def create_user(name, email, password, role="Recruiter", avatar_url=None, region="USA"):
     """Creates a new recruiter account with hashed password."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -978,14 +988,15 @@ def create_user(name, email, password, role="Recruiter", avatar_url=None):
 
     p_hash = generate_password_hash(password)
     cursor.execute("""
-    INSERT INTO users (name, email, password_hash, role, avatar_url)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO users (name, email, password_hash, role, avatar_url, region)
+    VALUES (?, ?, ?, ?, ?, ?)
     """, (
         name,
         email,
         p_hash,
         role,
-        avatar_url or "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80"
+        avatar_url or "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
+        region if region in ("USA", "India") else "USA"
     ))
     conn.commit()
     user_id = cursor.lastrowid
@@ -1028,10 +1039,11 @@ def get_users():
         u.role, 
         u.avatar_url, 
         u.created_at,
+        u.region,
         COUNT(c.id) as consultant_count
     FROM users u
     LEFT JOIN candidates c ON c.assigned_user_id = u.id
-    GROUP BY u.id, u.name, u.email, u.role, u.avatar_url, u.created_at
+    GROUP BY u.id, u.name, u.email, u.role, u.avatar_url, u.created_at, u.region
     ORDER BY u.id ASC
     """)
     rows = cursor.fetchall()

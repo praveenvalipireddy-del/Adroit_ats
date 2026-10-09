@@ -18,6 +18,7 @@ import resume_bot
 import cloud_align
 import resume_versions
 import application_tracker
+import regions
 import threading
 import apify_service
 import linkedin_sourcing
@@ -88,6 +89,39 @@ def _public_candidate(cand):
     return {k: v for k, v in (cand or {}).items() if k not in _PRIVATE_CANDIDATE_FIELDS}
 
 
+def _view_regions(user):
+    """Regions the user is looking at: a recruiter's own team; an admin's switcher choice (default Both)."""
+    if not user:
+        return set()
+    conn = models.get_db_connection()
+    try:
+        stored = regions.user_region(conn, user["id"])
+    finally:
+        conn.close()
+    return regions.view_regions(user, stored, session.get("view_region"))
+
+
+def _team_country_problem(user, country):
+    """A recruiter can't put a consultant in the OTHER team's country - the consultant would vanish from
+    their own list. Admins can (that is how a consultant moves team)."""
+    if not user or "Admin" in (user.get("role") or ""):
+        return ""
+    target = regions.candidate_region({"country": country})
+    mine = next(iter(_view_regions(user)))
+    if target != mine:
+        return (f"This consultant's country ({country or 'not set'}) belongs to the {target} team, and you are on the {mine} team. "
+                f"Ask an admin to add or move this consultant.")
+    return ""
+
+
+def _job_country_for(user, requested):
+    """The Jobs feed follows the team: US jobs for USA, India jobs for India (admins viewing Both choose)."""
+    vr = _view_regions(user)
+    if len(vr) == 1:
+        return regions.JOB_COUNTRY[next(iter(vr))]
+    return requested
+
+
 def can_access_candidate(user, candidate_id) -> bool:
     """Admins can act on any consultant; a recruiter only on consultants assigned to them."""
     try:
@@ -95,7 +129,10 @@ def can_access_candidate(user, candidate_id) -> bool:
     except (TypeError, ValueError):
         return False
     is_admin = "Admin" in (user or {}).get("role", "")
-    return bool(user) and models.get_candidate_by_id(cid, user_id=user["id"], is_admin=is_admin) is not None
+    cand = models.get_candidate_by_id(cid, user_id=user["id"], is_admin=is_admin) if user else None
+    # Teams: a consultant belongs to the USA or India team by country; only that team (or an admin
+    # viewing it) can act on them.
+    return bool(cand) and regions.candidate_region(cand) in _view_regions(user)
 
 @app.before_request
 def require_login_for_student_api():
@@ -216,12 +253,15 @@ def dashboard():
     is_admin = ("Admin" in user.get("role", ""))
     selected_recruiter_id = request.args.get("recruiter_id", type=int) if is_admin else user["id"]
     stats = models.get_dashboard_stats(user_id=selected_recruiter_id, is_admin=(is_admin and not request.args.get("recruiter_id")))
-    candidates = models.get_candidates(user_id=selected_recruiter_id, is_admin=(is_admin and not request.args.get("recruiter_id")))
+    view_regions = _view_regions(user)
+    candidates = regions.filter_candidates(
+        models.get_candidates(user_id=selected_recruiter_id, is_admin=(is_admin and not request.args.get("recruiter_id"))), view_regions)
     for c in candidates:
         c_status = gmail_multi_manager.is_candidate_connected(c["id"])
         c["gmail_connected"] = c_status.get("connected", False)
 
-    recruiters = models.get_users() if is_admin else []
+    recruiters = [r for r in models.get_users() if regions.normalize(r.get("region")) in view_regions or "Admin" in (r.get("role") or "")] if is_admin else []
+    view_region = (session.get("view_region") or "Both") if is_admin else next(iter(view_regions))
 
     try:
         return render_template(
@@ -231,6 +271,7 @@ def dashboard():
             candidates=candidates,
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
+            view_region=view_region,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
@@ -247,6 +288,7 @@ def dashboard():
             candidates=candidates,
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
+            view_region=view_region,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
@@ -342,6 +384,9 @@ def api_consultants():
             return jsonify({"error": "Consultant name and email are required"}), 400
 
         is_admin = ("Admin" in user.get("role", ""))
+        team_problem = _team_country_problem(user, country)
+        if team_problem:
+            return jsonify({"error": team_problem}), 400
         assigned_user_id = user["id"]
         if is_admin:
             req_assigned = (request.form.get("assigned_user_id") if request.form else None) or (request.get_json(silent=True) or {}).get("assigned_user_id")
@@ -390,7 +435,8 @@ def api_consultants():
     # GET request - return candidates scoped to current recruiter
     is_admin = ("Admin" in user.get("role", ""))
     recruiter_id = request.args.get("recruiter_id", type=int)
-    candidates = models.get_candidates(user_id=recruiter_id if is_admin else user["id"], is_admin=(is_admin and not recruiter_id))
+    candidates = regions.filter_candidates(
+        models.get_candidates(user_id=recruiter_id if is_admin else user["id"], is_admin=(is_admin and not recruiter_id)), _view_regions(user))
     for c in candidates:
         c_status = gmail_multi_manager.is_candidate_connected(c["id"])
         c["gmail_connected"] = c_status.get("connected", False)
@@ -435,6 +481,10 @@ def api_consultant_detail(candidate_id):
         for key in ["name", "email", "phone", "title", "primary_skills", "experience_years", "target_rate", "visa_status", "status", "location", "country", "resume_summary"]:
             if key in data:
                 update_fields[key] = data[key]
+        if "country" in update_fields:
+            team_problem = _team_country_problem(user, update_fields["country"])
+            if team_problem:
+                return jsonify({"error": team_problem}), 400
         models.update_candidate(candidate_id, **update_fields)
         return jsonify({"success": True, "candidate_id": candidate_id})
 
@@ -643,7 +693,7 @@ def api_jobs_search():
     contract_only = data.get("contract_only", False)
     is_24h_only = data.get("is_24h_only", False)
     live_scrape = data.get("live_scrape", False)
-    country = (data.get("country") or "United States").strip()
+    country = _job_country_for(current_user(), (data.get("country") or "United States").strip())
     my_experience = _int_or_none(data.get("my_experience"))
     include_unstated = data.get("include_unstated", True) is not False
 
@@ -1518,7 +1568,8 @@ def _tracker_candidate_ids(user, candidate_id=None):
     if candidate_id:
         return [int(candidate_id)] if can_access_candidate(user, candidate_id) else []
     is_admin = "Admin" in (user.get("role") or "")
-    return [c["id"] for c in models.get_candidates(user_id=None if is_admin else user["id"], is_admin=is_admin)]
+    cands = models.get_candidates(user_id=None if is_admin else user["id"], is_admin=is_admin)
+    return [c["id"] for c in regions.filter_candidates(cands, _view_regions(user))]
 
 
 def _tracker_app_allowed(user, app_id):
@@ -2210,12 +2261,13 @@ def api_admin_recruiters():
         email = data.get("email", "").strip()
         password = data.get("password", "").strip()
         role = data.get("role", "Recruiter").strip()
+        region = regions.normalize(data.get("region")) or "USA"
 
         if not name or not email or not password:
             return jsonify({"error": "Name, email, and password are required."}), 400
 
         try:
-            new_user = models.create_user(name, email, password, role=role)
+            new_user = models.create_user(name, email, password, role=role, region=region)
             models.log_activity(
                 user["id"], user["name"], "Created Recruiter", "User", new_user["id"],
                 f"Admin created recruiter account for {name} ({email}) with role '{role}'"
@@ -2227,6 +2279,40 @@ def api_admin_recruiters():
             return jsonify({"error": f"Failed to create recruiter: {str(e)}"}), 500
 
     return jsonify(models.get_users())
+
+@app.route("/api/admin/recruiters/<int:recruiter_id>/region", methods=["POST"])
+def api_admin_recruiter_region(recruiter_id):
+    """Admin: move a recruiter to the USA or India team."""
+    user = current_user()
+    if not user or "Admin" not in user.get("role", ""):
+        return jsonify({"error": "Admin permission required."}), 403
+    region = regions.normalize((request.get_json(silent=True) or {}).get("region"))
+    if not region:
+        return jsonify({"error": "Region must be USA or India."}), 400
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET region = ? WHERE id = ?", (region, recruiter_id))
+        conn.commit()
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Recruiter Region", "User", recruiter_id, f"Moved to the {region} team")
+    return jsonify({"success": True, "region": region})
+
+
+@app.route("/api/view-region", methods=["POST"])
+def api_view_region():
+    """Admin: which team to look at - USA, India or Both."""
+    user = current_user()
+    if not user or "Admin" not in user.get("role", ""):
+        return jsonify({"error": "Admin permission required."}), 403
+    region = regions.normalize((request.get_json(silent=True) or {}).get("region"))
+    if region:
+        session["view_region"] = region
+    else:
+        session.pop("view_region", None)
+    return jsonify({"success": True, "view_region": region or "Both"})
+
 
 @app.route("/api/admin/recruiters/<int:recruiter_id>", methods=["DELETE", "OPTIONS"])
 def api_admin_delete_recruiter(recruiter_id):
@@ -2697,6 +2783,15 @@ def api_vendors():
     finally:
         conn.close()
     is_admin = "Admin" in (user.get("role") or "")
+    if is_admin:
+        vr = _view_regions(user)
+        if len(vr) == 1:
+            conn = models.get_db_connection()
+            try:
+                team = {o for o in {r["owner_user_id"] for r in rows} if regions.user_region(conn, o) in vr}
+            finally:
+                conn.close()
+            rows = [r for r in rows if r["owner_user_id"] in team or r["owner_user_id"] == user["id"]]
     owners = sorted({(r["owner_user_id"], r.get("owner_name") or "") for r in rows}, key=lambda o: o[1].lower()) if is_admin else []
     for r in rows:
         r["mine"] = r["owner_user_id"] == user["id"]

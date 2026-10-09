@@ -92,6 +92,15 @@
                 </div>
 
                 <div class="header-actions">
+                    {% if 'Admin' in (user.role or '') %}
+                    <select id="view-region-switch" class="form-control" title="Which team to look at" style="width:auto; height:34px; font-size:0.82rem; font-weight:700;">
+                        <option value="" {{ 'selected' if view_region == 'Both' }}>🌐 Both teams</option>
+                        <option value="USA" {{ 'selected' if view_region == 'USA' }}>🇺🇸 USA team</option>
+                        <option value="India" {{ 'selected' if view_region == 'India' }}>🇮🇳 India team</option>
+                    </select>
+                    {% else %}
+                    <span id="team-badge" style="font-size:0.8rem; font-weight:700; padding:6px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">{{ '🇮🇳 India team' if view_region == 'India' else '🇺🇸 USA team' }}</span>
+                    {% endif %}
                     <button class="btn btn-success btn-sm" id="btn-open-paste-draft-modal" style="box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
                         📋 Paste Requirement & Draft
@@ -843,6 +852,7 @@
                                         <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Recruiter</th>
                                         <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Login Email</th>
                                         <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Role</th>
+                                        <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Team</th>
                                         <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Assigned Bench</th>
                                         <th style="padding: 12px 18px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Actions</th>
                                     </tr>
@@ -1242,6 +1252,13 @@
                             <option value="Admin">Admin (Full Agency Visibility)</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label>Team</label>
+                        <select id="rec-region" class="form-control">
+                            <option value="USA" selected>🇺🇸 USA</option>
+                            <option value="India">🇮🇳 India</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" id="btn-cancel-add-recruiter" onclick="window.closeAddRecruiterModal()">Cancel</button>
@@ -1288,8 +1305,9 @@
     <!-- Sourcing tracker card: slides in from the right when a candidate row is clicked -->
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
-    <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.63.0"></script>
+    <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
+        window.VIEW_REGION = {{ view_region | tojson }};</script>
+    <script src="/static/js/app.js?v=5.64.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

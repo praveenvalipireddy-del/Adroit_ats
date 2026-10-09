@@ -2725,6 +2725,12 @@ async function loadRecruiters() {
                             ${escapeHtml(r.role || 'Recruiter')}
                         </span>
                     </td>
+                    <td style="padding: 14px 18px;">
+                        <select class="form-control recruiter-region" data-id="${r.id}" style="width:auto; font-size:0.8rem;" onchange="setRecruiterRegion(${r.id}, this.value)">
+                            <option value="USA" ${(r.region || 'USA') === 'USA' ? 'selected' : ''}>🇺🇸 USA</option>
+                            <option value="India" ${r.region === 'India' ? 'selected' : ''}>🇮🇳 India</option>
+                        </select>
+                    </td>
                     <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">${r.consultant_count || 0} consultants</td>
                     <td style="padding: 14px 18px;">
                         <div style="display: flex; gap: 8px;">
@@ -2774,6 +2780,7 @@ async function submitAddRecruiter(e) {
     const email = document.getElementById('rec-email')?.value?.trim();
     const password = document.getElementById('rec-password')?.value?.trim();
     const role = document.getElementById('rec-role')?.value || 'Recruiter';
+    const region = document.getElementById('rec-region')?.value || 'USA';
 
     if (!name || !email || !password) {
         showToast('Name, email, and password are required.', 'error');
@@ -2784,7 +2791,7 @@ async function submitAddRecruiter(e) {
         const res = await fetch('/api/admin/recruiters', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password, role })
+            body: JSON.stringify({ name, email, password, role, region })
         });
         const data = await res.json();
         if (res.ok && data.success) {
@@ -4970,3 +4977,35 @@ async function trkCheckReplies() {
         trkLoad();
     } finally { btn.disabled = false; }
 }
+
+// =========================================================================
+// USA / India teams (regions.py): admins switch the team they look at; recruiters are locked to theirs.
+// The Jobs market follows the team (US jobs for USA, India jobs for India).
+// =========================================================================
+const TEAM_JOB_COUNTRY = { USA: 'United States', India: 'India' };
+
+async function setRecruiterRegion(id, region) {
+    const res = await fetch(`/api/admin/recruiters/${id}/region`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ region }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(d.error || 'Could not change the team.', 'error'); return; }
+    showToast(`Moved to the ${d.region} team`, 'success');
+}
+
+function applyTeamLock() {
+    const country = TEAM_JOB_COUNTRY[window.VIEW_REGION];
+    const sel = document.getElementById('filter-country');
+    if (!sel || !country) return;
+    sel.value = country;
+    sel.disabled = true;
+    sel.title = `Jobs follow your team (${window.VIEW_REGION})`;
+    if (typeof syncJobsMarketUi === 'function') syncJobsMarketUi();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const sw = document.getElementById('view-region-switch');
+    if (sw) sw.addEventListener('change', async () => {
+        await fetch('/api/view-region', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ region: sw.value }) });
+        window.location.reload();
+    });
+    applyTeamLock();
+});

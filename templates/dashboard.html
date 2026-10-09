@@ -573,6 +573,7 @@
                             <h2>Gmail Drafts & Application Pipeline</h2>
                             <p>Track all drafted and submitted applications across all consultant Gmail accounts. Review draft timestamps, recruiter contacts, and target roles.</p>
                         </div>
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-open-tracker-all" onclick="openTracker('')">📋 All applications</button>
                     </div>
 
                     <div class="pipeline-kanban" id="pipeline-container">
@@ -1161,6 +1162,55 @@
         </div>
     </div>
 
+
+    <!-- MODAL: application tracker (application_tracker.py) -->
+    <div class="modal-backdrop" id="modal-tracker" style="display: none; z-index: 1140;">
+        <div class="modal-dialog" style="max-width: 1320px; width: 97vw;">
+            <div class="modal-header">
+                <h3>📋 Applications</h3>
+                <button class="modal-close" type="button" id="btn-close-tracker">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
+                    <select id="trk-consultant" class="form-control" style="max-width:240px;"></select>
+                    <select id="trk-status" class="form-control" style="max-width:200px;"></select>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; margin:0; text-transform:none; font-weight:500;">
+                        <input type="checkbox" id="trk-due"> Follow-ups due
+                    </label>
+                    <span style="flex:1"></span>
+                    <button type="button" class="btn btn-secondary btn-sm" id="trk-add-btn">+ Add application</button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="trk-replies-btn" title="Read-only check of the consultant's Gmail for replies from each recruiter">✉ Check Gmail replies</button>
+                    <a class="btn btn-primary btn-sm" id="trk-export" href="#">⬇ Excel</a>
+                </div>
+                <div id="trk-summary" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
+                <div id="trk-msg" style="font-size:0.85rem; margin-bottom:8px;"></div>
+                <div id="trk-add" style="display:none; border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:10px; background:#f8fafc;">
+                    <div style="font-weight:700; font-size:0.85rem; margin-bottom:6px; color:#0f172a;">Track an application made outside the app</div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px;">
+                        <input class="form-control" id="trk-a-title" placeholder="Job title *">
+                        <input class="form-control" id="trk-a-company" placeholder="Company *">
+                        <input class="form-control" id="trk-a-url" placeholder="Job link (https://...)">
+                        <input class="form-control" id="trk-a-email" placeholder="Recruiter email">
+                        <select class="form-control" id="trk-a-status"></select>
+                        <select class="form-control" id="trk-a-method"></select>
+                    </div>
+                    <div style="margin-top:8px; display:flex; gap:8px;">
+                        <button type="button" class="btn btn-primary btn-sm" id="trk-a-save">Save</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="trk-a-cancel">Cancel</button>
+                    </div>
+                </div>
+                <style>#trk-table th, #trk-table td { padding: 8px 6px; vertical-align: top; } #trk-table .form-control { padding: 4px 6px; }</style>
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="trk-table" style="font-size:0.8rem;">
+                        <thead><tr><th>Job</th><th class="trk-col-cand">Consultant</th><th>Status</th><th>How applied</th><th>Applied / drafted</th>
+                            <th>Recruiter</th><th>Resume sent</th><th>Follow-up</th><th>Interview</th><th>Notes</th><th></th></tr></thead>
+                        <tbody id="trk-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: ADD NEW RECRUITER (ADMIN ONLY) -->
     <div class="modal-backdrop" id="modal-add-recruiter" style="display: none;">
         <div class="modal-dialog modal-sm">
@@ -1239,7 +1289,7 @@
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};</script>
-    <script src="/static/js/app.js?v=5.62.0"></script>
+    <script src="/static/js/app.js?v=5.63.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

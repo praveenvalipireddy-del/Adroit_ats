@@ -315,6 +315,17 @@ def init_db():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # Application tracker history: every status / field change of an application (who, when, what).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS application_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        application_id INTEGER NOT NULL,
+        user_id INTEGER,
+        kind TEXT NOT NULL,
+        detail TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     # JD-tailored resume versions the recruiter reviewed and chose to SAVE (resume_versions.py).
     # Several per consultant; the original resume in resume_files is never touched.
     cursor.execute(f"""
@@ -664,7 +675,19 @@ def migrate_db(conn):
     a_cols = get_existing_cols("applications")
     app_new_cols = {
         "draft_id": "TEXT",
-        "drafted_at": "TEXT"
+        "drafted_at": "TEXT",
+        # Application tracker (application_tracker.py)
+        "apply_method": "TEXT",
+        "client_company": "TEXT",
+        "recruiter_name": "TEXT",
+        "recruiter_email": "TEXT",
+        "recruiter_phone": "TEXT",
+        "rate": "TEXT",
+        "resume_version_id": "INTEGER",
+        "follow_up_date": "TEXT",
+        "interview_at": "TEXT",
+        "interview_round": "TEXT",
+        "last_reply_at": "TEXT",
     }
     for col, c_type in app_new_cols.items():
         if col.lower() not in a_cols:
@@ -1572,27 +1595,24 @@ def create_application(candidate_id, job_id, user_id=1, stage="Saved", match_sco
     conn.close()
     return app_id
 
-def mark_job_drafted(job_id, candidate_id, draft_id, user_id=1, notes=""):
+def mark_job_drafted(job_id, candidate_id, draft_id, user_id=1, notes="", recruiter_email=None, resume_version_id=None):
+    """A Gmail draft was created: track it (application_tracker). The status only moves forward - a new
+    draft for a job that is already at Interview stays at Interview. The draft note goes into the
+    application's history, not over the recruiter's own notes."""
+    import application_tracker
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM applications WHERE job_id = ? AND candidate_id = ?", (job_id, candidate_id))
-    existing = cursor.fetchone()
-    if existing:
-        app_id = existing[0]
-        cursor.execute("""
-        UPDATE applications 
-        SET stage = 'Drafted', draft_id = ?, drafted_at = CURRENT_TIMESTAMP, notes = ?, updated_at = CURRENT_TIMESTAMP 
-        WHERE id = ?
-        """, (draft_id, notes, app_id))
-    else:
-        cursor.execute("""
-        INSERT INTO applications (job_id, candidate_id, user_id, stage, draft_id, drafted_at, notes)
-        VALUES (?, ?, ?, 'Drafted', ?, CURRENT_TIMESTAMP, ?)
-        """, (job_id, candidate_id, user_id, draft_id, notes))
-        app_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    try:
+        app_id = application_tracker.upsert(conn, job_id, candidate_id, user_id, stage="Drafted", draft_id=draft_id,
+                                            drafted_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                                            recruiter_email=recruiter_email, resume_version_id=resume_version_id)
+        if notes:
+            cur = conn.cursor()
+            application_tracker.event(cur, app_id, user_id, "draft", notes)
+            conn.commit()
+    finally:
+        conn.close()
     return app_id
+
 
 def get_pipeline(user_id=None, is_admin=False):
     conn = get_db_connection()

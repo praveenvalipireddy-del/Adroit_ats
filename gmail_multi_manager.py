@@ -322,7 +322,8 @@ def generate_consultant_pitch(candidate: Dict, job: Dict, custom_notes: str = ""
     return "\n\n".join(paragraphs) + "\n"
 
 
-def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None, bcc: Optional[List[str]] = None, save_to_email: bool = True, attachment: Optional[Tuple[str, bytes]] = None) -> Dict[str, Any]:
+def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Optional[str] = None, custom_notes: str = "", custom_subject: Optional[str] = None, custom_body: Optional[str] = None, bcc: Optional[List[str]] = None, save_to_email: bool = True, attachment: Optional[Tuple[str, bytes]] = None, acting_user_id: Optional[int] = None,
+                          resume_version_id: Optional[int] = None) -> Dict[str, Any]:
     cand = models.get_candidate_by_id(candidate_id)
     if not cand:
         return {"success": False, "error": f"Candidate #{candidate_id} not found."}
@@ -405,7 +406,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                 job_id=job_id,
                 candidate_id=candidate_id,
                 draft_id=draft_id,
-                user_id=1,
+                user_id=acting_user_id or 1, recruiter_email=to_email, resume_version_id=resume_version_id,
                 notes=f"Created Gmail Draft via App Password for {cand_name} -> {to_email}"
             )
             models.log_activity(
@@ -461,7 +462,7 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
                     job_id=job_id,
                     candidate_id=candidate_id,
                     draft_id=draft_id,
-                    user_id=1,
+                    user_id=acting_user_id or 1, recruiter_email=to_email, resume_version_id=resume_version_id,
                     notes=f"Created 1-Click Gmail Draft for {cand_name} -> {to_email}"
                 )
                 models.log_activity(

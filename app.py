@@ -17,6 +17,7 @@ import models
 import resume_bot
 import cloud_align
 import resume_versions
+import application_tracker
 import threading
 import apify_service
 import linkedin_sourcing
@@ -995,7 +996,9 @@ def api_paste_and_draft():
         custom_to_email=recruiter_email,
         custom_notes=custom_notes,
         bcc=[c["email"] for c in bcc_contacts],
-        attachment=attachment
+        attachment=attachment[:2] if attachment else None,
+        acting_user_id=user["id"],
+        resume_version_id=attachment[2] if attachment else None
     )
 
     if not result.get("success"):
@@ -1044,6 +1047,7 @@ def api_create_outreach_draft():
         finally:
             conn.close()
 
+    chosen = _resume_version_for(user, candidate_id, _int_or_none(data.get("optimized_resume_id")), job_id)
     result = gmail_multi_manager.create_candidate_draft(
         candidate_id=int(candidate_id),
         job_id=int(job_id),
@@ -1052,7 +1056,9 @@ def api_create_outreach_draft():
         custom_subject=custom_subject,
         custom_body=custom_body,
         bcc=[c["email"] for c in bcc_contacts],
-        attachment=_resume_version_for(user, candidate_id, _int_or_none(data.get("optimized_resume_id")), job_id)
+        attachment=chosen[:2] if chosen else None,
+        acting_user_id=user["id"],
+        resume_version_id=chosen[2] if chosen else None
     )
 
     if not result.get("success"):
@@ -1131,7 +1137,7 @@ def api_auto_vendor_drafts():
         bcc_contacts = vendors.bcc_for_job(idx, job, to_email)
         result = gmail_multi_manager.create_candidate_draft(
             candidate_id=candidate_id, job_id=job["id"], custom_to_email=to_email,
-            bcc=[c["email"] for c in bcc_contacts], save_to_email=False)
+            bcc=[c["email"] for c in bcc_contacts], save_to_email=False, acting_user_id=user["id"])
         if not result.get("success"):
             error = result.get("error") or "Draft failed"
             if result.get("needs_auth"):
@@ -1487,15 +1493,166 @@ def api_job_apply_status(job_id):
     job = models.get_job_by_id(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
+    cid = _int_or_none((request.get_json(silent=True) or {}).get("candidate_id"))
     conn = models.get_db_connection()
     try:
         conn.cursor().execute("UPDATE jobs SET apply_status = ? WHERE id = ?", (status, job_id))
         conn.commit()
+        # Tracker: the row's Target Candidate applied this way (one consultant per job).
+        if status and cid and can_access_candidate(user, cid):
+            application_tracker.upsert(conn, job_id, cid, user["id"], stage="Applied", apply_method=status)
+            cur = conn.cursor()
+            cur.execute("UPDATE applications SET apply_method = ? WHERE job_id = ? AND candidate_id = ?", (status, job_id, cid))
+            conn.commit()
     finally:
         conn.close()
     models.log_activity(user["id"], user["name"], "Job Apply Status", "Job", job_id,
                         f"{job.get('title', '')} at {job.get('company', '')}: {APPLY_STATUSES[status]}")
     return jsonify({"success": True, "job_id": job_id, "status": status, "label": APPLY_STATUSES[status]})
+
+
+# ---------------------------------------------------------------- Application tracker (application_tracker.py)
+
+def _tracker_candidate_ids(user, candidate_id=None):
+    """Consultants whose applications this user may see: one (if allowed) or all of theirs (admin: all)."""
+    if candidate_id:
+        return [int(candidate_id)] if can_access_candidate(user, candidate_id) else []
+    is_admin = "Admin" in (user.get("role") or "")
+    return [c["id"] for c in models.get_candidates(user_id=None if is_admin else user["id"], is_admin=is_admin)]
+
+
+def _tracker_app_allowed(user, app_id):
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT candidate_id FROM applications WHERE id = ?", (app_id,))
+        r = cur.fetchone()
+    finally:
+        conn.close()
+    return bool(r) and can_access_candidate(user, r[0])
+
+
+@app.route("/api/applications", methods=["GET", "POST"])
+def api_applications():
+    """GET ?candidate_id=&status=(open|<status>)&due=1 -> applications + summary counts.
+    POST: track an application made outside the app (job title, company, link, recruiter...)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        cid = _int_or_none(data.get("candidate_id"))
+        if not cid or not can_access_candidate(user, cid):
+            return jsonify({"error": "Choose the consultant."}), 404
+        title = str(data.get("job_title") or "").strip()[:200]
+        company = str(data.get("company") or "").strip()[:200]
+        if not title or not company:
+            return jsonify({"error": "Job title and company are required."}), 400
+        url = str(data.get("job_url") or "").strip()[:500]
+        if url and not url.startswith(("http://", "https://")):
+            return jsonify({"error": "The job link must start with http:// or https://"}), 400
+        job = models.save_or_update_scraped_job({"title": title, "company": company, "url": url, "source": str(data.get("source") or "Manual Entry")[:60],
+                                                 "location": str(data.get("location") or "")[:120], "description": f"Tracked application: {title} at {company}",
+                                                 "recruiter_email": str(data.get("recruiter_email") or "").strip()[:200]})
+        job_id = job["id"] if isinstance(job, dict) else job
+        status = str(data.get("status") or "Applied")
+        if status not in application_tracker.STATUSES:
+            return jsonify({"error": "Unknown status."}), 400
+        conn = models.get_db_connection()
+        try:
+            app_id = application_tracker.upsert(conn, job_id, cid, user["id"], stage=status)
+            row = application_tracker.update(conn, app_id, user, {k: data[k] for k in application_tracker.EDITABLE if k in data})
+        except application_tracker.TrackerError as ex:
+            return jsonify({"error": str(ex)}), 400
+        finally:
+            conn.close()
+        return jsonify({"success": True, "application": row})
+    cid = _int_or_none(request.args.get("candidate_id"))
+    ids = _tracker_candidate_ids(user, cid)
+    if cid and not ids:
+        return jsonify({"error": "Consultant not found"}), 404
+    conn = models.get_db_connection()
+    try:
+        rows = application_tracker.list_for(conn, ids, status=(request.args.get("status") or "").strip(), due_only=request.args.get("due") == "1")
+        all_rows = rows if not (request.args.get("status") or request.args.get("due")) else application_tracker.list_for(conn, ids)
+    finally:
+        conn.close()
+    return jsonify({"applications": rows, "summary": application_tracker.summary(all_rows),
+                    "statuses": [{"value": s, "label": application_tracker.STATUS_LABELS[s]} for s in application_tracker.STATUSES],
+                    "methods": [{"value": k, "label": v or "-"} for k, v in application_tracker.METHODS.items()]})
+
+
+@app.route("/api/applications/<int:app_id>", methods=["PUT"])
+def api_application_update(app_id):
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if not _tracker_app_allowed(user, app_id):
+        return jsonify({"error": "Application not found"}), 404
+    conn = models.get_db_connection()
+    try:
+        row = application_tracker.update(conn, app_id, user, request.get_json(silent=True) or {})
+    except application_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    finally:
+        conn.close()
+    return jsonify({"success": True, "application": row})
+
+
+@app.route("/api/applications/<int:app_id>/events", methods=["GET"])
+def api_application_events(app_id):
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if not _tracker_app_allowed(user, app_id):
+        return jsonify({"error": "Application not found"}), 404
+    conn = models.get_db_connection()
+    try:
+        return jsonify({"events": application_tracker.events(conn, app_id)})
+    finally:
+        conn.close()
+
+
+@app.route("/api/applications/check-replies", methods=["POST"])
+def api_applications_check_replies():
+    """Read-only check of the consultant's Gmail for replies from each open application's recruiter."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    cid = _int_or_none((request.get_json(silent=True) or {}).get("candidate_id"))
+    if not cid or not can_access_candidate(user, cid):
+        return jsonify({"error": "Consultant not found"}), 404
+    conn = models.get_db_connection()
+    try:
+        out = application_tracker.check_replies(conn, models.get_candidate_by_id(cid), user["id"])
+    except application_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    finally:
+        conn.close()
+    return jsonify({"success": True, **out})
+
+
+@app.route("/api/applications/export-xlsx", methods=["GET"])
+def api_applications_export():
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    cid = _int_or_none(request.args.get("candidate_id"))
+    ids = _tracker_candidate_ids(user, cid)
+    if cid and not ids:
+        return jsonify({"error": "Consultant not found"}), 404
+    conn = models.get_db_connection()
+    try:
+        rows = application_tracker.list_for(conn, ids, status=(request.args.get("status") or "").strip())
+    finally:
+        conn.close()
+    who = rows[0]["candidate_name"] if (cid and rows) else ("All consultants" if not cid else "Consultant")
+    title = f"Applications - {who} - {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", who).strip("_") or "Applications"
+    return send_file(io.BytesIO(application_tracker.build_xlsx(rows, title)), as_attachment=True,
+                     download_name=f"Applications_{slug}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 
 
 @app.route("/api/optimized-resumes", methods=["GET", "POST"])
@@ -1557,7 +1714,7 @@ def _resume_version_for(user, candidate_id, version_id, job_id=None):
             return None
     elif job_id:
         v = resume_versions.latest_for_job(int(candidate_id), int(job_id))
-    return (v["filename"], v["data"]) if v and v.get("data") else None
+    return (v["filename"], v["data"], v["id"]) if v and v.get("data") else None
 
 
 @app.route("/api/jd/cloud", methods=["POST"])

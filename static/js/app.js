@@ -912,7 +912,10 @@ function renderJobsTable(jobs) {
     });
 
     tbody.querySelectorAll('.job-apply-status').forEach(sel => {
-        sel.addEventListener('change', () => setJobApplyStatus(parseInt(sel.getAttribute('data-job-id')), sel.value, sel));
+        sel.addEventListener('change', () => {
+            const cand = sel.closest('tr').querySelector('.job-consultant-select');
+            setJobApplyStatus(parseInt(sel.getAttribute('data-job-id')), sel.value, sel, cand ? parseInt(cand.value) : null);
+        });
     });
 
     // Attach 1-Click Draft listeners
@@ -2982,6 +2985,11 @@ function renderConsultantsTable() {
                         title="Find matching 24h jobs for this candidate">
                         🔍 Browse Jobs
                     </button>
+                    <button type="button" class="btn-open-tracker" onclick="openTracker(${c.id})"
+                        style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; background: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;"
+                        title="Every application of this consultant: status, follow-ups, interviews, history">
+                        📋 Applications
+                    </button>
                     <span id="job-match-count-${c.id}" style="font-size: 0.72rem; color: #64748b; font-weight: 500; padding-left: 2px;"></span>
                 </div>
             </td>
@@ -4800,12 +4808,165 @@ async function jobOptimizeSaveAndDraft() {
 }
 
 // ---- Jobs tab: "Applied" column (per job)
-async function setJobApplyStatus(jobId, status, selectEl) {
-    const res = await fetch(`/api/jobs/${jobId}/apply-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+async function setJobApplyStatus(jobId, status, selectEl, candidateId = null) {
+    const res = await fetch(`/api/jobs/${jobId}/apply-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, candidate_id: candidateId }) });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { showToast(d.error || 'Could not save the status.', 'error'); return; }
     const job = (state.jobs || []).find(j => j.id === jobId);
     if (job) job.apply_status = status;
     if (selectEl) selectEl.style.background = status ? '#ecfdf5' : '#fff';
     showToast(`Marked: ${d.label}`, 'success', 2500);
+}
+
+
+// =========================================================================
+// Application tracker (application_tracker.py): every application of every consultant
+// =========================================================================
+const trk = { candId: '', statuses: [], methods: [], rows: [], wired: false };
+
+function openTracker(candId) {
+    const $ = id => document.getElementById(id);
+    trkWire();
+    const sel = $('trk-consultant');
+    sel.innerHTML = '<option value="">All my consultants</option>' + (state.consultants || [])
+        .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    sel.value = candId ? String(candId) : '';
+    $('trk-add').style.display = 'none';
+    $('trk-msg').innerHTML = '';
+    $('modal-tracker').style.display = 'flex';
+    trkLoad();
+}
+
+function trkWire() {
+    if (trk.wired) return;
+    trk.wired = true;
+    const $ = id => document.getElementById(id);
+    $('btn-close-tracker').addEventListener('click', () => { $('modal-tracker').style.display = 'none'; });
+    ['trk-consultant', 'trk-status', 'trk-due'].forEach(id => $(id).addEventListener('change', trkLoad));
+    $('trk-add-btn').addEventListener('click', () => {
+        if (!$('trk-consultant').value) { trkMsg('Choose a consultant first (top left), then add the application.', 'warn'); return; }
+        $('trk-add').style.display = '';
+        $('trk-a-title').focus();
+    });
+    $('trk-a-cancel').addEventListener('click', () => { $('trk-add').style.display = 'none'; });
+    $('trk-a-save').addEventListener('click', trkAddSave);
+    $('trk-replies-btn').addEventListener('click', trkCheckReplies);
+}
+
+function trkMsg(text, kind) {
+    const colors = { ok: '#059669', warn: '#b45309', err: '#b91c1c' };
+    document.getElementById('trk-msg').innerHTML = text ? `<span style="color:${colors[kind] || '#475569'};">${escapeHtml(text)}</span>` : '';
+}
+
+async function trkLoad() {
+    const $ = id => document.getElementById(id);
+    trk.candId = $('trk-consultant').value;
+    const params = new URLSearchParams();
+    if (trk.candId) params.set('candidate_id', trk.candId);
+    if ($('trk-status').value) params.set('status', $('trk-status').value);
+    if ($('trk-due').checked) params.set('due', '1');
+    $('trk-export').href = '/api/applications/export-xlsx' + (trk.candId ? `?candidate_id=${trk.candId}` : '');
+    $('trk-replies-btn').disabled = !trk.candId;
+    const res = await fetch('/api/applications?' + params.toString());
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { trkMsg(d.error || 'Could not load applications.', 'err'); return; }
+    trk.rows = d.applications;
+    if (!trk.statuses.length) {
+        trk.statuses = d.statuses;
+        trk.methods = d.methods;
+        $('trk-status').innerHTML = '<option value="">All statuses</option><option value="open">Open (in progress)</option>' +
+            d.statuses.map(s => `<option value="${s.value}">${escapeHtml(s.label)}</option>`).join('');
+        $('trk-a-status').innerHTML = d.statuses.map(s => `<option value="${s.value}" ${s.value === 'Applied' ? 'selected' : ''}>${escapeHtml(s.label)}</option>`).join('');
+        $('trk-a-method').innerHTML = d.methods.map(m => `<option value="${m.value}">${escapeHtml(m.value ? m.label : 'How applied?')}</option>`).join('');
+    }
+    const s = d.summary;
+    const chip = (label, n, color) => `<span style="background:${color}; border-radius:999px; padding:4px 12px; font-size:0.8rem; font-weight:700; color:#0f172a;">${label}: ${n}</span>`;
+    $('trk-summary').innerHTML = chip('Total', s.total, '#f1f5f9') + chip('Applied this week', s.applied_this_week, '#eff6ff') +
+        chip('Responses', s.responded, '#ecfdf5') + chip('Interviews', s.interviews, '#f5f3ff') + chip('Placed', s.placed, '#dcfce7') +
+        chip('Follow-ups due', s.follow_ups_due, s.follow_ups_due ? '#fef3c7' : '#f1f5f9');
+    trkRender();
+}
+
+function trkRender() {
+    const body = document.getElementById('trk-body');
+    const showCand = !trk.candId;
+    document.querySelectorAll('.trk-col-cand').forEach(el => { el.style.display = showCand ? '' : 'none'; });
+    if (!trk.rows.length) {
+        body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:#64748b; padding:20px;">No applications yet. Drafts, the Jobs "Applied" column and "+ Add application" all appear here.</td></tr>';
+        return;
+    }
+    const opt = (list, cur) => list.map(o => `<option value="${o.value}" ${o.value === (cur || '') ? 'selected' : ''}>${escapeHtml(o.value ? o.label : '-')}</option>`).join('');
+    body.innerHTML = trk.rows.map(r => `
+        <tr data-app-id="${r.id}" style="${r.follow_up_due ? 'background:#fffbeb;' : ''}">
+            <td style="min-width:136px; color:#0f172a;"><b>${escapeHtml(r.job_title || '')}</b><div style="color:#64748b;">${escapeHtml(r.job_company || '')}</div>
+                ${r.job_url ? `<a href="${escapeHtml(r.job_url)}" target="_blank" rel="noopener noreferrer">posting ↗</a>` : ''}</td>
+            <td class="trk-col-cand" style="${showCand ? '' : 'display:none;'} color:#0f172a;">${escapeHtml(r.candidate_name || '')}</td>
+            <td><select class="form-control trk-f" data-f="status" style="font-size:0.78rem; min-width:128px;">${opt(trk.statuses, r.stage)}</select></td>
+            <td><select class="form-control trk-f" data-f="apply_method" style="font-size:0.78rem; min-width:118px;">${opt(trk.methods, r.apply_method)}</select></td>
+            <td style="white-space:nowrap; color:#0f172a;">${escapeHtml((r.applied_date || r.drafted_at || '').slice(0, 10))}${r.last_reply_at ? `<div style="color:#059669;">reply ${escapeHtml(r.last_reply_at.slice(0, 10))}</div>` : ''}</td>
+            <td><input class="form-control trk-f" data-f="recruiter_email" value="${escapeHtml(r.recruiter_email || '')}" placeholder="email" style="font-size:0.78rem; min-width:140px;"></td>
+            <td style="color:#0f172a;">${r.resume_filename ? `<a href="/api/optimized-resumes/${r.resume_version_id}/download">${escapeHtml(r.resume_filename)}</a>` : '<span style="color:#94a3b8;">original</span>'}</td>
+            <td><input type="date" class="form-control trk-f" data-f="follow_up_date" value="${escapeHtml(r.follow_up_date || '')}" style="font-size:0.8rem;"></td>
+            <td><input type="date" class="form-control trk-f" data-f="interview_at" value="${escapeHtml((r.interview_at || '').slice(0, 10))}" style="font-size:0.8rem;">
+                <input class="form-control trk-f" data-f="interview_round" value="${escapeHtml(r.interview_round || '')}" placeholder="round" style="font-size:0.75rem; margin-top:3px;"></td>
+            <td><textarea class="form-control trk-f" data-f="notes" rows="2" style="font-size:0.78rem; min-width:140px;">${escapeHtml(r.notes || '')}</textarea></td>
+            <td><button type="button" class="btn btn-secondary btn-xs trk-hist">History</button></td>
+        </tr>`).join('');
+    body.querySelectorAll('.trk-f').forEach(el => el.addEventListener('change', () => trkSave(el)));
+    body.querySelectorAll('.trk-hist').forEach(b => b.addEventListener('click', () => trkHistory(b.closest('tr'))));
+}
+
+async function trkSave(el) {
+    const tr = el.closest('tr');
+    const id = parseInt(tr.getAttribute('data-app-id'));
+    const res = await fetch(`/api/applications/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [el.getAttribute('data-f')]: el.value }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
+    const i = trk.rows.findIndex(r => r.id === id);
+    if (i >= 0) trk.rows[i] = d.application;
+    tr.style.background = d.application.follow_up_due ? '#fffbeb' : '';
+    showToast('Saved', 'success', 1500);
+}
+
+async function trkHistory(tr) {
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains('trk-hist-row')) { next.remove(); return; }
+    const res = await fetch(`/api/applications/${tr.getAttribute('data-app-id')}/events`);
+    const d = await res.json().catch(() => ({ events: [] }));
+    const row = document.createElement('tr');
+    row.className = 'trk-hist-row';
+    row.innerHTML = `<td colspan="11" style="background:#f8fafc; font-size:0.8rem; color:#334155;">` +
+        ((d.events || []).map(e => `<div>${escapeHtml(e.created_at)} &middot; <b>${escapeHtml(e.who)}</b> &middot; ${escapeHtml(e.detail || e.kind)}</div>`).join('') || 'No history yet.') + '</td>';
+    tr.after(row);
+}
+
+async function trkAddSave() {
+    const v = id => document.getElementById(id).value.trim();
+    const res = await fetch('/api/applications', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidate_id: parseInt(v('trk-consultant')), job_title: v('trk-a-title'), company: v('trk-a-company'),
+            job_url: v('trk-a-url'), recruiter_email: v('trk-a-email'), status: v('trk-a-status'), apply_method: v('trk-a-method') }) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { trkMsg(d.error || 'Could not add.', 'err'); return; }
+    ['trk-a-title', 'trk-a-company', 'trk-a-url', 'trk-a-email'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('trk-add').style.display = 'none';
+    trkMsg('Application added.', 'ok');
+    trkLoad();
+}
+
+async function trkCheckReplies() {
+    const btn = document.getElementById('trk-replies-btn');
+    btn.disabled = true;
+    trkMsg('Checking the consultant\'s Gmail (read-only)...', '');
+    try {
+        const res = await fetch('/api/applications/check-replies', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ candidate_id: parseInt(trk.candId) }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { trkMsg(d.error || 'Could not check replies.', 'err'); return; }
+        trkMsg(d.replied.length
+            ? `${d.replied.length} new repl${d.replied.length === 1 ? 'y' : 'ies'}: ${d.replied.map(r => r.job_title).join(', ')} - marked "Recruiter responded".`
+            : `Checked ${d.checked} open application${d.checked === 1 ? '' : 's'} - no new replies.`, d.replied.length ? 'ok' : '');
+        trkLoad();
+    } finally { btn.disabled = false; }
 }

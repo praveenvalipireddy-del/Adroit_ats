@@ -2720,6 +2720,37 @@ def api_sourcing_card(profile_id):
         conn.close()
 
 
+@app.route("/api/sourcing/profiles/<int:profile_id>/resume", methods=["GET", "POST", "DELETE"])
+def api_sourcing_resume(profile_id):
+    """The resume attached to a sourced candidate's card: GET downloads it, POST uploads (field
+    'file', .docx / .pdf up to 5 MB, replaces any earlier one), DELETE removes it."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        if request.method == "GET":
+            found = sourcing_tracker.get_resume(conn, profile_id)
+            if not found:
+                return jsonify({"error": "No resume attached"}), 404
+            name, data = found
+            mime = "application/pdf" if name.lower().endswith(".pdf") else \
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            return send_file(io.BytesIO(data), mimetype=mime, as_attachment=True, download_name=name)
+        if request.method == "DELETE":
+            return jsonify(sourcing_tracker.delete_resume(conn, profile_id, user))
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"error": "Choose a resume file first."}), 400
+        return jsonify(sourcing_tracker.save_resume(conn, profile_id, user, f.filename, f.read(sourcing_tracker.RESUME_MAX_BYTES + 1)))
+    except sourcing_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except LookupError:
+        return jsonify({"error": "Candidate not found"}), 404
+    finally:
+        conn.close()
+
+
 @app.route("/api/sourcing/profiles/<int:profile_id>/owner", methods=["POST", "OPTIONS"])
 def api_sourcing_owner(profile_id):
     """Admins reassign (or clear) a sourced candidate's owner."""

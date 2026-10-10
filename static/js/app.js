@@ -4000,6 +4000,24 @@ function trkRenderCard(c, warnings) {
           <div><label style="${lbl}" for="trk-rate">Expected rate</label><input id="trk-rate" class="trk-input" value="${escapeHtml(f.expected_rate)}" placeholder="e.g. $65/hr C2C"></div>
           <div><label style="${lbl}" for="trk-availability">Availability</label>${trkSelect('trk-availability', o.availability || [], f.availability, '– Not known –')}</div>
           <div><label style="${lbl}" for="trk-followup">Next follow-up</label><input id="trk-followup" class="trk-input" type="date" value="${escapeHtml(f.follow_up_date)}"></div>
+          <div><label style="${lbl}" for="trk-visa-expiry">Visa expiry</label><input id="trk-visa-expiry" class="trk-input" type="date" value="${escapeHtml(f.visa_expiry)}"></div>
+          <div><label style="${lbl}" for="trk-current-rate">Current rate / salary</label><input id="trk-current-rate" class="trk-input" value="${escapeHtml(f.current_rate)}" placeholder="e.g. $55/hr W2"></div>
+          <div><label style="${lbl}" for="trk-experience">Experience (years)</label><input id="trk-experience" class="trk-input" type="number" min="0" max="60" step="0.5" value="${escapeHtml(f.experience_years)}" placeholder="e.g. 8"></div>
+          <div><label style="${lbl}" for="trk-work-mode">Work mode</label>${trkSelect('trk-work-mode', o.work_mode || [], f.work_mode, '– Not known –')}</div>
+          <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-skills">Primary skills</label><input id="trk-skills" class="trk-input" maxlength="500" value="${escapeHtml(f.primary_skills)}" placeholder="e.g. Java, Spring Boot, AWS, Kafka"></div>
+          <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-pref-locations">Preferred locations</label><input id="trk-pref-locations" class="trk-input" maxlength="500" value="${escapeHtml(f.preferred_locations)}" placeholder="e.g. Dallas, Austin, Remote"></div>
+          <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-certs">Certifications</label><input id="trk-certs" class="trk-input" maxlength="500" value="${escapeHtml(f.certifications)}" placeholder="e.g. AWS Solutions Architect, CKA"></div>
+          <div><label style="${lbl}" for="trk-github">GitHub ${f.github_url ? `<a href="${escapeHtml(f.github_url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; text-transform:none;">open ↗</a>` : ''}</label><input id="trk-github" class="trk-input" value="${escapeHtml(f.github_url)}" placeholder="github.com/username"></div>
+          <div><label style="${lbl}" for="trk-portfolio">Portfolio / website ${f.portfolio_url ? `<a href="${escapeHtml(f.portfolio_url)}" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8; text-transform:none;">open ↗</a>` : ''}</label><input id="trk-portfolio" class="trk-input" value="${escapeHtml(f.portfolio_url)}" placeholder="e.g. janedoe.dev"></div>
+          <div><label style="${lbl}" for="trk-referred">Referred by / source</label><input id="trk-referred" class="trk-input" maxlength="120" value="${escapeHtml(f.referred_by)}" placeholder="e.g. Ravi K / Dice"></div>
+          <div><label style="${lbl}" for="trk-marital" title="Kept on this card only - never copied to the bench or sent to clients">Marital status 🔒</label>${trkSelect('trk-marital', o.marital || [], f.marital_status, '– Not known –')}</div>
+          <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-resume">Resume</label>
+            ${c.resume ? `<div id="trk-resume-current" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; margin-bottom:6px;">📄 <a href="/api/sourcing/profiles/${c.id}/resume" style="color:#1d4ed8; font-weight:600;">${escapeHtml(c.resume.filename)}</a>
+                <span style="color:#94a3b8; font-size:12px;">${escapeHtml([c.resume.uploaded_by, c.resume.at].filter(Boolean).join(', '))}</span>
+                <button type="button" id="trk-resume-del" style="border:none; background:none; color:#b91c1c; cursor:pointer; font-size:12px;">Remove</button></div>` : ''}
+            <input id="trk-resume" type="file" accept=".docx,.pdf" style="font-size:12px;">
+            <div style="font-size:11px; color:#94a3b8; margin-top:3px;">Word or PDF, up to 5 MB${c.resume ? ' - choosing a file replaces the current one' : ''}. Copied to the consultant on Add to Bench.</div>
+          </div>
         </div>
         ${warn}
         <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
@@ -4063,6 +4081,10 @@ async function trkSaveCard() {
         contact_email: v('trk-email'), contact_phone: v('trk-phone'), visa_status: v('trk-visa'),
         current_location: v('trk-location'), open_to_relocate: v('trk-relocate'), expected_rate: v('trk-rate'),
         availability: v('trk-availability'), follow_up_date: v('trk-followup'),
+        visa_expiry: v('trk-visa-expiry'), current_rate: v('trk-current-rate'), experience_years: v('trk-experience'),
+        work_mode: v('trk-work-mode'), primary_skills: v('trk-skills'), preferred_locations: v('trk-pref-locations'),
+        certifications: v('trk-certs'), github_url: v('trk-github'), portfolio_url: v('trk-portfolio'),
+        referred_by: v('trk-referred'), marital_status: v('trk-marital'),
     });
     if (!data) return;
     trkRenderCard(data, data.warnings || []);
@@ -4117,6 +4139,26 @@ async function trkReassign(userId) {
     trkRefreshTable();
 }
 
+async function trkUploadResume(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch(`/api/sourcing/profiles/${trkCurrentId}/resume`, { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Could not upload the resume.', 'error', 6000); input.value = ''; return; }
+    trkRenderCard(data, []);
+    showToast('Resume attached.', 'success');
+}
+
+async function trkDeleteResume() {
+    if (!confirm('Remove the attached resume?')) return;
+    const data = await trkRequest(`/api/sourcing/profiles/${trkCurrentId}/resume`, null, 'DELETE');
+    if (!data) return;
+    trkRenderCard(data, []);
+    showToast('Resume removed.', 'success');
+}
+
 function initSourcingTracker() {
     const tbody = document.getElementById('edu-results');
     const drawer = document.getElementById('trk-drawer');
@@ -4135,9 +4177,11 @@ function initSourcingTracker() {
         else if (e.target.closest('#trk-post')) trkPostComment();
         else if (e.target.closest('#trk-bench')) trkAddToBench();
         else if (e.target.closest('.trk-del')) trkDeleteComment(e.target.closest('.trk-del').getAttribute('data-cid'));
+        else if (e.target.closest('#trk-resume-del')) trkDeleteResume();
     });
     drawer.addEventListener('change', (e) => {
-        if (e.target.id === 'trk-card-status') trkSetStatus(trkCurrentId, e.target.value, null);
+        if (e.target.id === 'trk-resume') trkUploadResume(e.target);
+        else if (e.target.id === 'trk-card-status') trkSetStatus(trkCurrentId, e.target.value, null);
         else if (e.target.id === 'trk-owner') trkReassign(e.target.value);
     });
     document.getElementById('trk-backdrop')?.addEventListener('click', trkClose);

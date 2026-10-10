@@ -427,6 +427,18 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # Resume a recruiter attached to a sourced candidate's card (one per candidate; copied to the
+    # bench consultant on Add to Bench). Own table so profile queries never load file bytes.
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS sourcing_resumes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER UNIQUE NOT NULL,
+        filename TEXT NOT NULL,
+        data {blob_type},
+        uploaded_by INTEGER,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
     # Sourcing tracker: recruiters' comments on a sourced candidate (and a record of every status
     # change, kind = 'status'). Team-wide, like the rest of Sourcing.
     cursor.execute("""
@@ -715,7 +727,14 @@ def migrate_db(conn):
                                                    "visa_status": "TEXT", "current_location": "TEXT",
                                                    "open_to_relocate": "TEXT", "expected_rate": "TEXT",
                                                    "availability": "TEXT", "follow_up_date": "TEXT",
-                                                   "owner_user_id": "INTEGER", "bench_candidate_id": "INTEGER"}),
+                                                   "owner_user_id": "INTEGER", "bench_candidate_id": "INTEGER",
+                                                   # more card details (links, work, extras)
+                                                   "github_url": "TEXT", "portfolio_url": "TEXT",
+                                                   "experience_years": "TEXT", "primary_skills": "TEXT",
+                                                   "work_mode": "TEXT", "preferred_locations": "TEXT",
+                                                   "current_rate": "TEXT", "visa_expiry": "TEXT",
+                                                   "certifications": "TEXT", "referred_by": "TEXT",
+                                                   "marital_status": "TEXT"}),
                             ("profile_education", {"institution_norm": "TEXT"})):
         existing_cols = get_existing_cols(table)
         for col, c_type in new_cols.items():

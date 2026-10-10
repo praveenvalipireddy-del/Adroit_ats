@@ -2,8 +2,10 @@
 
 One card per candidate (linkedin_profiles row), shared by the whole team:
 - Status (New / Contacted / No response / Interested / Not interested / Added to bench).
-- Contact + details the recruiter collects: email, phone, visa status, current location, open to
-  relocate, expected rate, availability, next follow-up date. Nothing is filled in or guessed by the
+- Contact + details the recruiter collects: email, phone, visa status (+ expiry), current location,
+  open to relocate, expected / current rate, availability, next follow-up date, experience, primary
+  skills, work mode, preferred locations, certifications, GitHub / portfolio links, referred by,
+  marital status (card only - never copied to the bench) and an attached resume file. Nothing is filled in or guessed by the
   app - except that the current location starts from the LinkedIn profile (editable).
 - Owner: the first recruiter who moves the status past "New" (or adds the candidate to the bench)
   owns the candidate, so two recruiters don't call the same person. Others can still view, edit
@@ -25,12 +27,24 @@ VISA_OPTIONS = ["US Citizen", "Green Card", "H1B", "H1B Transfer", "H4 EAD", "L1
                 "CPT", "TN", "B1/B2", "Needs sponsorship"]
 RELOCATE_OPTIONS = ["Yes", "No"]
 AVAILABILITY_OPTIONS = ["Immediately", "1 week", "2 weeks", "1 month", "Not looking"]
+WORK_MODE_OPTIONS = ["Remote", "Hybrid", "Onsite", "Any"]
+MARITAL_OPTIONS = ["Single", "Married", "Prefer not to say"]
+RESUME_EXTS = (".docx", ".pdf")
+RESUME_MAX_BYTES = 5 * 1024 * 1024
 
 FIELDS = {   # column -> label used in the activity history
     "contact_email": "email", "contact_phone": "phone", "visa_status": "visa", "current_location": "location",
     "open_to_relocate": "open to relocate", "expected_rate": "expected rate", "availability": "availability",
     "follow_up_date": "follow-up date",
+    "experience_years": "experience", "primary_skills": "primary skills", "work_mode": "work mode",
+    "preferred_locations": "preferred locations", "current_rate": "current rate", "visa_expiry": "visa expiry",
+    "certifications": "certifications", "github_url": "GitHub", "portfolio_url": "portfolio",
+    "referred_by": "referred by", "marital_status": "marital status",
 }
+_LONG_TEXT = ("primary_skills", "preferred_locations", "certifications")
+_SHORT_TEXT = ("current_location", "expected_rate", "current_rate", "referred_by")
+_GITHUB_RE = re.compile(r"^https://(www\.)?github\.com/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.\-/]*)?$")
+_URL_RE = re.compile(r"^https?://[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+(:\d+)?(/\S*)?$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -71,15 +85,41 @@ def clean_fields(data: Dict) -> Dict:
             raise TrackerError("Open to relocate must be Yes or No.")
         elif key == "availability" and v and v not in AVAILABILITY_OPTIONS:
             raise TrackerError("Pick availability from the list.")
-        elif key == "follow_up_date" and v:
+        elif key in ("follow_up_date", "visa_expiry") and v:
+            what = "Follow-up date" if key == "follow_up_date" else "Visa expiry"
             if not _DATE_RE.match(v):
-                raise TrackerError("Follow-up date must be a date.")
+                raise TrackerError(f"{what} must be a date.")
             try:
                 date.fromisoformat(v)
             except ValueError:
-                raise TrackerError("Follow-up date must be a real date.")
-        elif key in ("current_location", "expected_rate") and len(v) > 120:
+                raise TrackerError(f"{what} must be a real date.")
+        elif key == "work_mode" and v and v not in WORK_MODE_OPTIONS:
+            raise TrackerError("Pick a work mode from the list.")
+        elif key == "marital_status" and v and v not in MARITAL_OPTIONS:
+            raise TrackerError("Pick a marital status from the list.")
+        elif key == "experience_years" and v:
+            try:
+                years = float(v)
+            except ValueError:
+                raise TrackerError("Experience must be a number of years, e.g. 8 or 7.5.")
+            if not 0 <= years <= 60:
+                raise TrackerError("Experience must be between 0 and 60 years.")
+            v = f"{years:g}"
+        elif key in ("github_url", "portfolio_url") and v:
+            if not re.match(r"^https?://", v, re.I):
+                v = "https://" + v
+            if len(v) > 300:
+                raise TrackerError("That link is too long.")
+            if key == "github_url":
+                v = re.sub(r"^http://", "https://", v, flags=re.I)
+                if not _GITHUB_RE.match(v):
+                    raise TrackerError("GitHub link must look like https://github.com/username.")
+            elif not _URL_RE.match(v):
+                raise TrackerError("Portfolio link doesn't look like a web address.")
+        elif key in _SHORT_TEXT and len(v) > 120:
             raise TrackerError("That value is too long.")
+        elif key in _LONG_TEXT and len(v) > 500:
+            raise TrackerError("That value is too long (500 characters max).")
         out[key] = v
     return out
 
@@ -117,6 +157,11 @@ def card(conn, profile_id: int) -> Optional[Dict]:
     fields = {k: p.get(k) or "" for k in FIELDS}
     if not fields["current_location"]:
         fields["current_location"] = p.get("location") or ""   # starts from LinkedIn, editable
+    cur.execute("""SELECT r.filename, r.updated_at, u.name AS uploaded_by FROM sourcing_resumes r
+                   LEFT JOIN users u ON u.id = r.uploaded_by WHERE r.profile_id = ?""", (profile_id,))
+    rrow = cur.fetchone()
+    resume = ({"filename": rrow["filename"], "uploaded_by": rrow["uploaded_by"] or "",
+               "at": str(rrow["updated_at"] or "")[:16]} if rrow else None)
     return {
         "id": p["id"], "name": p["name"], "linkedin_url": p["linkedin_url"],
         "headline": p.get("current_title") or p.get("headline") or "", "company": p.get("current_company") or "",
@@ -124,9 +169,10 @@ def card(conn, profile_id: int) -> Optional[Dict]:
         "status": p.get("tracking_status") or "New",
         "owner_user_id": p.get("owner_user_id"), "owner_name": p.get("owner_name") or "",
         "bench_candidate_id": p.get("bench_candidate_id"),
-        "fields": fields, "thread": thread(cur, profile_id),
+        "fields": fields, "thread": thread(cur, profile_id), "resume": resume,
         "options": {"statuses": STATUSES, "visa": VISA_OPTIONS, "relocate": RELOCATE_OPTIONS,
-                    "availability": AVAILABILITY_OPTIONS},
+                    "availability": AVAILABILITY_OPTIONS, "work_mode": WORK_MODE_OPTIONS,
+                    "marital": MARITAL_OPTIONS},
     }
 
 
@@ -201,6 +247,49 @@ def save_fields(conn, profile_id: int, user: Dict, data: Dict) -> Tuple[Dict, Li
     return card(conn, profile_id), warnings
 
 
+def save_resume(conn, profile_id: int, user: Dict, filename: str, data: bytes) -> Dict:
+    """Attach (or replace) the candidate's resume file - Word or PDF, up to 5 MB."""
+    from werkzeug.utils import secure_filename
+
+    name = secure_filename(filename or "")
+    if not name.lower().endswith(RESUME_EXTS):
+        raise TrackerError("Upload the resume as a Word (.docx) or PDF file.")
+    if not data:
+        raise TrackerError("That file is empty.")
+    if len(data) > RESUME_MAX_BYTES:
+        raise TrackerError("That file is over 5 MB.")
+    cur = conn.cursor()
+    if not _profile(cur, profile_id):
+        raise LookupError("Candidate not found")
+    cur.execute("SELECT id FROM sourcing_resumes WHERE profile_id = ?", (profile_id,))
+    if cur.fetchone():
+        cur.execute("UPDATE sourcing_resumes SET filename = ?, data = ?, uploaded_by = ?, updated_at = CURRENT_TIMESTAMP WHERE profile_id = ?",
+                    (name, data, user["id"], profile_id))
+    else:
+        cur.execute("INSERT INTO sourcing_resumes (profile_id, filename, data, uploaded_by) VALUES (?, ?, ?, ?)",
+                    (profile_id, name, data, user["id"]))
+    _log(cur, profile_id, user["id"], "field", f"Resume attached: {name}")
+    conn.commit()
+    return card(conn, profile_id)
+
+
+def get_resume(conn, profile_id: int) -> Optional[Tuple[str, bytes]]:
+    cur = conn.cursor()
+    cur.execute("SELECT filename, data FROM sourcing_resumes WHERE profile_id = ?", (profile_id,))
+    row = cur.fetchone()
+    return (row["filename"], bytes(row["data"])) if row and row["data"] is not None else None
+
+
+def delete_resume(conn, profile_id: int, user: Dict) -> Dict:
+    cur = conn.cursor()
+    if not _profile(cur, profile_id):
+        raise LookupError("Candidate not found")
+    cur.execute("DELETE FROM sourcing_resumes WHERE profile_id = ?", (profile_id,))
+    _log(cur, profile_id, user["id"], "field", "Resume removed")
+    conn.commit()
+    return card(conn, profile_id)
+
+
 def reassign(conn, profile_id: int, admin: Dict, new_owner_id: Optional[int]) -> Dict:
     cur = conn.cursor()
     p = _profile(cur, profile_id)
@@ -239,12 +328,28 @@ def add_to_bench(conn, profile_id: int, user: Dict) -> Tuple[Dict, int]:
     existing = cur.fetchone()
     if existing:
         raise TrackerError(f"A bench consultant with this email already exists: {existing['name']}.")
+    try:
+        years = int(round(float(p.get("experience_years")))) if p.get("experience_years") else None
+    except ValueError:
+        years = None
+    links = [f"LinkedIn: {p['linkedin_url']}"] + [f"{label}: {p[k]}" for k, label in
+                                                   (("github_url", "GitHub"), ("portfolio_url", "Portfolio")) if p.get(k)]
+    resume = get_resume(conn, profile_id)
+    resume_text = None
+    if resume:
+        import resume_bot
+        resume_text = resume_bot.extract_text_from_file_bytes(resume[1], resume[0], strict=True) or None
+    # Marital status stays on the card - it is never copied to the consultant (who is sent to clients).
     cand_id = models.create_candidate(
         name=p["name"], email=email, phone=p.get("contact_phone") or "",
-        title=p.get("current_title") or p.get("headline") or "", primary_skills="",
+        title=p.get("current_title") or p.get("headline") or "", primary_skills=p.get("primary_skills") or "",
+        experience_years=years,
         target_rate=p.get("expected_rate") or "", visa_status=p.get("visa_status") or "",
         location=p.get("current_location") or p.get("location") or "", country="United States",
-        resume_summary=f"LinkedIn: {p['linkedin_url']}", gmail_account=email, assigned_user_id=user["id"])
+        resume_filename=resume[0] if resume else None, resume_text=resume_text,
+        resume_summary="\n".join(links), gmail_account=email, assigned_user_id=user["id"])
+    if resume:
+        models.save_resume_file(cand_id, resume[0], resume[1])
     cur.execute("UPDATE linkedin_profiles SET bench_candidate_id = ?, tracking_status = 'Added to bench' WHERE id = ?",
                 (cand_id, profile_id))
     old = p.get("tracking_status") or "New"

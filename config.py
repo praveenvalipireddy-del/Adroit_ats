@@ -45,6 +45,11 @@ APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 # Optional: when unset, the feature falls back to the deterministic keyword-matching rewrite.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+# Anthropic (Claude) key - when set, Claude is the Resume Optimizer's MAIN AI (both steps) and
+# Gemini / OpenRouter / Grok become backups. Paid per use (console.anthropic.com). CLAUDE_MODEL
+# picks the model (resume_bot.CLAUDE_MODEL).
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
 # Optional xAI (Grok) key, used ONLY as a backup for the Resume Optimizer when Gemini's whole
 # free-tier model chain fails (quota used up, overloaded, ...) - never the default provider, so a
 # normal day costs nothing extra. Get one at console.x.ai (no free tier - paid credit required).

@@ -276,6 +276,8 @@ def dashboard():
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
+            has_claude=resume_bot.claude_configured(),
+            claude_model=resume_bot.CLAUDE_MODEL,
             has_grok=resume_bot.xai_configured(),
             has_openrouter=resume_bot.openrouter_configured()
         )
@@ -293,6 +295,8 @@ def dashboard():
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
             has_gemini=resume_bot.gemini_configured(),
+            has_claude=resume_bot.claude_configured(),
+            claude_model=resume_bot.CLAUDE_MODEL,
             has_grok=resume_bot.xai_configured(),
             has_openrouter=resume_bot.openrouter_configured()
         )

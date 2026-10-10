@@ -26,6 +26,16 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 # Per Gemini call. Both AI steps + a backup must finish inside gunicorn's 240 s request limit.
 GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "45")) * 1000
 
+# Claude (Anthropic) - the MAIN AI when ANTHROPIC_API_KEY is set: it answers both steps, and Gemini's
+# chain, then OpenRouter / Grok, are only tried if Claude fails. Paid per use. CLAUDE_MODEL can be
+# changed on Render (e.g. claude-sonnet-5-5 costs about half) without a code change.
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
+CLAUDE_EFFORT = os.getenv("CLAUDE_EFFORT", "medium")          # low | medium | high
+# Per Claude call; a slow answer falls through to Gemini, so both steps stay inside gunicorn's 240 s.
+CLAUDE_TIMEOUT_SECONDS = float(os.getenv("CLAUDE_TIMEOUT_SECONDS", "90"))
+# Models that take Anthropic's server-side refusal fallback (a declined request is re-run on another model).
+_CLAUDE_FALLBACK_MODELS = {"claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5"}
+
 # Optional backups for when Gemini's whole free-tier chain fails (see _generate). Never the
 # default: Gemini answers every ordinary request, so a normal day costs nothing extra. The FREE
 # one (OpenRouter) is tried first, the paid one (xAI) only if that also fails or isn't configured.
@@ -41,6 +51,15 @@ def openrouter_configured() -> bool:
 
 def xai_configured() -> bool:
     return bool((config.XAI_API_KEY or "").strip())
+
+
+def claude_configured() -> bool:
+    return bool((getattr(config, "ANTHROPIC_API_KEY", "") or "").strip())
+
+
+def ai_configured() -> bool:
+    """Any AI that can run the two-step optimization (Claude main, or Gemini)."""
+    return claude_configured() or gemini_configured()
 
 # Master domains catalog
 DOMAINS = {
@@ -130,10 +149,22 @@ def _explain_gemini_error(ex: Exception) -> str:
     key, exhausted free quota, wrong model, timeout) is diagnosable instead of the page
     silently doing nothing. Never includes the API key itself."""
     msg = str(ex)
-    key = (config.GEMINI_API_KEY or "").strip()
-    if key:
-        msg = msg.replace(key, "***")
+    for key in ((config.GEMINI_API_KEY or "").strip(), (getattr(config, "ANTHROPIC_API_KEY", "") or "").strip()):
+        if key:
+            msg = msg.replace(key, "***")
     low = msg.lower()
+    if isinstance(ex, ClaudeError):
+        if "401" in msg or "authentication" in low or "invalid x-api-key" in low:
+            return "Anthropic rejected the API key - check ANTHROPIC_API_KEY on Render was copied correctly"
+        if "credit balance" in low or "billing" in low:
+            return "the Anthropic account is out of credit - add credit at console.anthropic.com"
+        if "429" in msg or "rate limit" in low:
+            return "Claude's rate limit was hit - click Optimize again in a minute"
+        if "404" in msg or "not_found" in low:
+            return f"Claude model '{CLAUDE_MODEL}' isn't available on this key - check CLAUDE_MODEL"
+        if _is_timeout_error(ex):
+            return f"Claude took too long to answer (over {int(CLAUDE_TIMEOUT_SECONDS)} seconds) - click Optimize again"
+        return "Claude call failed: " + " ".join(msg.split())[:140]
     if "429" in msg or "resource_exhausted" in low or "quota" in low:
         return "Gemini's free daily quota is used up - it resets at midnight Pacific time"
     if "api key" in low or "api_key" in low or "401" in msg or "403" in msg or "permission_denied" in low or "unauthenticated" in low:
@@ -741,7 +772,78 @@ def _generate_grok(system: str, prompt: str, want_json: bool, max_tokens: int):
     return text.strip(), truncated, f"{XAI_MODEL} (backup)"
 
 
+class ClaudeError(RuntimeError):
+    """A failed Claude call (kept apart so its reason isn't reported as a Google one)."""
+
+
+_CLAUDE_CLIENT = None
+
+
+def _claude_client():
+    """One Anthropic client per server process (reused connection). No SDK retries: if Claude fails the
+    next AI in the chain answers instead, which is faster than waiting on retries."""
+    global _CLAUDE_CLIENT
+    import anthropic
+    key = config.ANTHROPIC_API_KEY.strip()
+    if _CLAUDE_CLIENT is None or _CLAUDE_CLIENT[0] != key:
+        _CLAUDE_CLIENT = (key, anthropic.Anthropic(api_key=key, timeout=CLAUDE_TIMEOUT_SECONDS, max_retries=0))
+    return _CLAUDE_CLIENT[1]
+
+
+def _generate_claude(system: str, prompt: str, want_json: bool, max_tokens: int):
+    """One Claude request. Returns (text, truncated, model_used); raises ClaudeError on any failure.
+    The system prompt (master prompt + output contract) is the same for every resume, so it is marked
+    for prompt caching. Thinking counts against max_tokens, so extra room is added on top of what the
+    answer itself needs (capped so a non-streamed request stays well inside the SDK's limits)."""
+    try:
+        params = dict(
+            model=CLAUDE_MODEL,
+            max_tokens=min(max_tokens + 8000, 21000),
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": prompt + ("\n\nReturn ONLY the JSON object - no other text." if want_json else "")}],
+            output_config={"effort": CLAUDE_EFFORT},
+        )
+        if CLAUDE_MODEL in _CLAUDE_FALLBACK_MODELS:
+            params.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+            response = _claude_client().beta.messages.create(**params)
+        else:
+            response = _claude_client().messages.create(**params)
+    except Exception as ex:
+        raise ClaudeError(f"{ex.__class__.__name__}: {ex}") from ex
+    if response.stop_reason == "refusal":
+        raise ClaudeError("Claude declined this request (refusal)")
+    text = "".join(b.text for b in response.content if getattr(b, "type", "") == "text").strip()
+    if not text:
+        raise ClaudeError("Claude returned an empty answer")
+    return text, response.stop_reason == "max_tokens", getattr(response, "model", None) or CLAUDE_MODEL
+
+
 def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int):
+    """Claude first when ANTHROPIC_API_KEY is set; if it fails (or isn't set), the Gemini chain below,
+    then the optional OpenRouter / Grok backups. `client` is None when no Gemini key is configured."""
+    claude_error = None
+    if claude_configured():
+        try:
+            return _generate_claude(system, prompt, want_json, max_tokens)
+        except ClaudeError as ex:
+            claude_error = ex
+            logger.warning(f"Claude failed, trying the backups: {_explain_gemini_error(ex)}")
+    if client is None:
+        if openrouter_configured() or xai_configured():
+            try:
+                return _openrouter_or_xai_generate(system, prompt, want_json, max_tokens)
+            except Exception as backup_ex:
+                logger.warning(f"Every backup also failed: {backup_ex}")
+        raise claude_error or RuntimeError("no AI provider is configured")
+    try:
+        return _generate_gemini(client, types, system, prompt, want_json, max_tokens)
+    except Exception:
+        if claude_error is not None:
+            raise claude_error              # report the MAIN AI's reason, not a backup's
+        raise
+
+
+def _generate_gemini(client, types, system: str, prompt: str, want_json: bool, max_tokens: int):
     """One Gemini request, made resilient: a 503 (overloaded) is retried once on the same model,
     then - like a 429 (quota) or 404 (model not on this key) - the next model in the chain is tried.
     A bad API key or a blocked prompt fails the same on every model, so it raises straight away.
@@ -823,8 +925,8 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
     exception - when AI is unavailable, with `reason` saying why (no key, free quota used up,
     malformed answer, ...). If step 1 works but step 2 fails, the analysis is still returned with
     the resume unchanged. With `docx_bytes` the rewrite is written back into that original file."""
-    if not gemini_configured():
-        return None, "no GEMINI_API_KEY is configured on the server"
+    if not ai_configured():
+        return None, "no ANTHROPIC_API_KEY or GEMINI_API_KEY is configured on the server"
     master = load_master_prompt()
     if not master:
         return None, "MASTER_RESUME_PROMPT.md is missing on the server"
@@ -835,7 +937,7 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
     cache_key = _analysis_cache_key(master, jd_text, resume_text, custom)
     try:
         t0 = time.monotonic()
-        client, types = _gemini_client()
+        client, types = _gemini_client() if gemini_configured() else (None, None)
         timings["client_s"] = round(time.monotonic() - t0, 2)
         t0 = time.monotonic()
         cached = _cached_analysis(cache_key)
@@ -851,14 +953,14 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
         timings["analysis_s"] = round(time.monotonic() - t0, 2)
     except Exception as ex:
         reason = _explain_gemini_error(ex)
-        logger.warning(f"Gemini analysis unavailable: {reason}")
+        logger.warning(f"AI analysis unavailable: {reason}")
         return None, reason
 
     if not raw1:
-        return None, "Gemini returned an empty response (it may have blocked the content)"
+        return None, "The AI returned an empty response (it may have blocked the content)"
     data = _parse_json_object(raw1)
     if data is None:
-        return None, "Gemini's answer was not valid JSON (it may have been cut off) - try again"
+        return None, "The AI's answer was not valid JSON (it may have been cut off) - try again"
     if not timings.get("analysis_cached"):
         _store_analysis(cache_key, raw1, model1)
     result, plan = _analysis_result(data, resume_text)
@@ -894,7 +996,7 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
             result["ai_model"] = f"{model1} (analysis) + {model2} (resume)"
     except Exception as ex:
         reason = _explain_gemini_error(ex)
-        logger.warning(f"Gemini rewrite step failed: {reason}")
+        logger.warning(f"AI rewrite step failed: {reason}")
         result["not_optimized_reason"] = (f"The match analysis worked, but the step that writes the updated resume failed: "
                                           f"{reason}. Your resume was left unchanged - click Optimize again to retry.")
         return result, ""

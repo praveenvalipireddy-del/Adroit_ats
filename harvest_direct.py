@@ -155,7 +155,7 @@ def _work(run_db_id: int, params: Dict):
                 profile_errors.append(r["error"] or "empty profile")
                 continue
             items.append({k: prof.get(k) for k in ("linkedinUrl", "firstName", "lastName", "headline", "location",
-                                                   "education", "currentPosition")})
+                                                   "education", "currentPosition", "openToWork", "experience")})
         if not items and profile_errors and not error:
             error = f"HarvestAPI profile lookups failed: {profile_errors[0]}"
         cost = round(SEARCH_PRICE_USD * calls_search + PROFILE_PRICE_USD * calls, 4)

@@ -484,7 +484,8 @@ def _start_harvest(bachelor_year, pages, location, start_page, schools, experien
             "pages_per_search": harvest_direct.MAX_PAGES}   # the browser stops one Search click after this many pages
 
 
-_PROFILE_FIELDS = "linkedinUrl,firstName,lastName,headline,location,education,currentPosition"
+# openToWork + experience (employment / workplace type of the current job) come with Full mode at no extra cost.
+_PROFILE_FIELDS = "linkedinUrl,firstName,lastName,headline,location,education,currentPosition,openToWork,experience"
 
 
 POLL_BATCH = 200

@@ -60,6 +60,34 @@ class LinkedInDataProvider(ABC):
         """Convert this provider's records into normalised profile dicts."""
 
 
+def _is_current(entry: Dict) -> bool:
+    end = entry.get("endDate")
+    if not end:
+        return True
+    if isinstance(end, dict):
+        return (str(end.get("text") or "").strip().lower() == "present") or not (end.get("year") or end.get("text"))
+    return str(end).strip().lower() == "present"
+
+
+def work_info(item: Dict) -> Optional[Dict]:
+    """Open to Work + the current job's employment type (Full-time, Contract, ...) and workplace type
+    (Remote, Hybrid, On-site) exactly as LinkedIn shows them, or None when the record carries neither
+    field (older scrapes). A value LinkedIn leaves blank stays blank - nothing is guessed."""
+    if "openToWork" not in item and "experience" not in item:
+        return None
+    otw = item.get("openToWork")
+    current_company = ""
+    cp = item.get("currentPosition") or []
+    if cp and isinstance(cp[0], dict):
+        current_company = (cp[0].get("companyName") or "").strip().lower()
+    jobs = [e for e in (item.get("experience") or []) if isinstance(e, dict) and _is_current(e)]
+    jobs.sort(key=lambda e: (e.get("companyName") or "").strip().lower() != current_company)   # current company first
+    job = jobs[0] if jobs else {}
+    return {"open_to_work": None if otw is None else (1 if otw else 0),
+            "current_employment_type": (job.get("employmentType") or "").strip()[:40],
+            "current_workplace_type": (job.get("workplaceType") or "").strip()[:40]}
+
+
 class ApifyProfileProvider(LinkedInDataProvider):
     """harvestapi/linkedin-profile-search Full-mode items (see linkedin_sourcing._PROFILE_FIELDS)."""
     source = "apify"
@@ -96,6 +124,7 @@ class ApifyProfileProvider(LinkedInDataProvider):
                 "current_title": (current.get("position") or "").strip(),
                 "education": education,
                 "education_complete": True,
+                "_work": work_info(item),
             })
         return out
 
@@ -216,6 +245,12 @@ def ingest_profiles(profiles: List[Dict], source: str, user_id: Optional[int], c
                     cur.execute("INSERT INTO capture_log (user_id, action, source, profile_id, details) VALUES (?, ?, ?, ?, ?)",
                                 (p_user, log_action, p_source, profile_id, url))
                     stats["added"] += 1
+                work = p.get("_work")
+                if work is not None:   # a fresh full profile: what LinkedIn shows now replaces what was stored
+                    cur.execute("""UPDATE linkedin_profiles SET open_to_work = ?, current_employment_type = ?,
+                                   current_workplace_type = ? WHERE id = ?""",
+                                (work["open_to_work"], work["current_employment_type"] or None,
+                                 work["current_workplace_type"] or None, profile_id))
                 conn.commit()
             except Exception as ex:
                 try:

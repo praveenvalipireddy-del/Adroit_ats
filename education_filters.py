@@ -38,6 +38,11 @@ FILTERS = {
 MAX_PAGE_SIZE = 100
 # Sourcing tracker statuses come from sourcing_tracker (a profile with no status yet is "New").
 MAX_EXPORT_ROWS = 10000
+# Work checkboxes (data from LinkedIn). Within a group ticked boxes are OR ("Contract" + "Full-time" =
+# either); groups AND together. Profiles without the data (scraped before it was kept) never match.
+EMPLOYMENT = {"emp_contract": ("Contract", "Freelance"), "emp_fulltime": ("Full-time",)}
+WORKPLACE = {"wp_remote": ("Remote",), "wp_hybrid": ("Hybrid",), "wp_onsite": ("On-site",)}
+WORK_FLAGS = ("open_to_work", *EMPLOYMENT, *WORKPLACE)
 
 
 class FilterError(ValueError):
@@ -92,7 +97,8 @@ def parse_params(args: Dict) -> Dict:
     return {"filter": f, "institution_id": inst, "year_from": y_from, "year_to": y_to,
             "location": str(args.get("location") or "").strip(), "keyword": str(args.get("keyword") or "").strip(),
             "status": status, "mine": flag("mine"), "followup_due": flag("followup_due"),
-            "has_contact": flag("has_contact"), "page": page, "page_size": page_size}
+            "has_contact": flag("has_contact"), "page": page, "page_size": page_size,
+            **{k: flag(k) for k in WORK_FLAGS}}
 
 
 def member_ids(institution_id: Optional[str]) -> Optional[List[str]]:
@@ -118,7 +124,23 @@ def _like(text: str) -> str:
     return "%" + text.lower().replace("\\", "").replace("%", "").replace("_", "") + "%"
 
 
-def _where(p: Dict):
+def _in_list(column: str, values) -> str:
+    return f"LOWER(COALESCE({column}, '')) IN ({', '.join(['?'] * len(values))})"
+
+
+def _work_clauses(p: Dict):
+    clauses, params = [], []
+    if p.get("open_to_work"):
+        clauses.append("p.open_to_work = 1")
+    for group, column in ((EMPLOYMENT, "p.current_employment_type"), (WORKPLACE, "p.current_workplace_type")):
+        values = [v.lower() for k, vals in group.items() if p.get(k) for v in vals]
+        if values:
+            clauses.append(_in_list(column, values))
+            params += values
+    return clauses, params
+
+
+def _where(p: Dict, work: bool = True):
     spec = FILTERS[p["filter"]]
     members = member_ids(p["institution_id"])
     clauses = ["""EXISTS (SELECT 1 FROM profile_education c WHERE c.profile_id = p.id AND c.degree_level = ?
@@ -175,7 +197,36 @@ def _where(p: Dict):
         clauses.append("(LOWER(COALESCE(p.headline, '')) LIKE ? OR LOWER(COALESCE(p.current_title, '')) LIKE ? "
                        "OR LOWER(COALESCE(p.current_company, '')) LIKE ?)")
         params += [_like(p["keyword"])] * 3
+    if work:
+        wc, wp = _work_clauses(p)
+        clauses += wc
+        params += wp
     return " AND ".join(clauses), params
+
+
+def counts(conn, p: Dict) -> Dict:
+    """How many profiles were scraped in total / this week, and - for the current filter WITHOUT the
+    work checkboxes - how many are open to work, contract, full-time, remote, hybrid, on-site, and how
+    many have no work data yet (scraped before it was kept)."""
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM linkedin_profiles")
+    total_all = int(cur.fetchone()[0])
+    week_ago = date.fromordinal(date.today().toordinal() - 7).isoformat()
+    cur.execute("SELECT COUNT(*) FROM linkedin_profiles WHERE captured_at >= ?", (week_ago,))
+    week = int(cur.fetchone()[0])
+    where, params = _where(p, work=False)
+    sums = ["SUM(CASE WHEN p.open_to_work = 1 THEN 1 ELSE 0 END)"]
+    sparams = []
+    for group, column in ((EMPLOYMENT, "p.current_employment_type"), (WORKPLACE, "p.current_workplace_type")):
+        for vals in group.values():
+            sums.append(f"SUM(CASE WHEN {_in_list(column, vals)} THEN 1 ELSE 0 END)")
+            sparams += [v.lower() for v in vals]
+    sums.append("SUM(CASE WHEN p.open_to_work IS NULL AND p.current_employment_type IS NULL THEN 1 ELSE 0 END)")
+    sums.append("COUNT(*)")
+    cur.execute(f"SELECT {', '.join(sums)} FROM linkedin_profiles p WHERE {where}", sparams + params)
+    row = [int(v or 0) for v in cur.fetchone()]
+    keys = list(WORK_FLAGS) + ["no_work_data", "matching"]
+    return {"total_scraped": total_all, "added_this_week": week, **dict(zip(keys, row))}
 
 
 def _fmt_entries(entries: List[Dict], with_degree: bool) -> str:
@@ -273,6 +324,10 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
             "open_to_relocate": r.get("open_to_relocate") or "", "expected_rate": r.get("expected_rate") or "",
             "availability": r.get("availability") or "", "follow_up_date": r.get("follow_up_date") or "",
             "owner_name": r.get("owner_name") or "", "owner_user_id": r.get("owner_user_id"),
+            "open_to_work": r.get("open_to_work"),
+            "employment_type": r.get("current_employment_type") or "",
+            "workplace_type": r.get("current_workplace_type") or "",
+            "open_to_work_text": {1: "Yes", 0: "No"}.get(r.get("open_to_work"), ""),
             "comment_count": (comments.get(r["id"]) or {}).get("count", 0),
             "latest_comment": (comments.get(r["id"]) or {}).get("latest"),
         })
@@ -282,7 +337,8 @@ def _decorate(conn, p: Dict, rows: List[Dict]) -> List[Dict]:
 _SELECT = """SELECT p.id, p.name, p.headline, p.current_title, p.current_company, p.location, p.linkedin_url,
                     p.captured_by, p.captured_at, p.verified_bachelor_year, p.tracking_status, u.name AS captured_by_name,
                     p.contact_email, p.contact_phone, p.visa_status AS trk_visa, p.current_location, p.open_to_relocate,
-                    p.expected_rate, p.availability, p.follow_up_date, p.owner_user_id, o.name AS owner_name
+                    p.expected_rate, p.availability, p.follow_up_date, p.owner_user_id, o.name AS owner_name,
+                    p.open_to_work, p.current_employment_type, p.current_workplace_type
              FROM linkedin_profiles p LEFT JOIN users u ON u.id = p.captured_by LEFT JOIN users o ON o.id = p.owner_user_id"""
 
 
@@ -300,7 +356,7 @@ def search(conn, p: Dict) -> Dict:
         r.pop("contact_email", None)
         r.pop("contact_phone", None)
     return {"total": total, "page": p["page"], "page_size": p["page_size"],
-            "pages": max(1, -(-total // p["page_size"])), "results": results}
+            "pages": max(1, -(-total // p["page_size"])), "results": results, "counts": counts(conn, p)}
 
 
 def export_rows(conn, p: Dict) -> List[Dict]:
@@ -312,7 +368,8 @@ def export_rows(conn, p: Dict) -> List[Dict]:
 
 EXPORT_COLUMNS = [
     ("name", "Name"), ("headline", "Headline / Current Title"), ("current_company", "Current Company"),
-    ("location", "Location"), ("indian_college", "Indian College (Bachelor's year)"),
+    ("location", "Location"), ("open_to_work_text", "Open to Work"), ("employment_type", "Employment Type"),
+    ("workplace_type", "Workplace"), ("indian_college", "Indian College (Bachelor's year)"),
     ("us_masters", "US University - Master's (year)"), ("linkedin_url", "LinkedIn URL"),
     ("captured_by", "Captured By"), ("captured_at", "Captured Date"),
     ("status", "Status"), ("owner_name", "Owner"), ("contact_email", "Email"), ("contact_phone", "Phone"),

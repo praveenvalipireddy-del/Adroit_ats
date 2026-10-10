@@ -734,7 +734,10 @@ def migrate_db(conn):
                                                    "work_mode": "TEXT", "preferred_locations": "TEXT",
                                                    "current_rate": "TEXT", "visa_expiry": "TEXT",
                                                    "certifications": "TEXT", "referred_by": "TEXT",
-                                                   "marital_status": "TEXT"}),
+                                                   "marital_status": "TEXT",
+                                                   # from LinkedIn (linkedin_ingest.work_info)
+                                                   "open_to_work": "INTEGER", "current_employment_type": "TEXT",
+                                                   "current_workplace_type": "TEXT"}),
                             ("profile_education", {"institution_norm": "TEXT"})):
         existing_cols = get_existing_cols(table)
         for col, c_type in new_cols.items():

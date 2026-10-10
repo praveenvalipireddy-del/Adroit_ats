@@ -3693,6 +3693,7 @@ function eduParams(page) {
     for (const [key, id] of [['mine', 'edu-f-mine'], ['followup_due', 'edu-f-followup'], ['has_contact', 'edu-f-contact']]) {
         if (document.getElementById(id)?.checked) p.set(key, '1');
     }
+    document.querySelectorAll('.edu-work-f').forEach(cb => { if (cb.checked) p.set(cb.getAttribute('data-key'), '1'); });
     if (eduState.filter === 'P') {
         p.set('passout_year', document.getElementById('filter-student-bachelor-year')?.value || 'All');
     } else {
@@ -3731,6 +3732,7 @@ async function eduSearch(page) {
         return;
     }
     eduState.page = data.page; eduState.pages = data.pages; eduState.lastParams = params;
+    eduRenderCounts(data.counts, data.total);
     const other = eduState.filter === 'B' ? "an Indian Bachelor's" : "a US Master's";
     const py = document.getElementById('filter-student-bachelor-year')?.value || 'All';
     const what = isP ? `an Indian Bachelor's (${py === 'All' ? '2015 - 2023' : escapeHtml(py)}) and a US Master's`
@@ -3750,7 +3752,7 @@ async function eduSearch(page) {
         <tr data-pid="${r.id}" class="trk-row" style="cursor:pointer;" title="Click to open the tracking card">
             <td style="${td} font-weight:600;"><a href="${escapeHtml(r.linkedin_url)}" target="_blank" rel="noopener noreferrer" title="Open LinkedIn profile" style="color:#1d4ed8; text-decoration:none;">${escapeHtml(r.name)} <span style="font-size:11px;">↗</span></a>
                 <div style="margin-top:4px;"><button type="button" class="trk-card-open" data-id="${r.id}" style="padding:2px 8px; font-size:11px; font-weight:700; border:1px solid #cbd5e1; border-radius:6px; background:#ffffff; color:#1d4ed8; cursor:pointer;">📋 Card${r.comment_count ? ` · 💬 ${r.comment_count}` : ''}</button></div></td>
-            <td style="${td}">${escapeHtml(r.headline)}${r.current_company ? `<div style="color:#64748b; font-size:12px;">${escapeHtml(r.current_company)}</div>` : ''}</td>
+            <td style="${td}">${escapeHtml(r.headline)}${r.current_company ? `<div style="color:#64748b; font-size:12px;">${escapeHtml(r.current_company)}</div>` : ''}${eduWorkBadges(r)}</td>
             <td style="${td}">${escapeHtml(r.current_location || r.location)}</td>
             <td style="${td}">${escapeHtml(r.indian_college)}</td>
             <td style="${td}">${escapeHtml(r.us_masters)}</td>
@@ -3766,6 +3768,32 @@ async function eduSearch(page) {
     document.getElementById('btn-edu-prev').disabled = data.page <= 1;
     document.getElementById('btn-edu-next').disabled = data.page >= data.pages;
     exportBtn.disabled = false;
+}
+
+// "From LinkedIn" badges on a row: Open to work, employment type, workplace type (blank = LinkedIn shows none).
+function eduWorkBadges(r) {
+    const chip = (text, bg, fg) => `<span style="display:inline-block; margin:4px 4px 0 0; padding:1px 7px; border-radius:999px; font-size:11px; font-weight:700; background:${bg}; color:${fg};">${escapeHtml(text)}</span>`;
+    const out = [];
+    if (r.open_to_work === 1) out.push(chip('🟢 Open to work', '#dcfce7', '#166534'));
+    if (r.employment_type) out.push(chip(r.employment_type, '#ede9fe', '#5b21b6'));
+    if (r.workplace_type) out.push(chip(r.workplace_type, '#e0f2fe', '#075985'));
+    return out.length ? `<div class="edu-work-badges">${out.join('')}</div>` : '';
+}
+
+// Always-visible numbers: everything scraped, this week, matches; counts beside each LinkedIn checkbox.
+function eduRenderCounts(c, shown) {
+    const box = document.getElementById('edu-counter');
+    if (!c || !box) return;
+    const n = (v) => Number(v || 0).toLocaleString();
+    const ticked = document.querySelectorAll('.edu-work-f:checked').length;
+    box.innerHTML = `📊 <b>${n(c.total_scraped)}</b> LinkedIn profiles scraped in total (<b>${n(c.added_this_week)}</b> this week) · `
+        + `<b>${n(c.matching)}</b> match this search${ticked ? ` · <b>${n(shown)}</b> after the LinkedIn checkboxes` : ''}`
+        + (c.no_work_data ? `<div style="margin-top:3px; font-size:0.76rem; color:#475569;">${n(c.no_work_data)} of these were scraped before Open-to-work / job type was saved, so the LinkedIn checkboxes skip them until they are scraped again.</div>` : '');
+    box.style.display = 'block';
+    document.querySelectorAll('.edu-wc').forEach(s => {
+        s.textContent = `(${n(c[s.getAttribute('data-key')])})`;
+        s.style.cssText = 'color:#64748b; font-size:12px;';
+    });
 }
 
 function eduExportExcel() {
@@ -4187,7 +4215,7 @@ function initSourcingTracker() {
     document.getElementById('trk-backdrop')?.addEventListener('click', trkClose);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && trkCurrentId) trkClose(); });
     document.getElementById('edu-status-filter')?.addEventListener('change', trkRefreshTable);
-    ['edu-f-mine', 'edu-f-followup', 'edu-f-contact'].forEach(id =>
+    ['edu-f-mine', 'edu-f-followup', 'edu-f-contact', 'edu-f-otw', 'edu-f-contract', 'edu-f-fulltime', 'edu-f-remote', 'edu-f-hybrid', 'edu-f-onsite'].forEach(id =>
         document.getElementById(id)?.addEventListener('change', trkRefreshTable));
 }
 

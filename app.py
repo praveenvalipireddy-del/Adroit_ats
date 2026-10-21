@@ -774,13 +774,20 @@ def api_jobs_search():
     # empty-query tab load with nothing fresh in the DB must still go get real jobs rather than
     # show an empty table - "Software Engineer" is the same generic default already used elsewhere
     # (triggerUsScrape) when no keyword is given.
-    if len(results) == 0 or live_scrape:
+    scrape_sources = None
+    # India portals are paid (Apify): an empty result only triggers a scrape when the recruiter clicked Search Jobs
+    # (automatic searches - opening the tab, changing a filter - send no_scrape), and never right after the
+    # page's own Live 24h Scrape. US portals are read for free, so they keep scraping on an empty result.
+    no_scrape = bool(data.get("no_scrape")) and country.lower() == "india"
+    if (len(results) == 0 and not no_scrape) or live_scrape:
         scrape_query = query or "Software Engineer"
         try:
             if country.lower() == "india":
+                picked = [p for p in india_job_scrapers.SOURCES if source and source != "All" and p.lower() in source.lower()]
                 scrape_res = india_job_scrapers.run_multi_source_india_scrape(
-                    keywords=[scrape_query], location=location or "India", save_to_db=True
+                    keywords=[scrape_query], location=location or "India", save_to_db=True, sources=picked or None
                 )
+                scrape_sources = scrape_res.get("sources")
             else:
                 scrape_res = us_job_scrapers.run_multi_source_us_scrape(
                     keywords=[scrape_query],
@@ -801,7 +808,9 @@ def api_jobs_search():
                 include_unstated=include_unstated
             )
             if not results and scrape_res.get("jobs"):
-                results = scrape_res["jobs"]
+                # never show another portal's jobs as if they came from the one that was picked
+                want = (source or "").lower().replace(".com", "").strip()
+                results = [j for j in scrape_res["jobs"] if not want or want == "all" or want in (j.get("source") or "").lower()]
         except Exception as e:
             logger.error(f"Live scrape on-demand error: {e}")
 
@@ -811,6 +820,7 @@ def api_jobs_search():
         "jobs": results,
         "results": results,
         "count": len(results),
+        "scrape_sources": scrape_sources,
         "query": query,
         "contract_only": contract_only,
         "is_24h_only": is_24h_only
@@ -871,11 +881,14 @@ def api_trigger_india_scrape():
     data = request.json or {}
     keywords = data.get("keywords")
     location = data.get("location", "India")
+    source = str(data.get("source") or "All")
+    picked = [p for p in india_job_scrapers.SOURCES if source != "All" and p.lower() in source.lower()]
 
     scrape_res = india_job_scrapers.run_multi_source_india_scrape(
         keywords=keywords,
         location=location,
-        save_to_db=True
+        save_to_db=True,
+        sources=picked or None
     )
 
     models.log_activity(
@@ -889,6 +902,7 @@ def api_trigger_india_scrape():
 
     return jsonify({
         "success": True,
+        "sources": scrape_res.get("sources"),
         "count": scrape_res.get("count", 0),
         "saved_to_db": scrape_res.get("saved_to_db", 0),
         "message": f"Successfully scraped {scrape_res.get('count', 0)} fresh India jobs."

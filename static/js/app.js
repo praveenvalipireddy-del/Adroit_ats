@@ -640,7 +640,7 @@ function initJobsTable() {
     }
 
     if (btnSearch) {
-        btnSearch.addEventListener('click', () => searchJobs(false));
+        btnSearch.addEventListener('click', () => searchJobs(false, { allowScrape: true }));
     }
 
     if (btnLiveScrape) {
@@ -700,7 +700,7 @@ function initJobsTable() {
     searchJobs(false);
 }
 
-async function searchJobs(liveScrape = false) {
+async function searchJobs(liveScrape = false, opts = {}) {
     const tbody = document.getElementById('jobs-table-body');
     const countLabel = document.getElementById('jobs-table-count');
     const query = document.getElementById('filter-query')?.value?.trim() || '';
@@ -730,6 +730,7 @@ async function searchJobs(liveScrape = false) {
                 contract_only: true,
                 is_24h_only: true,
                 live_scrape: liveScrape,
+                no_scrape: !opts.allowScrape,       // India: only a click on Search Jobs may start a paid scrape
                 my_experience: jobsMyExperience(),
                 include_unstated: document.getElementById('filter-exp-unstated')?.checked !== false
             })
@@ -740,6 +741,18 @@ async function searchJobs(liveScrape = false) {
 
         if (countLabel) {
             countLabel.innerText = `Showing ${state.jobs.length} Fresh ${country} Requisitions`;
+            // what each portal returned on this live search, and why one found nothing
+            const st = data.scrape_sources || opts.sources || {};
+            const parts = Object.entries(st).map(([name, v]) => v.error ? `${name}: 0 jobs - ${v.error}` : `${name}: ${v.count} found`);
+            let note = document.getElementById('jobs-source-status');
+            if (!note) {
+                note = document.createElement('div');
+                note.id = 'jobs-source-status';
+                note.style.cssText = 'font-size:0.78rem; margin-top:4px;';
+                countLabel.insertAdjacentElement('afterend', note);
+            }
+            note.textContent = parts.length ? 'Live search: ' + parts.join(' · ') : '';
+            note.style.color = Object.values(st).some(v => v.error) ? '#b45309' : '#64748b';
         }
 
         renderJobsTable(state.jobs);
@@ -792,26 +805,31 @@ async function triggerJobScrape() {
 }
 
 async function triggerIndiaScrape() {
-    showToast('🚀 Running Live India Requisition Scraper (Naukri, Foundit, LinkedIn)...', 'info', 6000);
+    const source = document.getElementById('filter-source')?.value || 'All';
+    const portalName = source === 'All' ? 'Naukri, Foundit, LinkedIn' : (document.getElementById('filter-source')?.selectedOptions[0]?.textContent || source);
+    showToast(`🚀 Running Live India Requisition Scraper (${portalName})...`, 'info', 6000);
     const query = document.getElementById('filter-query')?.value?.trim() || 'Software Engineer';
     const location = document.getElementById('filter-location')?.value?.trim() || 'India';
-
+    let sources = null;
     try {
         const res = await fetch('/api/jobs/scrape-india', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keywords: [query], location: location })
+            body: JSON.stringify({ keywords: [query], location: location, source })
         });
         const data = await res.json().catch(() => ({}));
+        sources = data.sources || null;
+        const problems = Object.entries(sources || {}).filter(([, v]) => v.error).map(([n, v]) => `${n}: ${v.error}`);
         if (data.success) {
-            showToast(`✅ Scraped & saved ${data.count || 0} fresh India requisitions!`, 'success');
+            showToast(`✅ Scraped & saved ${data.count || 0} fresh India requisitions.` + (problems.length ? ` ⚠ ${problems.join(' · ')}` : ''),
+                problems.length ? 'warning' : 'success', problems.length ? 12000 : 5000);
         } else {
             showToast(data.error || data.message || 'India scrape did not return results.', data.error ? 'error' : 'info');
         }
     } catch (err) {
         showToast('Error during live India scrape: ' + err.message, 'error');
     } finally {
-        searchJobs(false);
+        searchJobs(false, { noScrape: true, sources });      // just scraped - show it, don't scrape again
     }
 }
 

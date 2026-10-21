@@ -87,6 +87,18 @@ def _run_actor_sync(actor: str, payload: Dict, timeout: int = 150):
         return None, f"could not reach Apify ({ex.__class__.__name__})"
 
 
+def _first(it: Dict, *keys, default=""):
+    """The first non-empty value among several field names - the actors rename fields between versions
+    (Naukri's documented 'jdURL' arrives as 'jobURL', a full link)."""
+    for k in keys:
+        v = it.get(k)
+        if isinstance(v, (list, tuple)):
+            v = ", ".join(str(x) for x in v if str(x).strip())
+        if v not in (None, "") and str(v).strip():
+            return str(v).strip()
+    return default
+
+
 def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 15) -> List[Dict]:
     """Real live Naukri.com listings via the epicscrapers/naukri-scraper Apify actor."""
     payload = {
@@ -103,16 +115,20 @@ def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 1
         return []
 
     jobs = []
+    dropped = 0
     for idx, it in enumerate(items):
-        title = (it.get("title") or "").strip()
-        url = (it.get("jdURL") or "").strip()
+        title = _first(it, "title", "jobTitle", "designation")
+        url = _first(it, "jobURL", "jdURL", "jobUrl", "url", "applyUrl")
+        if not url and it.get("jobId"):
+            url = f"https://www.naukri.com/job-listings-{it['jobId']}"
         if not title or not url:
+            dropped += 1
             continue
         if url.startswith("/"):
             url = "https://www.naukri.com" + url
-        company = (it.get("companyName") or "Employer").strip()
-        loc = (it.get("locationLabel") or location).strip()
-        salary = (it.get("salaryLabel") or "Not disclosed").strip()
+        company = _first(it, "companyName", "company", "employer", default="Employer")
+        loc = _first(it, "locationLabel", "location", "locations", "jobLocation", default=location)
+        salary = _first(it, "salaryLabel", "salary", "ctc", default="Not disclosed")
         jobs.append({
             "title": title,
             "company": company,
@@ -122,14 +138,22 @@ def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 1
             "source": "Naukri (Live)",
             "url": url,
             "recruiter_email": "",
-            "description": (f"Posted {it.get('postedAt', 'recently')} on Naukri: {title} at {company} ({loc}). "
-                            f"Experience: {it.get('experienceLabel', 'Not specified')}. "
-                            f"Skills: {it.get('tagsAndSkills', '')}."),
+            "description": (f"Posted {_first(it, 'postedAt', 'footerPlaceholderLabel', 'createdDate', default='recently')} on Naukri: "
+                            f"{title} at {company} ({loc}). "
+                            f"Experience: {_first(it, 'experienceLabel', 'experience', 'experienceText', default='Not specified')}. "
+                            f"Skills: {_first(it, 'tagsAndSkills', 'skills', 'keySkills')}. "
+                            f"{_first(it, 'jobDescription', 'description')[:1500]}").strip(),
             "matched_skills": keyword,
             "match_score": 95 - idx,
             "is_24h": 1,
             "country": "India",
         })
+    if dropped:
+        # the actor answered but its records lack a title / link - most likely renamed fields
+        logger.warning(f"Naukri: {dropped} of {len(items)} results had no title or link; fields seen: {sorted(items[0].keys())[:30]}")
+        if not jobs:
+            LAST_ERROR["Naukri"] = (f"Naukri returned {len(items)} jobs but in a format this app doesn't read yet "
+                                    "(the scraper changed its fields) - tell the developer")
     return jobs
 
 
@@ -149,14 +173,16 @@ def scrape_foundit(keyword: str = "Java", location: str = "India", limit: int = 
 
     jobs = []
     for idx, it in enumerate(items):
-        title = (it.get("title") or "").strip()
-        url = (it.get("url") or it.get("applyUrl") or "").strip()
+        title = _first(it, "title", "jobTitle", "designation")
+        url = _first(it, "url", "jobURL", "jobUrl", "applyUrl", "jdURL")
         if not title or not url:
             continue
-        company = (it.get("employer") or "Employer").strip()
-        loc = (it.get("location") or location).strip()
-        salary = (it.get("salaryNote") or "Not disclosed").strip()
-        skills = ", ".join(it.get("skills") or [])
+        if url.startswith("/"):
+            url = "https://www.foundit.in" + url
+        company = _first(it, "employer", "companyName", "company", default="Employer")
+        loc = _first(it, "location", "locations", "locationLabel", default=location)
+        salary = _first(it, "salaryNote", "salary", "salaryLabel", default="Not disclosed")
+        skills = _first(it, "skills", "keySkills", "tagsAndSkills")
         jobs.append({
             "title": title,
             "company": company,

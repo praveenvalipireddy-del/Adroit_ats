@@ -48,9 +48,11 @@ class FakeResp:
 
 
 MODE = {"naukri": "no_credit"}
-NAUKRI_ITEM = {"jobId": "211025000001", "title": "Cloud DevOps Engineer", "companyName": "Infosys Testco", "jdURL": "/job-listings-cloud-devops-engineer-211025000001",
-               "locationLabel": "Bengaluru", "salaryLabel": "18-25 Lacs PA", "experienceLabel": "8-12 Yrs", "postedAt": "1 Day Ago",
-               "tagsAndSkills": ["AWS", "Kubernetes", "Terraform"]}
+# the format the live actor really returns (Oct 2026 run): 'jobURL' with a full link - not the documented 'jdURL'
+NAUKRI_ITEM = {"title": "Cloud Devops Engineer", "companyName": "Anlage Testco", "logoUrl": "https://img.naukimg.com/logo.gif",
+               "jobURL": "https://www.naukri.com/job-listings-cloud-devops-engineer-anlage-testco-bengaluru-5-to-8-years-191026004130"}
+OLD_FORMAT_ITEM = {"jobId": "211025000001", "title": "Platform Engineer", "companyName": "Infosys Testco", "jdURL": "/job-listings-platform-engineer-211025000001",
+                   "locationLabel": "Bengaluru", "salaryLabel": "18-25 Lacs PA", "experienceLabel": "8-12 Yrs", "tagsAndSkills": ["AWS", "Kubernetes"]}
 
 
 def fake_post(url, params=None, json=None, timeout=None):
@@ -59,7 +61,9 @@ def fake_post(url, params=None, json=None, timeout=None):
     if actor == "naukri":
         if MODE["naukri"] == "no_credit":
             return FakeResp(402, text='{"error":{"type":"platform-feature-disabled","message":"Monthly usage hard limit exceeded"}}')
-        return FakeResp(200, [NAUKRI_ITEM])
+        if MODE["naukri"] == "unreadable":
+            return FakeResp(200, [{"heading": "x"}, {"heading": "y"}])
+        return FakeResp(200, [NAUKRI_ITEM, OLD_FORMAT_ITEM])
     return FakeResp(200, [])
 
 
@@ -97,9 +101,17 @@ check(d["jobs"] == [] and "monthly credit" in d["scrape_sources"]["Naukri"]["err
 MODE["naukri"] = "ok"
 d = client.post("/api/jobs/search", json={"query": "Cloud DevOps Engineer", "location": "India", "source": "Naukri", "country": "India",
                                           "live_scrape": True, "is_24h_only": True}).get_json()
-check([j["title"] for j in d["jobs"]] == ["Cloud DevOps Engineer"] and "Naukri" in d["jobs"][0]["source"]
-      and d["jobs"][0]["url"].startswith("https://www.naukri.com/") and d["scrape_sources"]["Naukri"] == {"count": 1, "error": ""},
-      f"Naukri job shown: {[(j['title'], j['source']) for j in d['jobs']]} {d['scrape_sources']}")
+urls = {j["title"]: j["url"] for j in d["jobs"]}
+check(urls.get("Cloud Devops Engineer") == NAUKRI_ITEM["jobURL"], f"live format (jobURL) read: {urls}")
+direct = {j["title"]: j["url"] for j in ij.scrape_naukri("Cloud DevOps Engineer")}
+check(direct.get("Platform Engineer") == "https://www.naukri.com/job-listings-platform-engineer-211025000001"
+      and direct.get("Cloud Devops Engineer") == NAUKRI_ITEM["jobURL"], f"both formats read (jobURL and jdURL): {direct}")
+check(all("Naukri" in j["source"] for j in d["jobs"]) and d["scrape_sources"]["Naukri"] == {"count": 2, "error": ""},
+      f"Naukri jobs shown: {[(j['title'], j['source']) for j in d['jobs']]} {d['scrape_sources']}")
+MODE["naukri"] = "unreadable"
+r = ij.run_multi_source_india_scrape(["Cloud DevOps Engineer"], sources=["Naukri"], save_to_db=False)
+check(r["sources"]["Naukri"]["count"] == 0 and "format this app doesn't read" in r["sources"]["Naukri"]["error"],
+      f"records the app can't read are reported, not silently dropped: {r['sources']}")
 MODE["naukri"] = "no_credit"
 
 # ---- 4. the screen

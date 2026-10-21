@@ -756,6 +756,13 @@ def api_jobs_search():
     country = _job_country_for(current_user(), (data.get("country") or "United States").strip())
     my_experience = _int_or_none(data.get("my_experience"))
     include_unstated = data.get("include_unstated", True) is not False
+    if country.lower() == "india":
+        # Indian portals list mostly full-time jobs: "contract only" (meant for US C2C) hid every Naukri /
+        # Foundit job right after a Live 24h Scrape. And "India" as the location means the whole market
+        # (the country filter covers it) - Naukri writes "Bengaluru", not "Bengaluru, India".
+        contract_only = False
+        if location.lower() in ("india", "all india", "anywhere in india"):
+            location = ""
 
     results = models.get_jobs(
         query=query if query else None,

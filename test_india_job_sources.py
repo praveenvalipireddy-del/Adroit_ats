@@ -108,6 +108,11 @@ check(direct.get("Platform Engineer") == "https://www.naukri.com/job-listings-pl
       and direct.get("Cloud Devops Engineer") == NAUKRI_ITEM["jobURL"], f"both formats read (jobURL and jdURL): {direct}")
 check(all("Naukri" in j["source"] for j in d["jobs"]) and d["scrape_sources"]["Naukri"] == {"count": 2, "error": ""},
       f"Naukri jobs shown: {[(j['title'], j['source']) for j in d['jobs']]} {d['scrape_sources']}")
+# after a Live 24h Scrape the page searches the saved jobs (no_scrape, contract_only as the page sends it):
+# full-time Naukri jobs located "Bengaluru" must show for location "India"
+d = client.post("/api/jobs/search", json={"query": "Cloud DevOps Engineer", "location": "India", "source": "Naukri", "country": "India",
+                                          "no_scrape": True, "contract_only": True, "is_24h_only": True}).get_json()
+check(any(j["title"] == "Cloud Devops Engineer" for j in d["jobs"]), f"saved full-time Naukri jobs show after the live scrape: {[j['title'] for j in d['jobs']]}")
 MODE["naukri"] = "unreadable"
 r = ij.run_multi_source_india_scrape(["Cloud DevOps Engineer"], sources=["Naukri"], save_to_db=False)
 check(r["sources"]["Naukri"]["count"] == 0 and "format this app doesn't read" in r["sources"]["Naukri"]["error"],

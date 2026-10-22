@@ -133,7 +133,7 @@ scraped_id = _job({"title": "Data Analyst Scraped Test", "company": "Test Corp",
                    "salary": "$55/hr", "source": "Dice", "url": "https://www.dice.com/job-detail/00000000-0000-4000-8000-000000000001",
                    "description": "Dice US Contract Requisition: Data Analyst Scraped Test at Test Corp (Dallas, TX). Pay Rate: $55/hr",
                    "matched_skills": "Data Analyst", "match_score": 90})
-gone_id = _job({"title": "Data Analyst Gone Test", "company": "Gone Corp", "location": "Remote", "source": "LinkedIn (Live 24h)",
+gone_id = _job({"title": "Data Analyst Gone Test", "company": "Gone Corp", "location": "Remote", "source": "LinkedIn (Live 24h)", "job_type": "Contract (C2C)",
                 "url": "https://www.linkedin.com/jobs/view/data-analyst-gone-test-9999999999", "description": "Summary only (test).",
                 "matched_skills": "Data Analyst", "match_score": 90})
 
@@ -175,7 +175,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.89.1" in page.content(), "cache-buster not bumped to 5.89.1")
+        check("app.js?v=5.91.0" in page.content(), "cache-buster not bumped to 5.91.0")
 
         # 1. Browse Jobs on Karun (not the first consultant)
         page.click("a.nav-item[data-tab=candidates]")

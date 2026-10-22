@@ -45,6 +45,7 @@ import job_experience
 from datetime import datetime, timedelta, timezone, date as date_cls
 from flask.json.provider import DefaultJSONProvider
 import job_description_fetch
+import job_types
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
 logging.basicConfig(level=logging.INFO)
@@ -132,8 +133,15 @@ def _team_country_problem(user, country):
     their own list. Admins can (that is how a consultant moves team)."""
     if not user or "Admin" in (user.get("role") or ""):
         return ""
+    conn = models.get_db_connection()
+    try:
+        team = regions.user_region(conn, user["id"])
+    finally:
+        conn.close()
+    if team == "Both":                    # works for both teams
+        return ""
     target = regions.candidate_region({"country": country})
-    mine = next(iter(_view_regions(user)))
+    mine = team
     if target != mine:
         return (f"This consultant's country ({country or 'not set'}) belongs to the {target} team, and you are on the {mine} team. "
                 f"Ask an admin to add or move this consultant.")
@@ -288,8 +296,15 @@ def dashboard():
         c_status = gmail_multi_manager.is_candidate_connected(c["id"])
         c["gmail_connected"] = c_status.get("connected", False)
 
-    recruiters = [r for r in models.get_users() if regions.normalize(r.get("region")) in view_regions or "Admin" in (r.get("role") or "")] if is_admin else []
-    view_region = (session.get("view_region") or "Both") if is_admin else next(iter(view_regions))
+    recruiters = [r for r in models.get_users() if regions.normalize(r.get("region")) in view_regions or "Admin" in (r.get("role") or "")
+                  or regions.normalize_team(r.get("region")) == "Both"] if is_admin else []
+    conn = models.get_db_connection()
+    try:
+        my_team = regions.user_region(conn, user["id"])
+    finally:
+        conn.close()
+    can_switch_team = regions.can_switch(user, my_team)
+    view_region = (session.get("view_region") or "Both") if can_switch_team else next(iter(view_regions))
 
     try:
         return render_template(
@@ -300,6 +315,7 @@ def dashboard():
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             view_region=view_region,
+            can_switch_team=can_switch_team,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
@@ -319,6 +335,7 @@ def dashboard():
             recruiters=recruiters,
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             view_region=view_region,
+            can_switch_team=can_switch_team,
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
@@ -757,12 +774,17 @@ def api_jobs_search():
     my_experience = _int_or_none(data.get("my_experience"))
     include_unstated = data.get("include_unstated", True) is not False
     if country.lower() == "india":
-        # Indian portals list mostly full-time jobs: "contract only" (meant for US C2C) hid every Naukri /
-        # Foundit job right after a Live 24h Scrape. And "India" as the location means the whole market
-        # (the country filter covers it) - Naukri writes "Bengaluru", not "Bengaluru, India".
-        contract_only = False
+        # "India" as the location means the whole market (the country filter covers it) - Naukri writes
+        # "Bengaluru", not "Bengaluru, India".
         if location.lower() in ("india", "all india", "anywhere in india"):
             location = ""
+    # Job type (Full-time / Contract / Part-time, '' = all) replaces the old "contract only" switch. A page
+    # that doesn't send it yet keeps the old behaviour: US = Contract, India = all types.
+    if "type_filter" in data:
+        type_filter = job_types.canonical(data.get("type_filter"))
+    else:
+        type_filter = "Contract" if (contract_only and country.lower() != "india") else ""
+    contract_only = False
 
     results = models.get_jobs(
         query=query if query else None,
@@ -773,7 +795,8 @@ def api_jobs_search():
         is_24h_only=is_24h_only,
         country=country,
         my_experience=my_experience,
-        include_unstated=include_unstated
+        include_unstated=include_unstated,
+        type_filter=type_filter
     )
 
     # If 0 results or live_scrape requested, trigger a live scrape of the selected market. This no
@@ -792,7 +815,8 @@ def api_jobs_search():
             if country.lower() == "india":
                 picked = [p for p in india_job_scrapers.SOURCES if source and source != "All" and p.lower() in source.lower()]
                 scrape_res = india_job_scrapers.run_multi_source_india_scrape(
-                    keywords=[scrape_query], location=location or "India", save_to_db=True, sources=picked or None
+                    keywords=[scrape_query], location=location or "India", save_to_db=True, sources=picked or None,
+                    job_type=type_filter
                 )
                 scrape_sources = scrape_res.get("sources")
             else:
@@ -801,7 +825,8 @@ def api_jobs_search():
                     location=location or "United States",
                     contract_only=True,
                     save_to_db=True,
-                    experience_years=my_experience
+                    experience_years=my_experience,
+                    job_type=type_filter
                 )
             results = models.get_jobs(
                 query=query if query else None,
@@ -812,12 +837,14 @@ def api_jobs_search():
                 is_24h_only=is_24h_only,
                 country=country,
                 my_experience=my_experience,
-                include_unstated=include_unstated
+                include_unstated=include_unstated,
+                type_filter=type_filter
             )
             if not results and scrape_res.get("jobs"):
                 # never show another portal's jobs as if they came from the one that was picked
                 want = (source or "").lower().replace(".com", "").strip()
-                results = [j for j in scrape_res["jobs"] if not want or want == "all" or want in (j.get("source") or "").lower()]
+                results = [j for j in scrape_res["jobs"] if (not want or want == "all" or want in (j.get("source") or "").lower())
+                           and (not type_filter or job_types.classify(j) == type_filter)]
         except Exception as e:
             logger.error(f"Live scrape on-demand error: {e}")
 
@@ -846,12 +873,14 @@ def api_trigger_us_scrape():
     keywords = data.get("keywords")
     location = data.get("location", "United States")
     contract_only = data.get("contract_only", True)
+    us_type = job_types.canonical(data.get("type_filter")) if "type_filter" in data else ("Contract" if contract_only else "")
 
     scrape_res = us_job_scrapers.run_multi_source_us_scrape(
         keywords=keywords,
         location=location,
         contract_only=contract_only,
-        save_to_db=True
+        save_to_db=True,
+        job_type=us_type
     )
 
     models.log_activity(
@@ -895,7 +924,8 @@ def api_trigger_india_scrape():
         keywords=keywords,
         location=location,
         save_to_db=True,
-        sources=picked or None
+        sources=picked or None,
+        job_type=job_types.canonical(data.get("type_filter"))
     )
 
     models.log_activity(
@@ -2796,7 +2826,7 @@ def api_admin_recruiters():
         email = data.get("email", "").strip()
         password = data.get("password", "").strip()
         role = data.get("role", "Recruiter").strip()
-        region = regions.normalize(data.get("region")) or "USA"
+        region = regions.normalize_team(data.get("region")) or "USA"
 
         if not name or not email or not password:
             return jsonify({"error": "Name, email, and password are required."}), 400
@@ -2817,13 +2847,13 @@ def api_admin_recruiters():
 
 @app.route("/api/admin/recruiters/<int:recruiter_id>/region", methods=["POST"])
 def api_admin_recruiter_region(recruiter_id):
-    """Admin: move a recruiter to the USA or India team."""
+    """Admin: put a recruiter on the USA team, the India team or Both."""
     user = current_user()
     if not user or "Admin" not in user.get("role", ""):
         return jsonify({"error": "Admin permission required."}), 403
-    region = regions.normalize((request.get_json(silent=True) or {}).get("region"))
+    region = regions.normalize_team((request.get_json(silent=True) or {}).get("region"))
     if not region:
-        return jsonify({"error": "Region must be USA or India."}), 400
+        return jsonify({"error": "Team must be USA, India or Both."}), 400
     conn = models.get_db_connection()
     try:
         cur = conn.cursor()
@@ -2837,10 +2867,17 @@ def api_admin_recruiter_region(recruiter_id):
 
 @app.route("/api/view-region", methods=["POST"])
 def api_view_region():
-    """Admin: which team to look at - USA, India or Both."""
+    """Admins and 'Both' recruiters: which team to look at - USA, India or Both."""
     user = current_user()
-    if not user or "Admin" not in user.get("role", ""):
-        return jsonify({"error": "Admin permission required."}), 403
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        team = regions.user_region(conn, user["id"])
+    finally:
+        conn.close()
+    if not regions.can_switch(user, team):
+        return jsonify({"error": "Your account works for one team only."}), 403
     region = regions.normalize((request.get_json(silent=True) or {}).get("region"))
     if region:
         session["view_region"] = region
@@ -2926,7 +2963,7 @@ def _assign_problem(cand, target_user) -> str:
     finally:
         conn.close()
     cand_team = regions.candidate_region(cand)
-    if team != cand_team:
+    if team != "Both" and team != cand_team:
         return (f"{target_user['name']} is on the {team} team and {cand['name']} is a {cand_team} consultant, so "
                 f"{target_user['name']} wouldn't see them. Change {target_user['name']}'s team in Admin & Settings first.")
     return ""

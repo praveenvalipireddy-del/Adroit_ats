@@ -68,7 +68,7 @@ def fake_post(url, params=None, json=None, timeout=None):
 
 
 ij.requests.post = fake_post
-ij.scrape_linkedin_us = lambda keyword, location="India", contract_only=False, limit=15: (calls.append("linkedin") or [{
+ij.scrape_linkedin_us = lambda keyword, location="India", contract_only=False, limit=15, job_type="": (calls.append("linkedin") or [{
     "title": "Senior DevOps Engineer", "company": "Newfold Testco", "location": "Mumbai", "job_type": "Contract", "salary": "",
     "source": "LinkedIn (Live 24h)", "url": "https://www.linkedin.com/jobs/view/1000000001", "recruiter_email": "", "description": "DevOps",
     "matched_skills": keyword, "match_score": 90, "is_24h": 1}])
@@ -136,7 +136,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.89.1" in page.content(), "cache-buster not bumped to 5.89.1")
+        check("app.js?v=5.91.0" in page.content(), "cache-buster not bumped to 5.91.0")
         page.click("a.nav-item[data-tab=jobs]")
         page.select_option("#filter-country", "India")
         page.fill("#filter-query", "Platform Engineer")

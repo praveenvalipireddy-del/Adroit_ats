@@ -1,7 +1,8 @@
 """USA / India teams in one app.
 
-- Every user has users.region ('USA' or 'India'). Recruiters are locked to it; admins choose a view
-  (USA / India / Both) with the switcher in the top bar (kept in the session).
+- Every user has users.region: 'USA', 'India' or 'Both' (a recruiter who works for both teams). USA / India
+  recruiters are locked to it; admins and 'Both' recruiters choose a view (USA / India / Both) with the
+  switcher in the top bar (kept in the session). A 'Both' recruiter still sees only their own consultants.
 - A consultant's region comes from their country: 'India' -> India team, anything else -> USA team
   (no extra column - a consultant moves team when their country changes).
 - What is split: consultants / bench (and everything reached through a consultant: drafts, resume
@@ -12,12 +13,26 @@
 from typing import Dict, Iterable, Optional, Set
 
 REGIONS = ("USA", "India")
+TEAMS = ("USA", "India", "Both")
 JOB_COUNTRY = {"USA": "United States", "India": "India"}
 
 
 def normalize(value: Optional[str]) -> str:
     v = (value or "").strip().lower()
     return "India" if v in ("india", "in") else ("USA" if v in ("usa", "us", "united states") else "")
+
+
+def normalize_team(value: Optional[str]) -> str:
+    """A user's team: 'USA', 'India' or 'Both' ('' when unknown)."""
+    v = (value or "").strip().lower()
+    if v in ("both", "all", "usa+india", "usa + india", "india+usa", "both teams"):
+        return "Both"
+    return normalize(value)
+
+
+def can_switch(user: Dict, stored_region: str) -> bool:
+    """Admins and 'Both' recruiters pick which team to look at."""
+    return "Admin" in (user.get("role") or "") or stored_region == "Both"
 
 
 def candidate_region(cand: Dict) -> str:
@@ -28,12 +43,12 @@ def user_region(conn, user_id: int) -> str:
     cur = conn.cursor()
     cur.execute("SELECT region FROM users WHERE id = ?", (user_id,))
     r = cur.fetchone()
-    return normalize(r[0] if r else "") or "USA"
+    return normalize_team(r[0] if r else "") or "USA"
 
 
 def view_regions(user: Dict, stored_region: str, admin_view: Optional[str]) -> Set[str]:
     """Regions this user is looking at right now."""
-    if "Admin" in (user.get("role") or ""):
+    if can_switch(user, stored_region):
         v = normalize(admin_view)
         return {v} if v else set(REGIONS)
     return {stored_region or "USA"}

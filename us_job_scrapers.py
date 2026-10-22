@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 import job_experience
+import job_types
 import models
 
 HEADERS = {
@@ -32,21 +33,21 @@ def extract_email_from_text(text: str) -> Optional[str]:
 
 def extract_salary_from_text(text: str) -> str:
     if not text:
-        return "Rate on Discussion (C2C)"
+        return ""
     match = SALARY_REGEX.search(text)
     if match:
         return match.group(0)
-    return "Rate on Discussion (C2C)"
+    return ""
 
 # --- 1. DIRECT DICE.COM US TECH CONTRACT SCRAPER ---
 
-def scrape_dice_us(keyword: str = "Java", location: str = "United States", limit: int = 15) -> List[Dict]:
+def scrape_dice_us(keyword: str = "Java", location: str = "United States", limit: int = 15, job_type: str = "Contract") -> List[Dict]:
     """
     Directly scrapes 100% REAL live contract requisitions from Dice.com.
     Returns direct https://www.dice.com/job-detail/<id> links.
     """
     encoded_kw = urllib.parse.quote_plus(keyword)
-    dice_web_url = f"https://www.dice.com/jobs?q={encoded_kw}&countryCode=US&radius=30&radiusUnit=mi&page=1&pageSize={limit*2}&filters.employmentType=CONTRACTS&language=en"
+    dice_web_url = f"https://www.dice.com/jobs?q={encoded_kw}&countryCode=US&radius=30&radiusUnit=mi&page=1&pageSize={limit*2}{('&filters.employmentType=' + job_types.portal_code('Dice', job_type)) if job_types.portal_code('Dice', job_type) else ''}&language=en"
 
     jobs = []
     seen_ids = set()
@@ -105,7 +106,7 @@ def scrape_dice_us(keyword: str = "Java", location: str = "United States", limit
                     "title": title,
                     "company": company,
                     "location": loc,
-                    "job_type": "Contract (C2C)",
+                    "job_type": "Contract (C2C)" if job_type == "Contract" else (job_type or ""),
                     "salary": salary,
                     "source": "Dice (Live 24h)",
                     "url": full_url,
@@ -127,16 +128,19 @@ def scrape_dice_us(keyword: str = "Java", location: str = "United States", limit
 # --- 2. DIRECT LINKEDIN US (LIVE 24H CONTRACT) ---
 
 def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United States", contract_only: bool = True, limit: int = 15,
+                       job_type: Optional[str] = None,
                        experience_years: Optional[int] = None) -> List[Dict]:
     """
     Scrapes 100% REAL live contract job postings from LinkedIn US posted within the last 24 hours.
     Returns direct https://www.linkedin.com/jobs/view/... links.
     """
-    kw_query = f"{keyword} contract" if contract_only and "contract" not in keyword.lower() else keyword
+    if job_type is None:                       # old callers: contract_only decides
+        job_type = "Contract" if contract_only else ""
+    kw_query = f"{keyword} contract" if job_type == "Contract" and "contract" not in keyword.lower() else keyword
     encoded_kw = urllib.parse.quote_plus(kw_query)
     encoded_loc = urllib.parse.quote_plus(location if location else "United States")
 
-    url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_kw}&location={encoded_loc}&f_TPR=r86400&f_JT=C"
+    url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_kw}&location={encoded_loc}&f_TPR=r86400{('&f_JT=' + job_types.portal_code('LinkedIn', job_type)) if job_types.portal_code('LinkedIn', job_type) else ''}"
     # LinkedIn's own experience-level filter, so fewer clearly-too-senior postings come in at all.
     levels = job_experience.linkedin_levels(experience_years)
     if levels:
@@ -173,8 +177,8 @@ def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United Stat
                     "title": title,
                     "company": company,
                     "location": loc,
-                    "job_type": "Contract (C2C)",
-                    "salary": salary if "$" in salary else "$85 - $105/hr (C2C)",
+                    "job_type": "Contract (C2C)" if job_type == "Contract" else (job_type or ""),
+                    "salary": salary if "$" in salary else "",          # never an invented rate
                     "source": "LinkedIn (Live 24h)",
                     "url": apply_url,
                     "recruiter_email": email or "",
@@ -192,7 +196,9 @@ def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United Stat
 # --- 3. MASTER MULTI-SOURCE US SCRAPER RUNNER ---
 
 def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: str = "United States", contract_only: bool = True, save_to_db: bool = True,
-                               experience_years: Optional[int] = None) -> Dict[str, Any]:
+                               experience_years: Optional[int] = None, job_type: Optional[str] = None) -> Dict[str, Any]:
+    if job_type is None:
+        job_type = "Contract" if contract_only else ""
     if not keywords:
         keywords = ["Java Spring Boot", "Python AI", "AWS DevOps", "React TypeScript"]
 
@@ -201,7 +207,7 @@ def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: s
 
     for kw in keywords:
         # 1. Direct Dice.com US Contracts (Direct dice.com/job-detail links)
-        dice_jobs = scrape_dice_us(kw, location=location, limit=8)
+        dice_jobs = scrape_dice_us(kw, location=location, limit=8, job_type=job_type)
         for j in dice_jobs:
             key = f"{j['title'].lower()}|{j['company'].lower()}"
             if key not in seen_keys:
@@ -209,7 +215,7 @@ def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: s
                 all_jobs.append(j)
 
         # 2. Direct LinkedIn US (24h)
-        li_jobs = scrape_linkedin_us(kw, location=location, contract_only=contract_only, limit=8, experience_years=experience_years)
+        li_jobs = scrape_linkedin_us(kw, location=location, contract_only=contract_only, limit=8, experience_years=experience_years, job_type=job_type)
         for j in li_jobs:
             key = f"{j['title'].lower()}|{j['company'].lower()}"
             if key not in seen_keys:

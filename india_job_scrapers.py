@@ -26,6 +26,7 @@ from typing import Dict, List, Optional
 import requests
 
 import config
+import job_types
 from us_job_scrapers import scrape_linkedin_us, extract_salary_from_text
 
 logger = logging.getLogger("india_job_scrapers")
@@ -99,7 +100,7 @@ def _first(it: Dict, *keys, default=""):
     return default
 
 
-def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 15) -> List[Dict]:
+def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 15, job_type: str = "") -> List[Dict]:
     """Real live Naukri.com listings via the epicscrapers/naukri-scraper Apify actor."""
     payload = {
         "keyword": keyword,
@@ -108,6 +109,8 @@ def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 1
         "jobAge": "3",
         "sort": "date",
     }
+    if job_types.portal_code("Naukri", job_type):
+        payload["jobTypeFilter"] = job_types.portal_code("Naukri", job_type)
     items, err = _run_actor_sync(NAUKRI_ACTOR, payload)
     LAST_ERROR["Naukri"] = err or ""
     if err:
@@ -133,7 +136,7 @@ def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 1
             "title": title,
             "company": company,
             "location": loc,
-            "job_type": "Full-time",
+            "job_type": job_type or _first(it, "jobType", "employmentType", "jobTypeLabel"),
             "salary": salary,
             "source": "Naukri (Live)",
             "url": url,
@@ -157,7 +160,7 @@ def scrape_naukri(keyword: str = "Java", location: str = "India", limit: int = 1
     return jobs
 
 
-def scrape_foundit(keyword: str = "Java", location: str = "India", limit: int = 15) -> List[Dict]:
+def scrape_foundit(keyword: str = "Java", location: str = "India", limit: int = 15, job_type: str = "") -> List[Dict]:
     """Real live Foundit (Monster India) listings via the crawloop/foundit-jobs-scraper actor."""
     payload = {
         "position": keyword,
@@ -165,6 +168,8 @@ def scrape_foundit(keyword: str = "Java", location: str = "India", limit: int = 
         "maxItems": limit,
         "postedWithinDays": "7",
     }
+    if job_types.portal_code("Foundit", job_type):
+        payload["employmentType"] = job_types.portal_code("Foundit", job_type)
     items, err = _run_actor_sync(FOUNDIT_ACTOR, payload)
     LAST_ERROR["Foundit"] = err or ""
     if err:
@@ -187,7 +192,7 @@ def scrape_foundit(keyword: str = "Java", location: str = "India", limit: int = 
             "title": title,
             "company": company,
             "location": loc,
-            "job_type": (it.get("employmentType") or "Full-time"),
+            "job_type": job_type or _first(it, "employmentType", "jobType"),
             "salary": salary,
             "source": "Foundit / Monster India (Live)",
             "url": url,
@@ -202,12 +207,12 @@ def scrape_foundit(keyword: str = "Java", location: str = "India", limit: int = 
     return jobs
 
 
-def scrape_linkedin_india(keyword: str = "Java", location: str = "India", limit: int = 15) -> List[Dict]:
+def scrape_linkedin_india(keyword: str = "Java", location: str = "India", limit: int = 15, job_type: str = "") -> List[Dict]:
     """Reuses the existing direct LinkedIn public-job-search scraper (us_job_scrapers.py) -
     that endpoint is generic to any location, not US-specific, so India needs no new code."""
     LAST_ERROR["LinkedIn"] = ""
     try:
-        jobs = scrape_linkedin_us(keyword, location=location, contract_only=False, limit=limit)
+        jobs = scrape_linkedin_us(keyword, location=location, contract_only=False, limit=limit, job_type=job_type)
     except Exception as ex:
         LAST_ERROR["LinkedIn"] = f"LinkedIn could not be read ({ex.__class__.__name__})"
         return []
@@ -217,7 +222,7 @@ def scrape_linkedin_india(keyword: str = "Java", location: str = "India", limit:
 
 
 def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location: str = "India",
-                                  save_to_db: bool = True, sources: Optional[List[str]] = None) -> Dict:
+                                  save_to_db: bool = True, sources: Optional[List[str]] = None, job_type: str = "") -> Dict:
     """Mirrors run_multi_source_us_scrape in us_job_scrapers.py, for the India market.
     sources: only these portals (e.g. ["Naukri"] when the recruiter picked Naukri) - no Apify credit is
     spent on portals that weren't asked for. Returns {count, saved_to_db, jobs, sources: {portal: {count, error}}}."""
@@ -231,9 +236,14 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
     all_jobs = []
     seen_keys = set()
     status = {name: {"count": 0, "error": ""} for name in wanted}
+    for name in wanted:                        # a portal that can't filter the wanted type isn't searched
+        if job_types.portal_code(name, job_type) is None:
+            status[name]["error"] = job_types.skip_reason(name, job_type)
     for kw in keywords:
         for name in wanted:
-            found = scrapers[name](kw, location=location, limit=8)
+            if job_types.portal_code(name, job_type) is None:
+                continue
+            found = scrapers[name](kw, location=location, limit=8, job_type=job_type)
             status[name]["count"] += len(found)
             if not found and LAST_ERROR.get(name):
                 status[name]["error"] = LAST_ERROR[name]

@@ -160,7 +160,7 @@
                 </div>
 
                 <div class="header-actions">
-                    {% if 'Admin' in (user.role or '') %}
+                    {% if 'Admin' in (user.role or '') or can_switch_team %}
                     <select id="view-region-switch" class="form-control" title="Which team to look at" style="width:auto; height:34px; font-size:0.82rem; font-weight:700;">
                         <option value="" {{ 'selected' if view_region == 'Both' }}>🌐 Both teams</option>
                         <option value="USA" {{ 'selected' if view_region == 'USA' }}>🇺🇸 USA team</option>
@@ -319,6 +319,15 @@
                                     <option value="All">All US Portals (LinkedIn, Dice)</option>
                                     <option value="LinkedIn">LinkedIn (Live 24h)</option>
                                     <option value="Dice">Dice.com</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Job type</label>
+                                <select id="filter-job-type" title="Full-time, contract or part-time - each portal is asked for that type">
+                                    <option value="">All types</option>
+                                    <option value="Full-time">Full-time</option>
+                                    <option value="Contract" selected>Contract</option>
+                                    <option value="Part-time">Part-time</option>
                                 </select>
                             </div>
                             <div class="filter-group" style="min-width:210px;">
@@ -1477,6 +1486,7 @@
                         <select id="rec-region" class="form-control">
                             <option value="USA" selected>🇺🇸 USA</option>
                             <option value="India">🇮🇳 India</option>
+                            <option value="Both">🌐 Both (USA + India)</option>
                         </select>
                     </div>
                 </div>
@@ -1529,7 +1539,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.89.1"></script>
+    <script src="/static/js/app.js?v=5.91.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

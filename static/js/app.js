@@ -610,6 +610,11 @@ function syncJobsMarketUi() {
             locInput.value = country;
         }
     }
+    const typeSelect = document.getElementById('filter-job-type');
+    if (typeSelect && typeSelect.dataset.market !== (isIndia ? 'India' : 'US')) {
+        typeSelect.dataset.market = isIndia ? 'India' : 'US';
+        typeSelect.value = isIndia ? '' : 'Contract';            // US default = C2C contract roles, India = all types
+    }
     if (sourceSelect) {
         sourceSelect.innerHTML = isIndia
             ? `<option value="All">All India Portals (Naukri, Foundit, LinkedIn)</option>
@@ -656,6 +661,7 @@ function initJobsTable() {
         });
     }
 
+    document.getElementById('filter-job-type')?.addEventListener('change', () => searchJobs(false));
     if (sourceSelect) {
         sourceSelect.addEventListener('change', () => searchJobs(false));
     }
@@ -730,6 +736,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
                 contract_only: true,
                 is_24h_only: true,
                 live_scrape: liveScrape,
+                type_filter: document.getElementById('filter-job-type')?.value || '',
                 no_scrape: !opts.allowScrape,       // India: only a click on Search Jobs may start a paid scrape
                 my_experience: jobsMyExperience(),
                 include_unstated: document.getElementById('filter-exp-unstated')?.checked !== false
@@ -776,7 +783,8 @@ async function triggerUsScrape() {
             body: JSON.stringify({
                 keywords: [query],
                 location: location,
-                contract_only: true
+                contract_only: true,
+                type_filter: document.getElementById('filter-job-type')?.value || ''
             })
         });
         const data = await res.json();
@@ -815,7 +823,7 @@ async function triggerIndiaScrape() {
         const res = await fetch('/api/jobs/scrape-india', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keywords: [query], location: location, source })
+            body: JSON.stringify({ keywords: [query], location: location, source, type_filter: document.getElementById('filter-job-type')?.value || '' })
         });
         const data = await res.json().catch(() => ({}));
         sources = data.sources || null;
@@ -875,7 +883,8 @@ function renderJobsTable(jobs) {
                 <span class="portal-badge badge-${portalClass}">${escapeHtml(j.source || 'Portal')}</span>
             </td>
             <td>
-                <span style="color: #34d399; font-weight: 600;">${escapeHtml(j.salary || j.job_type || '-')}</span>
+                <span style="color: #34d399; font-weight: 600;">${escapeHtml(j.salary && !/^Rate on Discussion/i.test(j.salary) ? j.salary : '-')}</span>
+                ${j.type_label ? `<div><span class="job-type-badge" style="display:inline-block; margin-top:4px; padding:1px 8px; border-radius:999px; font-size:0.72rem; font-weight:700; background:${j.type_label === 'Contract' ? '#eff6ff' : j.type_label === 'Full-time' ? '#ecfdf5' : '#fef3c7'}; color:${j.type_label === 'Contract' ? '#1d4ed8' : j.type_label === 'Full-time' ? '#047857' : '#92400e'};">${escapeHtml(j.type_label)}</span></div>` : ''}
             </td>
             <td>${jobExperienceBadge(j.experience)}</td>
             <td>
@@ -2820,6 +2829,7 @@ async function loadRecruiters() {
                         <select class="form-control recruiter-region" data-id="${r.id}" style="width:auto; font-size:0.8rem;" onchange="setRecruiterRegion(${r.id}, this.value)">
                             <option value="USA" ${(r.region || 'USA') === 'USA' ? 'selected' : ''}>🇺🇸 USA</option>
                             <option value="India" ${r.region === 'India' ? 'selected' : ''}>🇮🇳 India</option>
+                            <option value="Both" ${r.region === 'Both' ? 'selected' : ''}>🌐 Both</option>
                         </select>
                     </td>
                     <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">${r.consultant_count || 0} consultants</td>
@@ -3028,7 +3038,7 @@ async function consRecruiters() {
     }
     return consBulk.recruiters;
 }
-const consRecruiterLabel = (r) => `${r.name} - ${(r.role || '').includes('Admin') ? 'Admin' : (r.region || 'USA') + ' team'}`;
+const consRecruiterLabel = (r) => `${r.name} - ${(r.role || '').includes('Admin') ? 'Admin' : r.region === 'Both' ? 'USA + India' : (r.region || 'USA') + ' team'}`;
 
 function consBulkRefresh() {
     const bar = document.getElementById('cons-bulk-bar');
@@ -6580,7 +6590,7 @@ async function setRecruiterRegion(id, region) {
     const res = await fetch(`/api/admin/recruiters/${id}/region`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ region }) });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { showToast(d.error || 'Could not change the team.', 'error'); return; }
-    showToast(`Moved to the ${d.region} team`, 'success');
+    showToast(d.region === 'Both' ? 'Now works for both teams (USA + India)' : `Moved to the ${d.region} team`, 'success');
 }
 
 function applyTeamLock() {

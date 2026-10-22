@@ -1507,10 +1507,11 @@ def _parse_db_timestamp(value):
 
 
 def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None,
-             my_experience=None, include_unstated=True):
+             my_experience=None, include_unstated=True, type_filter=None):
     """my_experience: the consultant's years - hides jobs that need clearly more (see job_experience).
     Every returned job carries "experience": {min, max, source, level, label}."""
     import job_experience
+    import job_types
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -1534,6 +1535,12 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
 
         j["experience"] = job_experience.classify(j)
         if not job_experience.fits(j["experience"], my_experience, include_unstated):
+            continue
+        # Job type (Full-time / Contract / Part-time): a specific type shows only jobs that state it.
+        # The recruiter's own requirements (pasted / from email) that don't state one always show.
+        j["type_label"] = job_types.classify(j)
+        own = (j.get("source") or "").lower().startswith(("manual", "email"))
+        if type_filter and j["type_label"] != type_filter and not (own and not j["type_label"]):
             continue
 
         # 0. Country / market filter - jobs scraped without an explicit country (older rows,
@@ -1655,8 +1662,8 @@ def save_or_update_scraped_job(job_data, match_title_company=True):
     title = job_data.get("title", "Software Engineer")
     company = job_data.get("company", "Direct Client")
     location = job_data.get("location", "United States (Remote)")
-    job_type = job_data.get("job_type", "Contract (C2C)")
-    salary = job_data.get("salary", "Rate on Discussion (C2C)")
+    job_type = job_data.get("job_type", "")  # unstated -> shows under All types only
+    salary = job_data.get("salary", "")  # never invent a rate
     source = job_data.get("source", "Dice")
     url = job_data.get("url", "")
     recruiter_email = job_data.get("recruiter_email", "")

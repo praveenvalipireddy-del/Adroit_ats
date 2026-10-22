@@ -1931,6 +1931,9 @@ def api_reply_save_draft(reply_id):
         out = reply_inbox.save_reply_draft(conn, reply_id, str(data.get("body") or ""), user, attach_resume=bool(data.get("attach_resume")))
     except (reply_inbox.ReplyError, application_tracker.TrackerError) as ex:
         return jsonify({"error": str(ex)}), 400
+    except Exception as ex:               # say what went wrong instead of a bare 500
+        logger.exception(f"Saving the reply draft {reply_id} failed")
+        return jsonify({"error": f"Could not save the draft: {type(ex).__name__}: {str(ex)[:160]}"}), 500
     finally:
         conn.close()
     return jsonify(out)

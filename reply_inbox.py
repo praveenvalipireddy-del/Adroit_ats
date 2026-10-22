@@ -83,10 +83,16 @@ def _gmail_date(d: str) -> str:
 
 
 def _decode(value) -> str:
+    """A header as one line - long headers arrive folded over several lines."""
     try:
-        return str(email.header.make_header(email.header.decode_header(value or "")))
+        text = str(email.header.make_header(email.header.decode_header(value or "")))
     except Exception:
-        return str(value or "")
+        text = str(value or "")
+    return _one_line(text)
+
+
+def _one_line(text) -> str:
+    return " ".join(str(text or "").split())
 
 
 def _text_of(msg) -> str:
@@ -394,15 +400,17 @@ def process_reply(conn, reply_id: int) -> Dict:
 # ---------------------------------------------------------------- answering in the thread
 
 def _reply_message(cand: Dict, r: Dict, body: str, attachment=None) -> EmailMessage:
-    account = (cand.get("gmail_account") or "").strip()
-    subject = r.get("subject") or ""
+    # Headers must be one line each - replies saved before _decode joined folded headers can hold line breaks.
+    account = _one_line(cand.get("gmail_account"))
+    subject = _one_line(r.get("subject"))
+    message_id = _one_line(r["message_id"])
     msg = EmailMessage()
-    msg["To"] = r["from_email"]
+    msg["To"] = _one_line(r["from_email"])
     msg["From"] = account
     msg["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
     msg["Message-ID"] = make_msgid(domain=account.rsplit("@", 1)[-1] or "jobhunt.local")
-    msg["In-Reply-To"] = r["message_id"]
-    msg["References"] = " ".join(x for x in ((r.get("references_hdr") or ""), r["message_id"]) if x).strip()
+    msg["In-Reply-To"] = message_id
+    msg["References"] = " ".join(x for x in (_one_line(r.get("references_hdr")), message_id) if x)
     msg.set_content(body)
     if attachment:
         name, data = attachment

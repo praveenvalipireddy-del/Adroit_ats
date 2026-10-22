@@ -202,6 +202,20 @@ check(r.get("success") and r["attached"] == "Arun_Resume.docx", f"saved: {r}")
 folder, m = appended[-1] if len(appended) > n_before else (None, None)
 check(m is not None and folder == '"[Gmail]/Drafts"' and m["To"] == REC_ADDR and m["Subject"].startswith("Re: ") and m["In-Reply-To"] == "<m1@acme>"
       and "<m1@acme>" in m["References"] and draft_mid in m["References"], f"threaded draft headers: {m and dict(m.items())}")
+
+# long subjects arrive folded over two lines - a stored line break crashed the draft ("Could not save the draft.")
+check(ri._decode("Re: Application: IT Technology Professionals - Abhinov (8 yrs exp)\r\n Java Full Stack") ==
+      "Re: Application: IT Technology Professionals - Abhinov (8 yrs exp) Java Full Stack", "folded header read as one line")
+conn = models.get_db_connection()
+conn.cursor().execute("UPDATE application_replies SET subject = ?, references_hdr = ? WHERE id = ?",
+                      ("Re: Application: IT Technology Professionals - Abhinov (8 yrs\r\n exp)", "<m0@acme>\r\n <x@acme>", iv["id"]))
+conn.commit()
+conn.close()
+n_before = len(appended)
+resp = client.post(f"/api/replies/{iv['id']}/save-draft", json={"body": "Hi,\n\nYes, open to relocation.\n\nArun"})
+_, m2 = appended[-1] if len(appended) > n_before else (None, None)
+check(resp.status_code == 200 and m2 is not None and m2["Subject"] == "Re: Application: IT Technology Professionals - Abhinov (8 yrs exp)"
+      and "\n" not in m2["References"], f"draft saved for a reply stored with a folded subject: {resp.status_code} {resp.get_json()}")
 check(m is not None and any(p.get_filename() == "Arun_Resume.docx" for p in m.iter_attachments()), "resume attached")
 check(client.get(f"/api/replies/{iv['id']}").get_json()["handled"] == 1, "saved -> handled")
 check(not sent, "nothing sent in draft mode")

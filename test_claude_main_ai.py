@@ -86,10 +86,10 @@ def run():
     return rb.optimize_resume_for_jd(RESUME, JD)
 
 
-# ---- Claude only: both steps on Claude, the request is shaped right
+# ---- Claude only (Gemini unset): both steps on Claude, the request is shaped right
 res = run()
 check(res.get("ai_powered") and res.get("optimized"), f"optimized by Claude: {res.get('not_optimized_reason')} / {res.get('ai_unavailable_reason')}")
-check(len(claude_calls) == 2 and not gemini_calls, f"both steps on Claude, Gemini untouched: {len(claude_calls)} / {gemini_calls}")
+check(len(claude_calls) == 2 and not gemini_calls, f"both steps on Claude when Gemini unset: {len(claude_calls)} / {gemini_calls}")
 check(res.get("ai_model") == "claude-opus-5-5", f"result names Claude: {res.get('ai_model')}")
 p = claude_calls[0] if claude_calls else {}
 check(p.get("model") == "claude-opus-5-5" and p.get("output_config") == {"effort": "medium"}, f"default model + effort: {p.get('model')} {p.get('output_config')}")
@@ -99,15 +99,25 @@ check("thinking" not in p and "temperature" not in p, "no disabled thinking / te
 check(all(8000 < c["max_tokens"] <= 21000 for c in claude_calls), f"room for thinking, capped: {[c['max_tokens'] for c in claude_calls]}")
 check("RAVI CLAUDETEST" in p.get("messages", [{}])[0].get("content", ""), "resume in the user message")
 
-# ---- Claude fails -> Gemini answers; Claude declines -> Gemini answers
+# ---- Both keys configured: Gemini is FIRST, Claude untouched
 config.GEMINI_API_KEY = "gemini-test-not-real"
-claude_mode["fail"] = RuntimeError("Error code: 529 - overloaded_error")
+gemini_fail = False
+def _gemini_gen(model, contents, config):
+    gemini_calls.append(model)
+    if gemini_fail:
+        raise RuntimeError("Gemini 503 overloaded")
+    want_json = getattr(config, "response_mime_type", None) == "application/json"
+    return SimpleNamespace(text=json.dumps(ANALYSIS) if want_json else REWRITE, candidates=[SimpleNamespace(finish_reason="STOP")])
+FakeGemini.models.generate_content = _gemini_gen
+
 res = run()
-check(res.get("optimized") and gemini_calls and "claude" not in res.get("ai_model", ""), f"Gemini took over after a Claude failure: {res.get('ai_model')}")
-claude_mode["fail"], claude_mode["refuse"] = None, True
+check(res.get("optimized") and gemini_calls and not claude_calls, f"Gemini is first when configured: {gemini_calls} / {claude_calls}")
+
+# ---- Both keys configured: Gemini fails -> Claude takes over SECOND
+gemini_fail = True
 res = run()
-check(res.get("optimized") and gemini_calls, f"Gemini took over after a refusal: {res.get('ai_model')} {res.get('not_optimized_reason')}")
-claude_mode["refuse"] = False
+check(res.get("optimized") and claude_calls and "claude" in res.get("ai_model", "").lower(), f"Claude took over as backup when Gemini failed: {res.get('ai_model')}")
+gemini_fail = False
 
 # ---- Claude only, bad key, no backups -> keyword scan, Claude's reason, key redacted
 config.GEMINI_API_KEY = ""
@@ -124,14 +134,14 @@ run()
 check(claude_calls and not claude_calls[0]["_beta"] and "fallbacks" not in claude_calls[0], "Haiku: plain messages.create, no fallbacks")
 rb.CLAUDE_MODEL = "claude-opus-5-5"
 
-# ---- no Claude key -> unchanged Gemini behaviour
+# ---- no Claude key -> Gemini only
 config.ANTHROPIC_API_KEY = ""
 config.GEMINI_API_KEY = "gemini-test-not-real"
 res = run()
-check(not claude_calls and gemini_calls and res.get("optimized"), "without ANTHROPIC_API_KEY Gemini runs as before")
+check(not claude_calls and gemini_calls and res.get("optimized"), "without ANTHROPIC_API_KEY Gemini runs directly")
 
 tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "dashboard.html"), encoding="utf-8").read()
-check("{% if has_claude %}" in tpl and "AI: Claude ({{ claude_model }})" in tpl, "Resume Bot tab says Claude is the main AI")
+check("{% if has_gemini %}" in tpl and "AI: Google Gemini" in tpl, "Resume Bot tab says Gemini is the main AI")
 check("anthropic" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")).read(), "anthropic in requirements")
 
 if failures:
@@ -139,4 +149,5 @@ if failures:
     for f in failures:
         print("  -", f)
     sys.exit(1)
-print("PASS: Claude is the main AI - both steps, cached master prompt, effort, refusal fallback; Gemini takes over on failure/refusal; Claude-specific reason, key redacted.")
+print("PASS: Gemini is first, Claude is second (backup); Claude handles requests when Gemini fails or is unset.")
+

@@ -845,7 +845,7 @@
                         <div>
                             <h2>AI Master Resume Optimization Bot</h2>
                             <p>Match a resume to a JD, preview the Word file and edit it with AI.</p>
-                            <p style="font-size:0.82rem; color:#475569; margin-top:4px;">{% if has_claude %}✨ AI: Claude ({{ claude_model }}){% if has_gemini %} · Gemini as backup{% endif %}{% elif has_gemini %}✨ AI: Google Gemini{% else %}⚠️ No AI key set - keyword scan only, the resume is not rewritten.{% endif %}</p>
+                            <p style="font-size:0.82rem; color:#475569; margin-top:4px;">{% if has_gemini %}✨ AI: Google Gemini{% if has_claude %} · Claude ({{ claude_model }}) as backup{% endif %}{% elif has_claude %}✨ AI: Claude ({{ claude_model }}){% else %}⚠️ No AI key set - keyword scan only, the resume is not rewritten.{% endif %}</p>
                         </div>
                     </div>
 

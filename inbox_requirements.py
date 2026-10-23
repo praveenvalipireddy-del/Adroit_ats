@@ -44,16 +44,20 @@ STATUS_LABELS = {"review": "Ready to review", "drafted": "Draft created", "draft
                  "filtered": "Skipped (not a job email)", "error": "Problem - will retry", "checking": "Checking..."}
 
 _SKIP_SENDER = re.compile(r"(no-?reply|do-?not-?reply|notifications?|mailer-daemon|alerts?|jobalerts?|newsletter|updates?)@", re.I)
-_SKIP_DOMAINS = ("linkedin.com", "naukri.com", "naukrigulf.com", "indeed.com", "glassdoor.com", "monster.com", "foundit.in",
+_SKIP_DOMAINS = ("linkedin.com", "indeed.com", "glassdoor.com", "monster.com", "foundit.in",
                  "google.com", "accounts.google.com", "icims.com", "workday.com", "myworkday.com", "greenhouse.io", "lever.co",
                  "facebookmail.com", "youtube.com", "amazon.com", "paypal.com")
 _SKIP_SUBJECT = re.compile(r"\b(verify|verification|otp|password|receipt|invoice|order|payment|transaction|subscription|"
-                           r"thank you for applying|application received|your application|security alert|welcome)\b", re.I)
+                           r"thank you for applying|application received|your application|security alert|welcome|"
+                           r"track your job applications)\b|^#VR#", re.I)
+
+# Naukri automated / non-job accounts - recruiter relays (e.g. Pinaki Softcon r.kumar...=@naukri.com) are allowed through
+_NAUKRI_AUTOMATED_LOCAL = re.compile(r"^(info|resumeservice|alerts?|jobalerts?|messages|mailer|marketing|digest|support|no-?reply|do-?not-?reply)$", re.I)
 
 EXTRACT_SYSTEM = """You read one email from an IT consultant's inbox and decide if it is a JOB REQUIREMENT
 (a vendor / recruiter / client describing an open position and asking for candidates or resumes).
 A recruiter's own message about a specific position IS a requirement even when a job board delivered it
-(e.g. a "Dice Private Email" - the job board's wrapper text around it does not change that).
+(e.g. a "Dice Private Email" or Naukri recruiter relay - the job board's wrapper text around it does not change that).
 Newsletters, job-board alerts listing jobs, application confirmations, marketing and personal mail are NOT requirements.
 Return ONLY JSON:
 {"is_requirement": true/false, "title": "", "client": "", "vendor_company": "", "location": "",
@@ -64,11 +68,23 @@ Return ONLY JSON:
 def _skip_reason(p: Dict) -> str:
     sender = p.get("from_email") or ""
     domain = sender.rsplit("@", 1)[-1].lower()
+    local = sender.rsplit("@", 1)[0].lower() if "@" in sender else ""
+    subject = p.get("subject") or ""
+
     if _SKIP_SENDER.search(sender):
         return "automatic sender (no-reply / notifications)"
+
+    # Naukri & NaukriGulf: allow recruiter relay emails, filter out automated mailers
+    if domain in ("naukri.com", "naukrigulf.com") or domain.endswith(".naukri.com") or domain.endswith(".naukrigulf.com"):
+        if _NAUKRI_AUTOMATED_LOCAL.match(local):
+            return f"job board / service notification ({local}@{domain})"
+        if _SKIP_SUBJECT.search(subject):
+            return "receipt / verification / application confirmation"
+        return ""
+
     if any(domain == d or domain.endswith("." + d) for d in _SKIP_DOMAINS):
         return f"job board / service notification ({domain})"
-    if _SKIP_SUBJECT.search(p.get("subject") or ""):
+    if _SKIP_SUBJECT.search(subject):
         return "receipt / verification / application confirmation"
     return ""
 
@@ -132,11 +148,12 @@ def _set(conn, rid: int, **fields):
 
 
 # Job-board relay addresses: a recruiter writing to the consultant THROUGH the job board (Dice Private
-# Email comes from <random>@user.dice.com; replying to it reaches the recruiter).
-RELAY_DOMAINS = ("user.dice.com",)
+# Email comes from <random>@user.dice.com; Naukri recruiter relays come from <encoded>@naukri.com;
+# replying to it reaches the recruiter).
+RELAY_DOMAINS = ("user.dice.com", "naukri.com", "naukrigulf.com")
 
 
-RELAY_BOARD_DOMAINS = ("dice.com",)      # addresses of the job board itself - never the recruiter
+RELAY_BOARD_DOMAINS = ("dice.com", "naukri.com", "naukrigulf.com")
 
 
 def is_relay(email_addr: str) -> bool:

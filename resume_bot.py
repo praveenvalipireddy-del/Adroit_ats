@@ -27,16 +27,14 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 # Per Gemini call. Both AI steps + a backup must finish inside gunicorn's 240 s request limit.
 GEMINI_TIMEOUT_MS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "45")) * 1000
 
-# Claude (Anthropic) - the MAIN AI when ANTHROPIC_API_KEY is set: it answers both steps, and Gemini's
-# chain, then OpenRouter / Grok, are only tried if Claude fails. Paid per use. CLAUDE_MODEL can be
-# changed on Render (e.g. claude-sonnet-5-5 costs about half) without a code change.
+# Claude (Anthropic) - the SECONDARY AI backup when Gemini fails (or primary when GEMINI_API_KEY is unset).
+# Paid per use. CLAUDE_MODEL can be changed on Render (e.g. claude-sonnet-5-5) without a code change.
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
 CLAUDE_EFFORT = os.getenv("CLAUDE_EFFORT", "medium")          # low | medium | high
-# Per Claude call; a slow answer falls through to Gemini, so both steps stay inside gunicorn's 240 s.
+# Per Claude call; a slow answer falls through to OpenRouter / Grok, so both steps stay inside gunicorn's 240 s.
 CLAUDE_TIMEOUT_SECONDS = float(os.getenv("CLAUDE_TIMEOUT_SECONDS", "90"))
 # Models that take Anthropic's server-side refusal fallback (a declined request is re-run on another model).
-# The two chats (email + resume) give advice as well as edits, so they use a stronger model than the
-# high-volume optimizer: CLAUDE_CHAT_MODEL (default Sonnet 5.5). Falls back to the normal chain.
+# The two chats (email + resume) give advice as well as edits: CHAT_MODEL (default Sonnet 5.5).
 CHAT_MODEL = os.getenv("CLAUDE_CHAT_MODEL", "claude-sonnet-5-5")
 CHAT_EFFORT = os.getenv("CLAUDE_CHAT_EFFORT", "medium")
 _CLAUDE_FALLBACK_MODELS = {"claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5"}
@@ -178,7 +176,7 @@ def _explain_gemini_error(ex: Exception) -> str:
         return f"Gemini model '{GEMINI_MODEL}' isn't available on this key - set GEMINI_MODEL to a current model name"
     if "timeout" in low or "timed out" in low or "deadline" in low:
         return ("Gemini (free tier) took too long to answer (over 45 seconds)"
-                + (" and the backup AI failed too" if (openrouter_configured() or xai_configured()) else " and no backup AI is configured")
+                + (" and the backup AI failed too" if (claude_configured() or openrouter_configured() or xai_configured()) else " and no backup AI is configured")
                 + " - click Optimize again in a minute")
     if _is_transient_gemini_error(ex):
         return ("Google's Gemini is overloaded right now (503 - high demand), even after retrying and switching to backup models. "
@@ -825,16 +823,25 @@ def _generate_claude(system: str, prompt: str, want_json: bool, max_tokens: int,
 
 
 def generate_chat(system: str, prompt: str, max_tokens: int = 3000):
-    """The email / resume chats: CHAT_MODEL first (better advice), then the normal chain."""
-    if claude_configured() and CHAT_MODEL and CHAT_MODEL != CLAUDE_MODEL:
+    """The email / resume chats: Gemini first, then Claude (CHAT_MODEL), then the normal backups."""
+    client, types = _gemini_client() if gemini_configured() else (None, None)
+    if client is not None:
         try:
-            raw, _, model = _generate_claude(system, prompt, True, max_tokens, model=CHAT_MODEL, effort=CHAT_EFFORT)
+            raw, _, model = _generate_gemini(client, types, system, prompt, want_json=True, max_tokens=max_tokens)
+            return raw, model
+        except Exception as ex:
+            logger.warning(f"Gemini chat failed, trying Claude: {_explain_gemini_error(ex)}")
+    if claude_configured():
+        chat_model = CHAT_MODEL or CLAUDE_MODEL
+        try:
+            raw, _, model = _generate_claude(system, prompt, True, max_tokens, model=chat_model, effort=CHAT_EFFORT)
             return raw, model
         except ClaudeError as ex:
-            logger.warning(f"Chat model {CHAT_MODEL} failed, using the normal chain: {_explain_gemini_error(ex)}")
-    client, types = _gemini_client() if gemini_configured() else (None, None)
-    raw, _, model = _generate(client, types, system, prompt, want_json=True, max_tokens=max_tokens)
-    return raw, model
+            logger.warning(f"Claude chat failed: {_explain_gemini_error(ex)}")
+    raw, _, model = _openrouter_or_xai_generate(system, prompt, want_json=True, max_tokens=max_tokens) if (openrouter_configured() or xai_configured()) else (None, None, None)
+    if raw is not None:
+        return raw, model
+    raise RuntimeError("no AI provider is configured")
 
 
 def chat_history_text(history) -> str:
@@ -867,29 +874,32 @@ def clean_suggestions(items) -> list:
     return out
 
 
-def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int):
-    """Claude first when ANTHROPIC_API_KEY is set; if it fails (or isn't set), the Gemini chain below,
+def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int, claude_model: str = ""):
+    """Gemini first when GEMINI_API_KEY is set; if it fails (or isn't set), Claude is tried second,
     then the optional OpenRouter / Grok backups. `client` is None when no Gemini key is configured."""
+    gemini_error = None
+    if client is not None:
+        try:
+            return _generate_gemini(client, types, system, prompt, want_json, max_tokens)
+        except Exception as ex:
+            gemini_error = ex
+            logger.warning(f"Gemini failed, trying Claude backup: {_explain_gemini_error(ex)}")
+
     claude_error = None
     if claude_configured():
         try:
-            return _generate_claude(system, prompt, want_json, max_tokens)
+            return _generate_claude(system, prompt, want_json, max_tokens, model=claude_model)
         except ClaudeError as ex:
             claude_error = ex
-            logger.warning(f"Claude failed, trying the backups: {_explain_gemini_error(ex)}")
-    if client is None:
-        if openrouter_configured() or xai_configured():
-            try:
-                return _openrouter_or_xai_generate(system, prompt, want_json, max_tokens)
-            except Exception as backup_ex:
-                logger.warning(f"Every backup also failed: {backup_ex}")
-        raise claude_error or RuntimeError("no AI provider is configured")
-    try:
-        return _generate_gemini(client, types, system, prompt, want_json, max_tokens)
-    except Exception:
-        if claude_error is not None:
-            raise claude_error              # report the MAIN AI's reason, not a backup's
-        raise
+            logger.warning(f"Claude backup failed: {_explain_gemini_error(ex)}")
+
+    if openrouter_configured() or xai_configured():
+        try:
+            return _openrouter_or_xai_generate(system, prompt, want_json, max_tokens)
+        except Exception as backup_ex:
+            logger.warning(f"Every backup also failed: {backup_ex}")
+
+    raise gemini_error or claude_error or RuntimeError("no AI provider is configured")
 
 
 def _generate_gemini(client, types, system: str, prompt: str, want_json: bool, max_tokens: int):
@@ -932,14 +942,7 @@ def _generate_gemini(client, types, system: str, prompt: str, want_json: bool, m
                 break                                   # give up on this model, try the next one
         if timed_out or time.monotonic() - started > 75:
             break                                       # don't let one step run past the server's time limit
-    # Gemini's whole free-tier chain failed. Try the optional backups, if configured, before
-    # giving up - this is the ONLY place either is ever called, so a day where Gemini works fine
-    # never touches them.
-    if openrouter_configured() or xai_configured():
-        try:
-            return _openrouter_or_xai_generate(system, prompt, want_json, max_tokens)
-        except Exception as backup_ex:
-            logger.warning(f"Every backup also failed: {backup_ex}")
+    # Gemini's whole model chain failed. Raise so the caller (_generate) can try Claude next.
     raise first_error
 
 

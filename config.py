@@ -41,13 +41,12 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 # --- Apify (job scraping) ---
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
 
-# Free-tier Gemini key for the Resume Optimizer's real AI rewrite (aistudio.google.com/apikey).
-# Optional: when unset, the feature falls back to the deterministic keyword-matching rewrite.
+# Google Gemini key - primary AI for Resume Optimization and Copilot chats (aistudio.google.com/apikey).
+# When unset, falls back to Claude (if configured) or deterministic keyword matching.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-# Anthropic (Claude) key - when set, Claude is the Resume Optimizer's MAIN AI (both steps) and
-# Gemini / OpenRouter / Grok become backups. Paid per use (console.anthropic.com). CLAUDE_MODEL
-# picks the model (resume_bot.CLAUDE_MODEL).
+# Anthropic (Claude) key - secondary AI backup when Gemini fails or is unset (console.anthropic.com).
+# Paid per use. CLAUDE_MODEL picks the model (resume_bot.CLAUDE_MODEL).
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # Optional xAI (Grok) key, used ONLY as a backup for the Resume Optimizer when Gemini's whole

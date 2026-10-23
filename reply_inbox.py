@@ -111,13 +111,22 @@ def _text_of(msg) -> str:
         elif ctype == "text/html" and htm is None:
             htm = text
     if htm is not None:
-        t = re.sub(r"(?is)<(script|style|head).*?</\1>", "", htm)
-        t = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>|</h\d>", "\n", t)
-        t = html.unescape(re.sub(r"<[^>]+>", "", t))
-        t = re.sub(r"\n[ \t\r\f\v]*\n(\s*\n)+", "\n\n", re.sub(r"[ \t\xa0]+", " ", t)).strip()
-        # Use the HTML when it holds clearly more of the message: job boards (e.g. a Dice Private Email)
-        # send a short plain-text stub while the recruiter's message, job details and signature are HTML only.
-        if plain is None or len(t) > 1.5 * len(plain.strip()) + 50:
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(htm, "html.parser")
+            for elem in soup(["script", "style", "head", "noscript", "svg"]):
+                elem.decompose()
+            t = soup.get_text(separator="\n")
+            t = re.sub(r"\n[ \t\r\f\v]*\n(\s*\n)+", "\n\n", re.sub(r"[ \t\xa0]+", " ", t)).strip()
+        except Exception:
+            t = re.sub(r"(?is)<(script|style|head).*?</\1>", "", htm)
+            t = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>|</h\d>", "\n", t)
+            t = html.unescape(re.sub(r"<[^>]+>", "", t))
+            t = re.sub(r"\n[ \t\r\f\v]*\n(\s*\n)+", "\n\n", re.sub(r"[ \t\xa0]+", " ", t)).strip()
+        # In recruiter emails (Naukri, Dice, Indeed), the plain text is often a short 1-line
+        # notification ("You're invited to apply"), while all job requirements, bullet points,
+        # and contact details are in HTML. When HTML has substantive text, prioritize it.
+        if not plain or len(t.strip()) >= len(plain.strip()):
             plain = t
     return plain or ""
 

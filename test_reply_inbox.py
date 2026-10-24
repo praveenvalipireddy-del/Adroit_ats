@@ -115,7 +115,7 @@ resume_bot.gemini_configured = lambda: False
 ai_draft = {"body": None}
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     if system == ri.CLASSIFY_SYSTEM:
         low = prompt.lower()
         cat = ("auto_reply" if "out of office" in low else "interview" if "interview" in low else "rejection" if "filled" in low
@@ -301,6 +301,26 @@ conn = models.get_db_connection()
 check(ri.owner_mode(conn, {"assigned_user_id": REC["id"]}) == "draft", "mode changed from the screen")
 conn.close()
 check(not js_errors, f"JavaScript errors: {js_errors}")
+
+# HTML emails: words stay on their line, the quoted earlier email is cut, a job board's plain stub gives way to the HTML
+def _mail(plain, htm):
+    from email.message import EmailMessage
+    em = EmailMessage()
+    em["From"], em["Subject"] = "s@vendor.invalid", "Re: x"
+    em.set_content(plain)
+    em.add_alternative(htm, subtype="html")
+    return email.message_from_bytes(em.as_bytes())
+
+
+quoted = ('<div dir="ltr">Are you flexible for relocation anywhere in <b>US</b> ?<br>Regards,<br>Sai | <a href="x">Vendor Inc</a></div>'
+          '<div class="gmail_quote"><div class="gmail_attr">On Tue, Oct 21, 2026 at 9:00 AM Abhinov &lt;<a href="mailto:a@x.invalid">a@x.invalid</a>&gt; wrote:<br></div>'
+          '<blockquote>Hi Sai, please find my resume.<br>Thanks</blockquote></div>')
+got = ri.strip_quoted(ri._text_of(_mail("Are you flexible?", quoted)))
+check(got == "Are you flexible for relocation anywhere in US ?\nRegards,\nSai | Vendor Inc", f"HTML reply read whole, quote cut: {got!r}")
+naukri = ('<p>Hi Abhinov,</p><p>We have an opening for <b>SAP ABAP</b> Consultant at <b>Pinaki Softcon</b>.</p>'
+          '<ul><li>5+ yrs ABAP</li><li>S/4HANA</li></ul><p>Regards, Ravi Kumar<br>ravi.kumar@pinaki.invalid</p>')
+got = ri._text_of(_mail("You're invited to apply", naukri))
+check("opening for SAP ABAP Consultant at Pinaki Softcon." in got and "ravi.kumar@pinaki.invalid" in got, f"job board stub -> HTML used: {got!r}")
 
 if failures:
     print(f"FAIL: {len(failures)} check(s) failed:")

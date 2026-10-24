@@ -96,7 +96,7 @@ resume_bot.gemini_configured = lambda: False
 ai_calls = []
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     ai_calls.append(prompt[:200])
     if system == iq.EXTRACT_SYSTEM:
         low = prompt.lower()

@@ -54,7 +54,7 @@ RESUME_RULE = "Keep the headline as Java Developer."
 RATE_RULE = "His rate is $80/hr on C2C."
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     if system == application_brief.WRITE_SYSTEM:
         prompts["write"].append(prompt)
         return json.dumps({"body": "Hi Asha,\n\nI came across the posting on Dice.\n\nBest regards,\nRuleo Testcase", "needs_input": []}), False, "stub"

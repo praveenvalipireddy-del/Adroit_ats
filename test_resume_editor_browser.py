@@ -110,7 +110,7 @@ def line_no(prompt, text):
 PROMPTS = {"resume": [], "email": []}
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     if system == resume_editor.SYSTEM:
         ai_calls.append("edit")
         PROMPTS["resume"].append(prompt)
@@ -200,17 +200,13 @@ EDIT_PLAN["fn"] = plan(rep("Built REST APIs", "Built REST APIs on Kubernetes for
 out = resume_editor.edit(DOCX, "Mention it in the project line", history=[{"role": "user", "text": "He deployed the APIs on Kubernetes"}])
 check(out["changed"] and "Kubernetes" in out["text"], f"a fact the recruiter stated earlier in the chat counts as confirmed: {out['reply']}")
 EDIT_PLAN["fn"] = review_or_edit
-chat_models = []
-real_claude, real_conf = rb._generate_claude, rb.claude_configured
-rb.claude_configured = lambda: True
-rb._generate_claude = lambda system, prompt, want_json, max_tokens, model="", effort="": (chat_models.append(model) or (json.dumps({"reply": "ok"}), False, model))
-rb.generate_chat("s", "p")
-check(chat_models == ["claude-sonnet-5-5"], f"the chats use the chat model (Sonnet 5.5): {chat_models}")
-def _fail(*a, **k):
-    raise rb.ClaudeError("down")
-rb._generate_claude = _fail
-check(rb.generate_chat("s", "p")[1] == "stub", "the chat falls back to the normal chain when the chat model fails")
-rb._generate_claude, rb.claude_configured = real_claude, real_conf
+chat_calls = []
+real_gen = rb._generate
+rb._generate = lambda *a, **k: (chat_calls.append(k) or (json.dumps({"reply": "ok"}), False, "stub"))
+check(rb.generate_chat("s", "p")[1] == "stub", "the chat runs on the normal chain (Gemini first, then Claude, then backups)")
+check(chat_calls and chat_calls[-1].get("claude_model") == "claude-sonnet-5-5" and chat_calls[-1].get("claude_effort") == rb.CHAT_EFFORT,
+      f"when Claude answers a chat it uses the chat model (Sonnet 5.5): {chat_calls}")
+rb._generate = real_gen
 
 # ---- 2. the screen
 EMAIL, PASSWORD = "rveditor@example.invalid", "RvEditor-Test-1"

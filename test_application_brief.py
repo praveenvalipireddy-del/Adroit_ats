@@ -73,7 +73,7 @@ writes = []
 script = {"brief": BRIEF, "writes": [GOOD]}
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     if system == ab.BRIEF_SYSTEM:
         return json.dumps(script["brief"]), False, "stub"
     if system == ab.WRITE_SYSTEM:

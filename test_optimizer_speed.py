@@ -73,7 +73,7 @@ CHANGES = (f"[{summary_idx}] Data Engineer with 8 years of experience building b
 prompts = []
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     calls.append("analysis" if want_json else "rewrite")
     prompts.append((system, prompt, max_tokens))
     if want_json:

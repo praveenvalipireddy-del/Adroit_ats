@@ -84,7 +84,7 @@ resume_bot.ai_configured = lambda: True
 resume_bot.gemini_configured = lambda: False
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     ai_calls.append(system[:40])
     if system == iq.EXTRACT_SYSTEM:
         title = "Java Backend Developer" if "java backend" in prompt.lower() else "Platform Engineer"

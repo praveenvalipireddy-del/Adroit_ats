@@ -65,7 +65,7 @@ BODY = ("Hi Priya,\n\nI am interested in the Senior DevOps Engineer role at Acme
 calls = []
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     calls.append(system[:40] + (" [json]" if want_json else " [text]"))
     if system == app_module._READ_SYSTEM:
         return json.dumps({"title": "Senior DevOps Engineer", "company": "Acme Bank", "location": "Hyderabad", "recruiter_email": "invented@nowhere.example",

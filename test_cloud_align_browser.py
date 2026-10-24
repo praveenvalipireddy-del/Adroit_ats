@@ -39,7 +39,7 @@ ANALYSIS = {"initial_match_percentage": 70, "match_breakdown": {"mandatory_skill
             "risky_skills_avoided": [], "skills_to_add": {"summary": [], "technical_skills": [], "projects": [], "environment": []},
             "ats_optimization_notes": [], "target_match_percentage": 72}
 REWRITE = {"answer": "[2] Data Engineer with 8 years building batch pipelines on AWS using Spark and Python."}
-rb._generate = lambda c, t, s, p, want_json, max_tokens: (json.dumps(ANALYSIS), False, "stub") if want_json else (REWRITE["answer"], False, "stub")
+rb._generate = lambda c, t, s, p, want_json, max_tokens, **_k: (json.dumps(ANALYSIS), False, "stub") if want_json else (REWRITE["answer"], False, "stub")
 rb.gemini_configured = lambda: True
 
 AWS_RESUME = """RAVI CLOUDUI

@@ -61,7 +61,7 @@ answer = {}
 prompts = []
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     prompts.append((system, prompt))
     if answer.get("raise"):
         raise RuntimeError("Error code: 529 - overloaded")

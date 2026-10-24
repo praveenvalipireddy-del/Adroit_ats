@@ -94,7 +94,7 @@ ANALYSIS = {"initial_match_percentage": 70, "match_breakdown": {"mandatory_skill
             "ats_optimization_notes": [], "target_match_percentage": 72}
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     prompts.append(prompt)
     return (json.dumps(ANALYSIS), False, "stub") if want_json else ("[3] Data Engineer with 8 years building batch pipelines on AWS using Spark and Python.", False, "stub")
 

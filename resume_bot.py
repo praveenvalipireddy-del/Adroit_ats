@@ -823,25 +823,11 @@ def _generate_claude(system: str, prompt: str, want_json: bool, max_tokens: int,
 
 
 def generate_chat(system: str, prompt: str, max_tokens: int = 3000):
-    """The email / resume chats: Gemini first, then Claude (CHAT_MODEL), then the normal backups."""
+    """The email / resume chats: the normal chain (Gemini first, then Claude, then the backups), with
+    Claude on CHAT_MODEL - so a failure reports the real reason, not 'no AI provider'."""
     client, types = _gemini_client() if gemini_configured() else (None, None)
-    if client is not None:
-        try:
-            raw, _, model = _generate_gemini(client, types, system, prompt, want_json=True, max_tokens=max_tokens)
-            return raw, model
-        except Exception as ex:
-            logger.warning(f"Gemini chat failed, trying Claude: {_explain_gemini_error(ex)}")
-    if claude_configured():
-        chat_model = CHAT_MODEL or CLAUDE_MODEL
-        try:
-            raw, _, model = _generate_claude(system, prompt, True, max_tokens, model=chat_model, effort=CHAT_EFFORT)
-            return raw, model
-        except ClaudeError as ex:
-            logger.warning(f"Claude chat failed: {_explain_gemini_error(ex)}")
-    raw, _, model = _openrouter_or_xai_generate(system, prompt, want_json=True, max_tokens=max_tokens) if (openrouter_configured() or xai_configured()) else (None, None, None)
-    if raw is not None:
-        return raw, model
-    raise RuntimeError("no AI provider is configured")
+    raw, _, model = _generate(client, types, system, prompt, want_json=True, max_tokens=max_tokens, claude_model=CHAT_MODEL, claude_effort=CHAT_EFFORT)
+    return raw, model
 
 
 def chat_history_text(history) -> str:
@@ -874,7 +860,7 @@ def clean_suggestions(items) -> list:
     return out
 
 
-def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int, claude_model: str = ""):
+def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int, claude_model: str = "", claude_effort: str = ""):
     """Gemini first when GEMINI_API_KEY is set; if it fails (or isn't set), Claude is tried second,
     then the optional OpenRouter / Grok backups. `client` is None when no Gemini key is configured."""
     gemini_error = None
@@ -888,7 +874,7 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
     claude_error = None
     if claude_configured():
         try:
-            return _generate_claude(system, prompt, want_json, max_tokens, model=claude_model)
+            return _generate_claude(system, prompt, want_json, max_tokens, model=claude_model, effort=claude_effort)
         except ClaudeError as ex:
             claude_error = ex
             logger.warning(f"Claude backup failed: {_explain_gemini_error(ex)}")

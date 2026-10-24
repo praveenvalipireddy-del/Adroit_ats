@@ -119,7 +119,7 @@ base_subject, base_body = gm.build_subject(cand, jobrow), gm.generate_consultant
 resume_bot.ai_configured = lambda: True
 resume_bot.gemini_configured = lambda: False
 for bad in ("I am authorized to work in the US.", "Open to C2C.", "My rate is $90/hr.", "H1B visa holder."):
-    resume_bot._generate = lambda c, t, sy, pr, want_json, max_tokens, _b=bad: (json.dumps(
+    resume_bot._generate = lambda c, t, sy, pr, want_json, max_tokens, _b=bad, **_k: (json.dumps(
         {"subject": base_subject, "body": base_body + "\n" + _b, "changes": ["added"], "reply": "Done"}), False, "stub")
     res = outreach_ai.edit_draft(cand, jobrow, "make it short", base_subject, base_body)
     check(not res["applied"] and res["body"] == base_body and "didn't apply" in res["reply"],

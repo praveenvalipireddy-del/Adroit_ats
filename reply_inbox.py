@@ -111,22 +111,22 @@ def _text_of(msg) -> str:
         elif ctype == "text/html" and htm is None:
             htm = text
     if htm is not None:
+        # Line breaks only where the HTML has them (<br>, block ends) - a break at every tag would split
+        # "in <b>US</b> ?" and "On ... <a>me@x</a> wrote:" over lines, and strip_quoted needs that line whole.
+        t = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>|</h\d>|</blockquote>|</table>", "\n", htm)
         try:
             from bs4 import BeautifulSoup
-            soup = BeautifulSoup(htm, "html.parser")
+            soup = BeautifulSoup(t, "html.parser")
             for elem in soup(["script", "style", "head", "noscript", "svg"]):
                 elem.decompose()
-            t = soup.get_text(separator="\n")
-            t = re.sub(r"\n[ \t\r\f\v]*\n(\s*\n)+", "\n\n", re.sub(r"[ \t\xa0]+", " ", t)).strip()
+            t = soup.get_text()
         except Exception:
-            t = re.sub(r"(?is)<(script|style|head).*?</\1>", "", htm)
-            t = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>|</h\d>", "\n", t)
+            t = re.sub(r"(?is)<(script|style|head).*?</\1>", "", t)
             t = html.unescape(re.sub(r"<[^>]+>", "", t))
-            t = re.sub(r"\n[ \t\r\f\v]*\n(\s*\n)+", "\n\n", re.sub(r"[ \t\xa0]+", " ", t)).strip()
-        # In recruiter emails (Naukri, Dice, Indeed), the plain text is often a short 1-line
-        # notification ("You're invited to apply"), while all job requirements, bullet points,
-        # and contact details are in HTML. When HTML has substantive text, prioritize it.
-        if not plain or len(t.strip()) >= len(plain.strip()):
+        t = re.sub(r"\n[ \t\r\f\v]*\n(\s*\n)+", "\n\n", re.sub(r"[ \t\xa0]+", " ", t)).strip()
+        # Use the HTML when it holds clearly more of the message: job boards (Dice Private Email, Naukri
+        # recruiter relays) send a short plain-text stub while the job details and signature are HTML only.
+        if not (plain or "").strip() or len(t) > 1.5 * len(plain.strip()) + 50:
             plain = t
     return plain or ""
 

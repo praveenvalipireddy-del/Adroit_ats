@@ -66,7 +66,7 @@ ANALYSIS = {"initial_match_percentage": 72, "match_breakdown": {"mandatory_skill
             "ats_optimization_notes": [], "target_match_percentage": 84}
 
 
-def fake_generate(client, types, system, prompt, want_json, max_tokens):
+def fake_generate(client, types, system, prompt, want_json, max_tokens, **_k):
     # label the optimizer's own calls; email reading / writing calls (Paste window) are "other"
     ai_calls.append("rewrite" if not want_json else "analysis" if rb._ANALYSIS_CONTRACT in system else "other")
     return (json.dumps(ANALYSIS), False, "stub") if want_json else ("[4] Java, Spring Boot, React", False, "stub")

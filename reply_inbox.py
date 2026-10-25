@@ -124,9 +124,10 @@ def _text_of(msg) -> str:
             t = re.sub(r"(?is)<(script|style|head).*?</\1>", "", t)
             t = html.unescape(re.sub(r"<[^>]+>", "", t))
         t = re.sub(r"\n[ \t\r\f\v]*\n(\s*\n)+", "\n\n", re.sub(r"[ \t\xa0]+", " ", t)).strip()
-        # Use the HTML when it holds clearly more of the message: job boards (Dice Private Email, Naukri
-        # recruiter relays) send a short plain-text stub while the job details and signature are HTML only.
-        if not (plain or "").strip() or len(t) > 1.5 * len(plain.strip()) + 50:
+        # Use whichever version holds more of the message: job boards (Indeed, Dice Private Email, Naukri
+        # relays) often send a partial plain-text copy while the job details and the recruiter's email
+        # address are only in the HTML. The HTML text keeps its lines whole, so strip_quoted still works.
+        if not (plain or "").strip() or len(t) > len(plain.strip()):
             plain = t
     return plain or ""
 

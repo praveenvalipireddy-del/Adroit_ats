@@ -2171,9 +2171,9 @@ def _reply_check_loop(minutes: float):
         time.sleep(minutes * 60)
 
 
-# Automatic reply checks: REPLY_CHECK_MINUTES (default 20 on the live server - the one with a
+# Automatic reply checks: REPLY_CHECK_MINUTES (default 10 on the live server - the one with a
 # DATABASE_URL; off locally and in tests so nothing logs in to a real Gmail by accident).
-_reply_minutes = float(os.getenv("REPLY_CHECK_MINUTES", "20" if config.DATABASE_URL else "0") or 0)
+_reply_minutes = float(os.getenv("REPLY_CHECK_MINUTES", "10" if config.DATABASE_URL else "0") or 0)
 if _reply_minutes > 0:
     threading.Thread(target=_reply_check_loop, args=(_reply_minutes,), daemon=True).start()
 

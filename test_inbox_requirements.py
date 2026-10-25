@@ -327,6 +327,34 @@ finally:
     server.shutdown()
 check(not js_errors, f"JavaScript errors: {js_errors}")
 
+# ---- Indeed employer message: a partial plain-text copy, the job + recruiter address only in the HTML
+ind = EmailMessage()
+ind["From"], ind["Subject"], ind["Message-ID"] = "Hiring Team via Indeed <a1b2c3d4@indeedemail.com>", "Urgent Hiring || AWS Engineer", "<ind-1@indeed.test>"
+ind.set_content("You have a new message from an employer on Indeed.\nUrgent Hiring || AWS Engineer\nView message")
+ind.add_alternative('<div><img src="logo.png"> Indeed</div><p>Hi,</p><p>We have an urgent requirement for an <b>AWS Engineer</b> '
+                    '(Contract, Remote). Must have: AWS, Terraform, EKS, Python - 8+ years.</p>'
+                    '<p>Please share your updated resume to <a href="mailto:talent@cloudhire.invalid">talent@cloudhire.invalid</a>.</p>'
+                    '<p>Regards,<br>Riya, CloudHire</p><p>Jobs you may like - Apply on Indeed - Unsubscribe</p>', subtype="html")
+ind_msg = email.message_from_bytes(ind.as_bytes())
+ind_text = reply_inbox._text_of(ind_msg)
+check("talent@cloudhire.invalid" in ind_text and "Terraform, EKS" in ind_text, f"the whole Indeed email is read (HTML holds more): {ind_text!r}")
+ind_p = reply_inbox.parse_message(ind.as_bytes())
+check(iq._skip_reason(ind_p) == "", f"an Indeed employer message is not skipped: {iq._skip_reason(ind_p)!r}")
+for auto in ("jobalerts@indeed.com", "digest@indeed.com", "alert@match.indeed.com"):
+    check(iq._skip_reason({"from_email": auto, "subject": "10 new AWS jobs for you"}) != "", f"Indeed's own mailer skipped: {auto}")
+check(iq.is_relay(ind_p["from_email"]), "an indeedemail.com sender is a job-board relay")
+check("Indeed" in iq.EXTRACT_SYSTEM and "WHOLE email" in iq.EXTRACT_SYSTEM, "the AI is told Indeed messages count and to read the whole email")
+seen = {}
+real_ai = reply_inbox._ai
+def _ai_indeed(system, prompt):
+    seen["prompt"] = prompt
+    return {"is_requirement": True, "title": "AWS Engineer", "recruiter_email": "a1b2c3d4@indeedemail.com"}, "stub"
+reply_inbox._ai = _ai_indeed
+got = iq.extract(ind_p, ind_text)
+reply_inbox._ai = real_ai
+check("talent@cloudhire.invalid" in seen.get("prompt", "") and "job board's relay" in seen.get("prompt", ""), "the AI gets the full text and the relay note")
+check(got["recruiter_email"] == "talent@cloudhire.invalid", f"the draft goes to the recruiter's own address, not the Indeed relay: {got['recruiter_email']}")
+
 if failures:
     print(f"FAIL: {len(failures)} check(s) failed:")
     for f in failures:

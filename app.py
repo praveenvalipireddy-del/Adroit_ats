@@ -2113,6 +2113,7 @@ def api_requirement_detail(req_id):
                     "status_label": inbox_requirements.STATUS_LABELS.get(row.get("status") or "", row.get("status") or ""),
                     "subject": row.get("subject"), "from_name": row.get("from_name"), "from_email": row.get("from_email"),
                     "match_pct": row.get("match_pct"), "resume_version_id": row.get("resume_version_id"),
+                    "email_text": row.get("email_text") or "",
                     "draft": {"to": row.get("draft_to") or "", "subject": row.get("draft_subject") or "", "body": row.get("draft_body") or "",
                               "checklist": checklist},
                     "job": {"title": (job or {}).get("title") or "", "company": (job or {}).get("company") or "",

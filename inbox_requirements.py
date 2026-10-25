@@ -40,6 +40,7 @@ AUTO_DRAFT = os.getenv("REQUIREMENT_AUTO_DRAFT", "").strip() == "1"
 SCAN_QUERY = '"category:primary newer_than:2d"'
 MAX_PER_SCAN = 30
 MAX_ATTEMPTS = 3
+EMAIL_TEXT_MAX = 20000      # characters of each checked email kept for the Requirements panel
 STATUS_LABELS = {"review": "Ready to review", "drafted": "Draft created", "drafted_input": "Draft created - needs your input", "low_match": "Low match - no draft", "not_requirement": "Not a requirement",
                  "filtered": "Skipped (not a job email)", "error": "Problem - will retry", "checking": "Checking..."}
 
@@ -251,13 +252,16 @@ def scan_candidate(conn, cand: Dict, user_id: Optional[int] = None, imap_factory
         if not rid:
             continue
         stats["checked"] += 1
+        full_text = reply_inbox._text_of(msg)
+        # The text the AI reads is kept, so the recruiter can see what a "Not a requirement" / skipped email said
+        _set(conn, rid, email_text=full_text[:EMAIL_TEXT_MAX])
         skip = _skip_reason(p)
         if skip:
             _set(conn, rid, status="filtered", reason=skip)
             stats["filtered"] += 1
             continue
         try:
-            outcome = _handle(conn, rid, cand, p, reply_inbox._text_of(msg), user_id)
+            outcome = _handle(conn, rid, cand, p, full_text, user_id)
         except Exception as ex:
             logger.warning(f"Requirement {rid} failed: {ex}")
             _set(conn, rid, status="error", reason=str(ex)[:300])
@@ -402,6 +406,7 @@ def list_for(conn, candidate_ids: List[int], limit: int = 200) -> List[Dict]:
     out = []
     for r in cur.fetchall():
         d = dict(r)
+        d["has_email_text"] = bool(d.pop("email_text", None))      # the text itself comes with the detail view
         d["status_label"] = STATUS_LABELS.get(d.get("status") or "", d.get("status") or "")
         d["created_at"] = str(d.get("created_at") or "")[:16]
         out.append(d)

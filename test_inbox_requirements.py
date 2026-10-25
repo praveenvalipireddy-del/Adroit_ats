@@ -308,7 +308,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.92.0" in page.content(), "cache-buster not bumped to 5.92.0")
+        check("app.js?v=5.93.0" in page.content(), "cache-buster not bumped to 5.93.0")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openTracker({cid})")
         page.click("#ai-tab-reqs")
@@ -320,9 +320,11 @@ try:
         page.locator("#rq-list .rq-item", has_text="78% match").first.click()
         page.wait_for_selector("#rq-detail a[href^='/api/optimized-resumes/']", timeout=5000)
         check("Gmail Drafts" in page.inner_text("#rq-detail"), "the panel says what to do next (send from Gmail)")
-        page.locator("#rq-list .rq-item", has_text="Not a requirement").first.click()
+        page.locator("#rq-list .rq-item", has_text="Lunch").first.click()
         page.wait_for_selector("#rq-detail .rq-recheck", timeout=5000)
         check("Check again" in page.inner_text("#rq-detail"), "Check again offered on mail judged not a requirement")
+        page.wait_for_function("document.getElementById('rq-email') && document.getElementById('rq-email').innerText.includes('free for lunch')", timeout=5000)
+        check("what the ai read" in page.inner_text("#rq-detail").lower(), "the panel shows the email the AI read")
         page.select_option("#rq-status", "drafted")
         page.wait_for_function("!document.getElementById('rq-list').innerText.includes('Lunch')", timeout=5000)
         page.screenshot(path=shot)
@@ -330,6 +332,18 @@ try:
 finally:
     server.shutdown()
 check(not js_errors, f"JavaScript errors: {js_errors}")
+
+# ---- the text each checked email had is kept (skipped ones too), but not sent with the whole list
+conn = models.get_db_connection()
+cur = conn.cursor()
+cur.execute("SELECT subject, status, email_text FROM inbox_requirements")
+kept = [dict(r) for r in cur.fetchall()]
+conn.close()
+lunch = [k for k in kept if (k["subject"] or "").startswith("Lunch")]
+check(lunch and "free for lunch" in (lunch[0]["email_text"] or ""), f"the email text is saved: {lunch[:1]}")
+check(all(k["email_text"] for k in kept if k["status"] in ("not_requirement", "filtered")), "skipped / not-a-requirement emails keep their text too")
+lst = iq.list_for(models.get_db_connection(), [cid])
+check(lst and "email_text" not in lst[0] and any(x["has_email_text"] for x in lst), "the list carries only a has_email_text flag")
 
 # ---- Indeed employer message: a partial plain-text copy, the job + recruiter address only in the HTML
 ind = EmailMessage()

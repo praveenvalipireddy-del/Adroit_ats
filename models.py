@@ -463,6 +463,7 @@ def init_db():
         draft_checklist TEXT,
         thread_refs TEXT,
         thread_emails TEXT,
+        email_text TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
@@ -730,7 +731,7 @@ def migrate_db(conn):
 
     # Requirements from Gmail, "review first": the prepared email + the vendor thread (inbox_requirements.py)
     ir_cols = get_existing_cols("inbox_requirements")
-    for col in ("draft_to", "draft_subject", "draft_body", "draft_checklist", "thread_refs", "thread_emails"):
+    for col in ("draft_to", "draft_subject", "draft_body", "draft_checklist", "thread_refs", "thread_emails", "email_text"):
         if ir_cols and col not in ir_cols:
             try:
                 cursor.execute(f"ALTER TABLE inbox_requirements ADD COLUMN {col} TEXT")

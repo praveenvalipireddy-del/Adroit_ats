@@ -6620,9 +6620,17 @@ function rqOpen(id) {
             ${r.status === 'review' ? `<button type="button" class="btn btn-primary btn-sm rq-review" data-id="${r.id}">👁 Review &amp; create draft</button>` : ''}
             ${['not_requirement', 'filtered', 'low_match'].includes(r.status) ? `<button type="button" class="btn btn-secondary btn-sm rq-recheck" data-id="${r.id}">↻ Check again</button>` : ''}</div>
         ${r.reason ? `<div class="ai-h">Details</div><div style="font-size:0.82rem; color:#334155;">${escapeHtml(r.reason)}</div>` : ''}
-        ${r.resume_version_id ? `<div class="ai-h">Tailored resume</div><a href="/api/optimized-resumes/${r.resume_version_id}/download">${escapeHtml(r.resume_filename || 'tailored resume')}</a>` : ''}`;
+        ${r.resume_version_id ? `<div class="ai-h">Tailored resume</div><a href="/api/optimized-resumes/${r.resume_version_id}/download">${escapeHtml(r.resume_filename || 'tailored resume')}</a>` : ''}
+        <div class="ai-h">The email (what the AI read)</div>
+        <div id="rq-email" style="white-space:pre-wrap; font-size:0.82rem; color:#0f172a; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; max-height:300px; overflow-y:auto;">${r.has_email_text ? 'Loading...' : '<span style="color:#64748b;">Not saved for emails checked before this was added - click "Check again" to read it again and keep its text.</span>'}</div>`;
     document.querySelectorAll('#rq-detail .rq-recheck').forEach(b => b.addEventListener('click', () => rqRecheck(b)));
     document.querySelectorAll('#rq-detail .rq-review').forEach(b => b.addEventListener('click', () => rqReview(parseInt(b.dataset.id))));
+    if (r.has_email_text) {
+        fetch(`/api/requirements/${id}`).then(x => x.json()).then(d => {
+            const box = document.getElementById('rq-email');
+            if (rq.current === id && box) box.textContent = d.email_text || '(empty)';
+        }).catch(() => {});
+    }
 }
 
 // Review: the tailored resume and the prepared reply in the Optimize window; the draft is created from there.

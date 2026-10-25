@@ -1323,34 +1323,6 @@
 
 
     <!-- MODAL: application tracker (application_tracker.py) -->
-    <!-- Recruiter replies: read, sort, answer with AI, save as a Gmail draft in the same thread (reply_inbox.py) -->
-    <div class="modal-backdrop" id="modal-replies" style="display: none; z-index: 1150;">
-        <div class="modal-dialog" style="max-width: 1200px; width: 96vw;">
-            <div class="modal-header">
-                <h3>📨 Recruiter replies</h3>
-                <button class="modal-close" type="button" id="btn-close-replies">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
-                    <select id="rp-consultant" class="form-control" style="max-width:240px;"></select>
-                    <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; margin:0; text-transform:none; font-weight:500;"><input type="checkbox" id="rp-open" checked> Only not handled</label>
-                    <button type="button" class="btn btn-secondary btn-sm" id="rp-check">✉ Check Gmail now</button>
-                    <span style="flex:1"></span>
-                    <label for="rp-mode" style="font-size:0.8rem; margin:0; text-transform:none; font-weight:600; color:#334155;">My auto-replies:</label>
-                    <select id="rp-mode" class="form-control" style="max-width:220px;" title="Off: just collect replies. Prepare reply drafts: the AI writes an answer for you to check. Send safe replies: answers to 'please send your resume' go out automatically with the resume; everything else waits for you."></select>
-                </div>
-                <div id="rp-msg" style="font-size:0.85rem; margin-bottom:8px;"></div>
-                <div style="display:grid; grid-template-columns: minmax(260px, 0.9fr) 1.6fr; gap:14px; min-height:420px;">
-                    <div id="rp-list" style="border:1px solid #e2e8f0; border-radius:10px; overflow-y:auto; max-height:62vh;"></div>
-                    <div id="rp-detail" style="border:1px solid #e2e8f0; border-radius:10px; padding:14px; overflow-y:auto; max-height:62vh;">
-                        <div style="color:#64748b; font-size:0.9rem;">Pick a reply on the left.</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- New requirement emails -> tailored resume -> Gmail draft reply (inbox_requirements.py) -->
     <!-- 📌 Rules for a consultant: standing instructions for every email / resume (consultant_rules.py) -->
     <div class="modal-backdrop" id="modal-rules" style="display: none; z-index: 1400;">
         <div class="modal-dialog" style="max-width: 680px; width: 94vw;">
@@ -1374,77 +1346,117 @@
         </div>
     </div>
 
-    <div class="modal-backdrop" id="modal-reqs" style="display: none; z-index: 1150;">
-        <div class="modal-dialog" style="max-width: 1200px; width: 96vw;">
-            <div class="modal-header">
-                <h3>📥 Requirements from Gmail</h3>
-                <button class="modal-close" type="button" id="btn-close-reqs">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
-                    <select id="rq-consultant" class="form-control" style="max-width:240px;"></select>
-                    <select id="rq-status" class="form-control" style="max-width:220px;">
-                        <option value="" selected>All</option><option value="review">Ready to review</option><option value="drafted">Drafts created</option><option value="drafted_input">Drafts that need your input</option><option value="low_match">Low match</option>
-                        <option value="not_requirement">Not a requirement</option><option value="filtered">Skipped</option><option value="error">Problems</option>
-                    </select>
-                    <button type="button" class="btn btn-primary btn-sm" id="rq-scan">📥 Scan Gmail now</button>
-                    <span id="rq-msg" style="font-size:0.85rem; color:#475569;"></span>
-                </div>
-                <div style="font-size:0.78rem; color:#64748b; margin-bottom:10px;">New mail in each consultant's Primary inbox is checked every 20 minutes. A real requirement with a match of at least <span id="rq-min"></span>% gets a Gmail draft reply in the vendor's thread with the tailored resume attached - <b>check it in Gmail and press Send</b>. Nothing is sent automatically.</div>
-                <div style="overflow-x:auto;">
-                    <table class="data-table" id="rq-table" style="font-size:0.8rem;">
-                        <thead><tr><th>Received</th><th>Consultant</th><th>From</th><th>Subject</th><th>Result</th><th>Match</th><th>Resume attached</th><th>Details</th></tr></thead>
-                        <tbody id="rq-body"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
+    <!-- Applications & Inbox: one window, three tabs - Applications (application_tracker.py), New requirements
+         (inbox_requirements.py) and Recruiter replies (reply_inbox.py). Each tab: a short list on the left, the
+         details + the one next step on the right. -->
+    <style>
+        .ai-tabs { display:flex; gap:4px; background:#f1f5f9; border-radius:10px; padding:3px; }
+        .ai-tab { border:0; background:transparent; padding:6px 14px; border-radius:8px; font-size:0.85rem; font-weight:600; color:#475569; cursor:pointer; white-space:nowrap; }
+        .ai-tab.active { background:#fff; color:#0f172a; box-shadow:0 1px 3px rgba(15,23,42,0.12); }
+        .ai-count { display:inline-block; min-width:18px; padding:0 6px; margin-left:4px; border-radius:999px; background:#e2e8f0; color:#334155; font-size:0.72rem; font-weight:800; }
+        .ai-count.hot { background:#f59e0b; color:#fff; }
+        .ai-count:empty { display:none; }
+        .ai-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+        .ai-split { display:grid; grid-template-columns: minmax(300px, 1fr) minmax(360px, 1.15fr); gap:14px; min-height:440px; }
+        .ai-list { border:1px solid #e2e8f0; border-radius:10px; overflow-y:auto; max-height:62vh; background:#fff; }
+        .ai-detail { border:1px solid #e2e8f0; border-radius:10px; padding:16px; overflow-y:auto; max-height:62vh; background:#fff; }
+        .ai-item { padding:11px 14px; border-bottom:1px solid #f1f5f9; cursor:pointer; }
+        .ai-item:hover { background:#f8fafc; }
+        .ai-item.sel { background:#eff6ff; box-shadow: inset 3px 0 0 #2563eb; }
+        .ai-item-top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+        .ai-item-title { font-weight:700; font-size:0.88rem; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .ai-item-sub { font-size:0.78rem; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .ai-date { font-size:0.72rem; color:#94a3b8; white-space:nowrap; }
+        .ai-pill { display:inline-block; font-size:0.7rem; font-weight:700; padding:1px 9px; border-radius:999px; background:#f1f5f9; color:#0f172a; white-space:nowrap; }
+        .ai-next { font-size:0.76rem; font-weight:600; color:#2563eb; margin-left:6px; }
+        .ai-next.warn { color:#b45309; }
+        .ai-empty { padding:18px; color:#64748b; font-size:0.85rem; }
+        .ai-h { font-size:0.72rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.04em; margin:14px 0 6px; }
+        .ai-grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px 12px; }
+        .ai-grid label { font-size:0.75rem; font-weight:600; color:#475569; margin:0 0 2px; text-transform:none; display:block; }
+        .ai-grid .form-control { font-size:0.82rem; padding:5px 8px; }
+        .ai-step { background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:10px 12px; font-size:0.85rem; color:#1e3a8a; display:flex; gap:10px; align-items:center; justify-content:space-between; }
+        .ai-step.warn { background:#fffbeb; border-color:#fde68a; color:#92400e; }
+        @media (max-width: 900px) { .ai-split { grid-template-columns: 1fr; } .ai-grid { grid-template-columns: 1fr; } }
+    </style>
     <div class="modal-backdrop" id="modal-tracker" style="display: none; z-index: 1140;">
         <div class="modal-dialog" style="max-width: 1320px; width: 97vw;">
             <div class="modal-header">
-                <h3>📋 Applications</h3>
+                <h3>📋 Applications &amp; Inbox</h3>
                 <button class="modal-close" type="button" id="btn-close-tracker">&times;</button>
             </div>
             <div class="modal-body">
-                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
-                    <select id="trk-consultant" class="form-control" style="max-width:240px;"></select>
-                    <select id="trk-status" class="form-control" style="max-width:200px;"></select>
-                    <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; margin:0; text-transform:none; font-weight:500;">
-                        <input type="checkbox" id="trk-due"> Follow-ups due
-                    </label>
+                <div class="ai-bar">
+                    <select id="trk-consultant" class="form-control" style="max-width:230px;"></select>
+                    <div class="ai-tabs" role="tablist">
+                        <button type="button" class="ai-tab active" data-pane="apps" id="ai-tab-apps">Applications<span class="ai-count" id="ai-count-apps"></span></button>
+                        <button type="button" class="ai-tab" data-pane="reqs" id="ai-tab-reqs" title="New job requirement emails found in the consultant's Gmail">New requirements<span class="ai-count" id="ai-count-reqs"></span></button>
+                        <button type="button" class="ai-tab" data-pane="replies" id="ai-tab-replies" title="Recruiters answering an application">Recruiter replies<span class="ai-count" id="ai-count-replies"></span></button>
+                    </div>
                     <span style="flex:1"></span>
-                    <button type="button" class="btn btn-secondary btn-sm" id="trk-add-btn">+ Add application</button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="trk-replies-btn" title="Reads recruiter replies from the consultant's Gmail (nothing is marked read or changed)">✉ Check Gmail replies</button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="trk-open-replies" title="Read recruiter replies and answer them with AI">📨 Replies</button>
-                    <button type="button" class="btn btn-secondary btn-sm" id="trk-open-reqs" title="New requirement emails found in Gmail and the drafts made for them">📥 Requirements</button>
-                    <a class="btn btn-primary btn-sm" id="trk-export" href="#">⬇ Excel</a>
+                    <button type="button" class="btn btn-primary btn-sm" id="ai-check" title="Reads new recruiter replies and requirement emails from Gmail (nothing is marked read or changed)">✉ Check Gmail now</button>
                 </div>
-                <div id="trk-summary" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
-                <div id="trk-msg" style="font-size:0.85rem; margin-bottom:8px;"></div>
-                <div id="trk-add" style="display:none; border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:10px; background:#f8fafc;">
-                    <div style="font-weight:700; font-size:0.85rem; margin-bottom:6px; color:#0f172a;">Track an application made outside the app</div>
-                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px;">
-                        <input class="form-control" id="trk-a-title" placeholder="Job title *">
-                        <input class="form-control" id="trk-a-company" placeholder="Company *">
-                        <input class="form-control" id="trk-a-url" placeholder="Job link (https://...)">
-                        <input class="form-control" id="trk-a-email" placeholder="Recruiter email">
-                        <select class="form-control" id="trk-a-status"></select>
-                        <select class="form-control" id="trk-a-method"></select>
+                <div id="ai-msg" style="font-size:0.85rem; margin-bottom:8px;"></div>
+
+                <!-- Applications -->
+                <div class="ai-pane" id="ai-pane-apps">
+                    <div class="ai-bar">
+                        <input id="trk-search" class="form-control" placeholder="Search job or company" style="max-width:220px;">
+                        <select id="trk-status" class="form-control" style="max-width:190px;"></select>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; margin:0; text-transform:none; font-weight:500;"><input type="checkbox" id="trk-due"> Follow-ups due</label>
+                        <span style="flex:1"></span>
+                        <button type="button" class="btn btn-secondary btn-sm" id="trk-add-btn">+ Add application</button>
+                        <a class="btn btn-secondary btn-sm" id="trk-export" href="#">⬇ Excel</a>
                     </div>
-                    <div style="margin-top:8px; display:flex; gap:8px;">
-                        <button type="button" class="btn btn-primary btn-sm" id="trk-a-save">Save</button>
-                        <button type="button" class="btn btn-secondary btn-sm" id="trk-a-cancel">Cancel</button>
+                    <div id="trk-summary" style="display:flex; flex-wrap:wrap; gap:6px; margin:-2px 0 10px;"></div>
+                    <div id="trk-add" style="display:none; border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:10px; background:#f8fafc;">
+                        <div style="font-weight:700; font-size:0.85rem; margin-bottom:6px; color:#0f172a;">Track an application made outside the app</div>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px;">
+                            <input class="form-control" id="trk-a-title" placeholder="Job title *">
+                            <input class="form-control" id="trk-a-company" placeholder="Company *">
+                            <input class="form-control" id="trk-a-url" placeholder="Job link (https://...)">
+                            <input class="form-control" id="trk-a-email" placeholder="Recruiter email">
+                            <select class="form-control" id="trk-a-status"></select>
+                            <select class="form-control" id="trk-a-method"></select>
+                        </div>
+                        <div style="margin-top:8px; display:flex; gap:8px;">
+                            <button type="button" class="btn btn-primary btn-sm" id="trk-a-save">Save</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="trk-a-cancel">Cancel</button>
+                        </div>
+                    </div>
+                    <div class="ai-split">
+                        <div id="trk-list" class="ai-list"></div>
+                        <div id="trk-detail" class="ai-detail"><div class="ai-empty">Pick an application on the left.</div></div>
                     </div>
                 </div>
-                <style>#trk-table th, #trk-table td { padding: 8px 6px; vertical-align: top; } #trk-table .form-control { padding: 4px 6px; }</style>
-                <div style="overflow-x:auto;">
-                    <table class="data-table" id="trk-table" style="font-size:0.8rem;">
-                        <thead><tr><th>Job</th><th class="trk-col-cand">Consultant</th><th>Status</th><th>How applied</th><th>Applied / drafted</th>
-                            <th>Recruiter</th><th>Resume sent</th><th>Follow-up</th><th>Interview</th><th>Notes</th><th></th></tr></thead>
-                        <tbody id="trk-body"></tbody>
-                    </table>
+
+                <!-- New requirements -->
+                <div class="ai-pane" id="ai-pane-reqs" style="display:none;">
+                    <div class="ai-bar">
+                        <select id="rq-status" class="form-control" style="max-width:230px;">
+                            <option value="" selected>All</option><option value="review">Ready to review</option><option value="drafted">Drafts created</option><option value="drafted_input">Drafts that need your input</option><option value="low_match">Low match</option>
+                            <option value="not_requirement">Not a requirement</option><option value="filtered">Skipped</option><option value="error">Problems</option>
+                        </select>
+                        <span style="font-size:0.78rem; color:#64748b;">Checked every 10 minutes. A real requirement with a match of at least <span id="rq-min"></span>% gets a tailored resume and a reply for you to <b>review</b> - nothing is sent automatically.</span>
+                    </div>
+                    <div class="ai-split">
+                        <div id="rq-list" class="ai-list"></div>
+                        <div id="rq-detail" class="ai-detail"><div class="ai-empty">Pick an email on the left.</div></div>
+                    </div>
+                </div>
+
+                <!-- Recruiter replies -->
+                <div class="ai-pane" id="ai-pane-replies" style="display:none;">
+                    <div class="ai-bar">
+                        <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; margin:0; text-transform:none; font-weight:500;"><input type="checkbox" id="rp-open" checked> Only not answered</label>
+                        <span style="flex:1"></span>
+                        <label for="rp-mode" style="font-size:0.8rem; margin:0; text-transform:none; font-weight:600; color:#334155;">My auto-replies:</label>
+                        <select id="rp-mode" class="form-control" style="max-width:220px;" title="Off: just collect replies. Prepare reply drafts: the AI writes an answer for you to check. Send safe replies: answers to 'please send your resume' go out automatically with the resume; everything else waits for you."></select>
+                    </div>
+                    <div class="ai-split">
+                        <div id="rp-list" class="ai-list"></div>
+                        <div id="rp-detail" class="ai-detail"><div class="ai-empty">Pick a reply on the left.</div></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1539,7 +1551,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.91.0"></script>
+    <script src="/static/js/app.js?v=5.92.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

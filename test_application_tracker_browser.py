@@ -102,7 +102,7 @@ def check(cond, msg):
         failures.append(msg)
 
 
-ROW = f"#trk-body tr[data-app-id]"
+ROW = "#trk-list .trk-item"
 try:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -113,27 +113,35 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.91.0" in page.content(), "cache-buster not bumped to 5.91.0")
+        check("app.js?v=5.92.0" in page.content(), "cache-buster not bumped to 5.92.0")
         page.wait_for_function("state.consultants && state.consultants.length >= 2", timeout=15000)
 
-        # Consultants -> Applications (Visakh)
+        # Consultants -> Applications & Inbox (Visakh): a short list, details in the side panel
         page.click("a.nav-item[data-tab=candidates]")
         page.click(f".btn-open-tracker[onclick='openTracker({cid})']")
         page.wait_for_selector(ROW, timeout=10000)
         check(page.input_value("#trk-consultant") == str(cid), "opened for Visakh")
+        check(page.is_visible("#ai-tab-apps.active") and page.is_visible("#ai-tab-reqs") and page.is_visible("#ai-tab-replies"),
+              "one window with Applications / New requirements / Recruiter replies tabs")
         rows = page.locator(ROW)
-        check(rows.count() == 1 and "DevOps Lead Trackui" in rows.first.inner_text(), "Visakh's drafted job listed")
-        check(rows.first.locator("select[data-f=status]").input_value() == "Drafted", "status = Draft created")
-        check(not page.is_visible("#trk-table th.trk-col-cand"), "no Consultant column for one consultant")
-        check("Total: 1" in page.inner_text("#trk-summary"), f"summary: {page.inner_text('#trk-summary')}")
+        txt = rows.first.inner_text()
+        check(rows.count() == 1 and "DevOps Lead Trackui" in txt and "Draft created" in txt, f"Visakh's drafted job listed: {txt!r}")
+        check("Open Gmail Drafts and press Send" in txt, f"the list says the next step: {txt!r}")
+        check("Visakh" not in txt, "no consultant name in the rows for one consultant")
+        check(page.inner_text("#ai-count-apps").strip() == "1", f"tab badge = 1: {page.inner_text('#ai-count-apps')!r}")
+        check(page.locator("#trk-list select, #trk-list input").count() == 0, "the list has no edit boxes")
 
-        # edits save
-        rows.first.locator("select[data-f=status]").select_option("Applied")
-        page.wait_for_timeout(400)
-        rows.first.locator("input[data-f=follow_up_date]").fill(date.today().isoformat())
-        rows.first.locator("input[data-f=follow_up_date]").dispatch_event("change")
-        rows.first.locator("textarea[data-f=notes]").fill("Spoke to the vendor, client is Test Bank")
-        rows.first.locator("textarea[data-f=notes]").dispatch_event("change")
+        # side panel: details + edits save
+        rows.first.click()
+        page.wait_for_selector("#trk-detail select[data-f=status]", timeout=5000)
+        check(page.input_value("#trk-detail select[data-f=status]") == "Drafted", "status = Draft created in the panel")
+        page.select_option("#trk-detail select[data-f=status]", "Applied")
+        page.wait_for_timeout(600)
+        page.fill("#trk-detail input[data-f=follow_up_date]", date.today().isoformat())
+        page.dispatch_event("#trk-detail input[data-f=follow_up_date]", "change")
+        page.wait_for_timeout(600)
+        page.fill("#trk-detail textarea[data-f=notes]", "Spoke to the vendor, client is Test Bank")
+        page.dispatch_event("#trk-detail textarea[data-f=notes]", "change")
         page.wait_for_timeout(800)
         conn = models.get_db_connection()
         cur = conn.cursor()
@@ -141,15 +149,15 @@ try:
         row = dict(cur.fetchone())
         conn.close()
         check(row["stage"] == "Applied" and row["follow_up_date"] == date.today().isoformat() and "Test Bank" in row["notes"], f"saved: {row}")
-        rows.first.locator(".trk-hist").click()
-        page.wait_for_selector(".trk-hist-row", timeout=5000)
-        hist = page.inner_text(".trk-hist-row")
-        check("Draft created -> Applied" in hist and "Tracker UI Admin" in hist, f"history: {hist}")
+        page.wait_for_function("document.getElementById('trk-history').innerText.includes('Applied')", timeout=5000)
+        hist = page.inner_text("#trk-history")
+        check("Draft created -> Applied" in hist and "Tracker UI Admin" in hist, f"history in the panel: {hist}")
+        check("Follow up today" in page.inner_text("#trk-list"), "next step follows the follow-up date")
 
-        # check Gmail replies (stubbed, read-only)
-        page.click("#trk-replies-btn")
-        page.wait_for_function("document.getElementById('trk-msg').innerText.includes('new repl')", timeout=10000)
-        page.wait_for_function("document.querySelector('#trk-body select[data-f=status]').value === 'Responded'", timeout=10000)
+        # Check Gmail now (stubbed, read-only): replies + requirements in one click
+        page.click("#ai-check")
+        page.wait_for_function("document.getElementById('ai-msg').innerText.includes('new recruiter repl')", timeout=15000)
+        page.wait_for_function("document.querySelector('#trk-list .trk-item') && document.querySelector('#trk-list .trk-item').innerText.includes('responded')", timeout=10000)
 
         # + Add application
         page.click("#trk-add-btn")
@@ -160,9 +168,11 @@ try:
         page.click("#trk-a-save")
         page.wait_for_function(f"document.querySelectorAll('{ROW}').length === 2", timeout=10000)
         check(page.get_attribute("#trk-export", "href") == f"/api/applications/export-xlsx?candidate_id={cid}", "Excel for this consultant")
-        page.eval_on_selector("#trk-table", "t => t.parentElement.scrollLeft = 0")
-        overflow = page.eval_on_selector("#trk-table", "t => t.scrollWidth - t.parentElement.clientWidth")
-        check(overflow <= 2, f"tracker table fits a 1440px window (overflow {overflow}px)")
+        overflow = page.eval_on_selector(".ai-split", "t => t.scrollWidth - t.clientWidth")
+        check(overflow <= 2, f"list + panel fit a 1440px window (overflow {overflow}px)")
+        page.fill("#trk-search", "platform")
+        page.wait_for_function(f"document.querySelectorAll('{ROW}').length === 1", timeout=5000)
+        page.fill("#trk-search", "")
         page.screenshot(path=shot)
         page.click("#btn-close-tracker")
 
@@ -170,10 +180,10 @@ try:
         page.click("a.nav-item[data-tab=reporting]")
         page.click("#btn-open-tracker-all")
         page.wait_for_function(f"document.querySelectorAll('{ROW}').length === 3", timeout=10000)
-        check(page.is_visible("#trk-table th.trk-col-cand") and "Koushik Trackui" in page.inner_text("#trk-body"), "all consultants with a Consultant column")
+        check("Koushik Trackui" in page.inner_text("#trk-list"), "all consultants: the consultant's name in each row")
         page.check("#trk-due")
         page.wait_for_function(f"document.querySelectorAll('{ROW}').length === 1", timeout=10000)
-        check("DevOps Lead Trackui" in page.inner_text("#trk-body"), "follow-ups due filter")
+        check("DevOps Lead Trackui" in page.inner_text("#trk-list"), "follow-ups due filter")
         browser.close()
 finally:
     server.shutdown()
@@ -185,4 +195,4 @@ if failures:
         print("  -", f)
     print("screenshot:", shot)
     sys.exit(1)
-print(f"PASS: Applications tracker in Edge - per consultant, inline edits saved, history, Gmail replies, manual add, Excel, all-consultants view, follow-ups due. Screenshot: {shot}")
+print(f"PASS: Applications & Inbox in Edge - tabs, short list with next step, side-panel edits saved, history, Gmail replies, manual add, Excel, all-consultants view, follow-ups due. Screenshot: {shot}")

@@ -6153,58 +6153,134 @@ async function setJobApplyStatus(jobId, status, selectEl, candidateId = null) {
 
 
 // =========================================================================
-// Application tracker (application_tracker.py): every application of every consultant
+// Applications & Inbox: one window, three tabs - Applications (application_tracker.py), New requirements
+// (inbox_requirements.py), Recruiter replies (reply_inbox.py). Each tab is a short list on the left and the
+// details + the one next step on the right; one consultant picker and one "Check Gmail now" for all three.
 // =========================================================================
-const trk = { candId: '', statuses: [], methods: [], rows: [], wired: false };
+const trk = { candId: '', statuses: [], methods: [], rows: [], wired: false, pane: 'apps', current: null };
 
-function openTracker(candId) {
+function openTracker(candId, pane, focusAppId) {
     const $ = id => document.getElementById(id);
-    trkWire();
+    aiWire();
     const sel = $('trk-consultant');
     sel.innerHTML = '<option value="">All my consultants</option>' + (state.consultants || [])
         .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     sel.value = candId ? String(candId) : '';
+    trk.candId = sel.value;
     $('trk-add').style.display = 'none';
-    $('trk-msg').innerHTML = '';
+    aiMsg('');
     $('modal-tracker').style.display = 'flex';
-    trkLoad();
+    aiShow(pane || 'apps', focusAppId);
+    aiCounts();
 }
+function openReplies(candId, focusAppId) { openTracker(candId, 'replies', focusAppId); }
+function openRequirements(candId) { openTracker(candId, 'reqs'); }
 
-function trkWire() {
+function aiWire() {
     if (trk.wired) return;
     trk.wired = true;
     const $ = id => document.getElementById(id);
-    $('btn-close-tracker').addEventListener('click', () => { $('modal-tracker').style.display = 'none'; });
-    ['trk-consultant', 'trk-status', 'trk-due'].forEach(id => $(id).addEventListener('change', trkLoad));
+    $('btn-close-tracker').addEventListener('click', () => { $('modal-tracker').style.display = 'none'; clearTimeout(rq.poll); });
+    document.querySelectorAll('.ai-tab').forEach(b => b.addEventListener('click', () => aiShow(b.dataset.pane)));
+    $('trk-consultant').addEventListener('change', () => { trk.candId = $('trk-consultant').value; aiShow(trk.pane); aiCounts(); });
+    $('ai-check').addEventListener('click', aiCheck);
+    // Applications
+    ['trk-status', 'trk-due'].forEach(id => $(id).addEventListener('change', appLoad));
+    $('trk-search').addEventListener('input', appRender);
     $('trk-add-btn').addEventListener('click', () => {
-        if (!$('trk-consultant').value) { trkMsg('Choose a consultant first (top left), then add the application.', 'warn'); return; }
+        if (!trk.candId) { aiMsg('Choose a consultant first (top left), then add the application.', 'warn'); return; }
         $('trk-add').style.display = '';
         $('trk-a-title').focus();
     });
     $('trk-a-cancel').addEventListener('click', () => { $('trk-add').style.display = 'none'; });
-    $('trk-a-save').addEventListener('click', trkAddSave);
-    $('trk-replies-btn').addEventListener('click', trkCheckReplies);
-    $('trk-open-replies').addEventListener('click', () => openReplies(trk.candId || ''));
-    $('trk-open-reqs').addEventListener('click', () => openRequirements(trk.candId || ''));
+    $('trk-a-save').addEventListener('click', appAddSave);
+    $('trk-list').addEventListener('click', (e) => { const it = e.target.closest('.trk-item'); if (it) appOpen(parseInt(it.dataset.appId)); });
+    // Requirements
+    $('rq-status').addEventListener('change', rqLoad);
+    $('rq-list').addEventListener('click', (e) => { const it = e.target.closest('.rq-item'); if (it) rqOpen(parseInt(it.dataset.id)); });
+    // Replies
+    $('rp-open').addEventListener('change', rpLoad);
+    $('rp-mode').addEventListener('change', async () => {
+        const res = await fetch('/api/me/auto-reply-mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: $('rp-mode').value }) });
+        const d = await res.json().catch(() => ({}));
+        showToast(res.ok ? 'Auto-reply setting saved' : (d.error || 'Could not save'), res.ok ? 'success' : 'error');
+    });
+    $('rp-list').addEventListener('click', (e) => { const it = e.target.closest('.rp-item'); if (it) rpOpen(parseInt(it.getAttribute('data-id'))); });
 }
 
-function trkMsg(text, kind) {
+function aiShow(pane, focusAppId) {
+    trk.pane = pane;
+    document.querySelectorAll('.ai-tab').forEach(b => b.classList.toggle('active', b.dataset.pane === pane));
+    ['apps', 'reqs', 'replies'].forEach(p => { document.getElementById(`ai-pane-${p}`).style.display = p === pane ? '' : 'none'; });
+    if (pane === 'apps') appLoad();
+    if (pane === 'reqs') rqLoad();
+    if (pane === 'replies') {
+        rp.focusApp = focusAppId || null;
+        if (focusAppId) document.getElementById('rp-open').checked = false;
+        document.getElementById('rp-detail').innerHTML = '<div class="ai-empty">Pick a reply on the left.</div>';
+        rpLoad();
+    }
+}
+
+function aiMsg(text, kind) {
     const colors = { ok: '#059669', warn: '#b45309', err: '#b91c1c' };
-    document.getElementById('trk-msg').innerHTML = text ? `<span style="color:${colors[kind] || '#475569'};">${escapeHtml(text)}</span>` : '';
+    document.getElementById('ai-msg').innerHTML = text ? `<span style="color:${colors[kind] || '#475569'};">${escapeHtml(text)}</span>` : '';
+}
+const trkMsg = aiMsg, rpMsg = aiMsg;
+
+function aiBadge(id, n, hot) {
+    const el = document.getElementById(id);
+    el.textContent = n ? String(n) : '';
+    el.classList.toggle('hot', !!(hot && n));
 }
 
-async function trkLoad() {
+// The tab badges: applications total, requirements waiting for review, replies not answered yet.
+async function aiCounts() {
+    const cid = trk.candId;
+    const [rq_, rp_] = await Promise.all([
+        fetch('/api/requirements' + (cid ? `?candidate_id=${cid}` : '')).then(r => r.json()).catch(() => ({})),
+        fetch('/api/replies?open=1' + (cid ? `&candidate_id=${cid}` : '')).then(r => r.json()).catch(() => ({}))]);
+    aiBadge('ai-count-reqs', (rq_.requirements || []).filter(r => r.status === 'review').length, true);
+    aiBadge('ai-count-replies', (rp_.replies || []).filter(r => !r.handled).length, true);
+}
+
+// One button for all three tabs: new recruiter replies + new requirement emails.
+async function aiCheck() {
+    const btn = document.getElementById('ai-check');
+    const cid = trk.candId;
+    btn.disabled = true;
+    aiMsg('Reading new mail from Gmail (nothing is marked read or changed)...', '');
+    try {
+        const r1 = cid
+            ? await fetch('/api/applications/check-replies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: parseInt(cid) }) })
+            : await fetch('/api/replies/check-all', { method: 'POST' });
+        const d1 = await r1.json().catch(() => ({}));
+        const r2 = await fetch('/api/requirements/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cid ? { candidate_id: parseInt(cid) } : {}) });
+        const d2 = await r2.json().catch(() => ({}));
+        const parts = [];
+        parts.push(r1.ok ? `${d1.new_replies || 0} new recruiter repl${d1.new_replies === 1 ? 'y' : 'ies'}` : (d1.error || 'Replies could not be checked'));
+        parts.push(r2.ok ? (d2.started ? 'new requirement emails are being read - results appear under "New requirements" (about a minute each)' : (d2.message || 'requirements checked'))
+                         : (d2.error || 'Requirements could not be checked'));
+        if ((d1.errors || []).length) parts.push('Problems: ' + d1.errors.join('; '));
+        aiMsg(parts.join(' · ') + '.', r1.ok && r2.ok ? 'ok' : 'warn');
+        aiShow(trk.pane);
+        aiCounts();
+        if (r2.ok && d2.started) setTimeout(() => { if (trk.pane === 'reqs') rqLoad(); aiCounts(); }, 20000);
+    } finally { btn.disabled = false; }
+}
+
+// ---------------------------------------------------------------- Applications
+
+async function appLoad() {
     const $ = id => document.getElementById(id);
-    trk.candId = $('trk-consultant').value;
     const params = new URLSearchParams();
     if (trk.candId) params.set('candidate_id', trk.candId);
     if ($('trk-status').value) params.set('status', $('trk-status').value);
     if ($('trk-due').checked) params.set('due', '1');
     $('trk-export').href = '/api/applications/export-xlsx' + (trk.candId ? `?candidate_id=${trk.candId}` : '');
-    $('trk-replies-btn').disabled = !trk.candId;
     const res = await fetch('/api/applications?' + params.toString());
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { trkMsg(d.error || 'Could not load applications.', 'err'); return; }
+    if (!res.ok) { aiMsg(d.error || 'Could not load applications.', 'err'); return; }
     trk.rows = d.applications;
     if (!trk.statuses.length) {
         trk.statuses = d.statuses;
@@ -6215,162 +6291,172 @@ async function trkLoad() {
         $('trk-a-method').innerHTML = d.methods.map(m => `<option value="${m.value}">${escapeHtml(m.value ? m.label : 'How applied?')}</option>`).join('');
     }
     const s = d.summary;
-    const chip = (label, n, color) => `<span style="background:${color}; border-radius:999px; padding:4px 12px; font-size:0.8rem; font-weight:700; color:#0f172a;">${label}: ${n}</span>`;
-    $('trk-summary').innerHTML = chip('Total', s.total, '#f1f5f9') + chip('Applied this week', s.applied_this_week, '#eff6ff') +
-        chip('Responses', s.responded, '#ecfdf5') + chip('Interviews', s.interviews, '#f5f3ff') + chip('Placed', s.placed, '#dcfce7') +
-        chip('Follow-ups due', s.follow_ups_due, s.follow_ups_due ? '#fef3c7' : '#f1f5f9');
-    trkRender();
+    const chip = (label, n, color) => `<span class="ai-pill" style="background:${color};">${label}: ${n}</span>`;
+    $('trk-summary').innerHTML = chip('Applied this week', s.applied_this_week, '#eff6ff') + chip('Responses', s.responded, '#ecfdf5') +
+        chip('Interviews', s.interviews, '#f5f3ff') + chip('Placed', s.placed, '#dcfce7') +
+        (s.follow_ups_due ? chip('Follow-ups due', s.follow_ups_due, '#fef3c7') : '');
+    aiBadge('ai-count-apps', s.total, false);
+    appRender();
+    if (trk.current && trk.rows.some(r => r.id === trk.current)) appOpen(trk.current);
 }
 
-function trkRender() {
-    const body = document.getElementById('trk-body');
-    const showCand = !trk.candId;
-    document.querySelectorAll('.trk-col-cand').forEach(el => { el.style.display = showCand ? '' : 'none'; });
-    if (!trk.rows.length) {
-        body.innerHTML = '<tr><td colspan="11" style="text-align:center; color:#64748b; padding:20px;">No applications yet. Drafts, the Jobs "Applied" column and "+ Add application" all appear here.</td></tr>';
+const TRK_STATUS_COLORS = { Drafted: '#e0f2fe', Applied: '#eff6ff', Responded: '#ecfdf5', Screening: '#ecfdf5', Submitted: '#f5f3ff', Interviewing: '#ede9fe',
+                            Offer: '#dcfce7', Hired: '#bbf7d0', Rejected: '#fee2e2', 'No response': '#f1f5f9', 'On hold': '#fef3c7', Withdrawn: '#f1f5f9', Saved: '#f1f5f9' };
+
+// What the recruiter should do next for this application - one line, worked out from what is on file.
+function appNextStep(r) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (r.replies_open) return { text: 'Answer the recruiter\'s reply', warn: true, action: 'reply' };
+    if (r.follow_up_due) return { text: 'Follow up today', warn: true };
+    if (r.interview_at && r.interview_at.slice(0, 10) >= today) return { text: `Interview ${r.interview_at.slice(0, 10)}`, warn: false };
+    switch (r.stage) {
+        case 'Saved': return { text: 'Apply or create a draft', warn: false };
+        case 'Drafted': return { text: 'Open Gmail Drafts and press Send', warn: false };
+        case 'Applied': return { text: r.follow_up_date ? `Follow up on ${r.follow_up_date}` : 'Waiting for a reply', warn: false };
+        case 'Responded': case 'Screening': return { text: 'Keep in touch with the recruiter', warn: false };
+        case 'Submitted': return { text: 'Waiting for client feedback', warn: false };
+        case 'Interviewing': return { text: 'Interview in progress', warn: false };
+        case 'Offer': return { text: 'Close the offer', warn: false };
+        default: return { text: '', warn: false };
+    }
+}
+
+function appRender() {
+    const list = document.getElementById('trk-list');
+    const q = (document.getElementById('trk-search').value || '').trim().toLowerCase();
+    const rows = trk.rows.filter(r => !q || `${r.job_title} ${r.job_company} ${r.candidate_name}`.toLowerCase().includes(q));
+    if (!rows.length) {
+        list.innerHTML = `<div class="ai-empty">${trk.rows.length ? 'Nothing matches the search.' : 'No applications yet. Drafts, the Jobs "Applied" column and "+ Add application" all appear here.'}</div>`;
         return;
     }
-    const opt = (list, cur) => list.map(o => `<option value="${o.value}" ${o.value === (cur || '') ? 'selected' : ''}>${escapeHtml(o.value ? o.label : '-')}</option>`).join('');
-    body.innerHTML = trk.rows.map(r => `
-        <tr data-app-id="${r.id}" style="${r.follow_up_due ? 'background:#fffbeb;' : ''}">
-            <td style="min-width:136px; color:#0f172a;"><b>${escapeHtml(r.job_title || '')}</b><div style="color:#64748b;">${escapeHtml(r.job_company || '')}</div>
-                ${r.job_url ? `<a href="${escapeHtml(r.job_url)}" target="_blank" rel="noopener noreferrer">posting ↗</a>` : ''}</td>
-            <td class="trk-col-cand" style="${showCand ? '' : 'display:none;'} color:#0f172a;">${escapeHtml(r.candidate_name || '')}</td>
-            <td><select class="form-control trk-f" data-f="status" style="font-size:0.78rem; min-width:128px;">${opt(trk.statuses, r.stage)}</select></td>
-            <td><select class="form-control trk-f" data-f="apply_method" style="font-size:0.78rem; min-width:118px;">${opt(trk.methods, r.apply_method)}</select></td>
-            <td style="white-space:nowrap; color:#0f172a;">${escapeHtml((r.applied_date || r.drafted_at || '').slice(0, 10))}${r.last_reply_at ? `<div style="color:#059669;">reply ${escapeHtml(r.last_reply_at.slice(0, 10))}</div>` : ''}</td>
-            <td><input class="form-control trk-f" data-f="recruiter_email" value="${escapeHtml(r.recruiter_email || '')}" placeholder="email" style="font-size:0.78rem; min-width:140px;"></td>
-            <td style="color:#0f172a;">${r.resume_filename ? `<a href="/api/optimized-resumes/${r.resume_version_id}/download">${escapeHtml(r.resume_filename)}</a>` : '<span style="color:#94a3b8;">original</span>'}</td>
-            <td><input type="date" class="form-control trk-f" data-f="follow_up_date" value="${escapeHtml(r.follow_up_date || '')}" style="font-size:0.8rem;"></td>
-            <td><input type="date" class="form-control trk-f" data-f="interview_at" value="${escapeHtml((r.interview_at || '').slice(0, 10))}" style="font-size:0.8rem;">
-                <input class="form-control trk-f" data-f="interview_round" value="${escapeHtml(r.interview_round || '')}" placeholder="round" style="font-size:0.75rem; margin-top:3px;"></td>
-            <td><textarea class="form-control trk-f" data-f="notes" rows="2" style="font-size:0.78rem; min-width:140px;">${escapeHtml(r.notes || '')}</textarea></td>
-            <td style="white-space:nowrap;"><button type="button" class="btn btn-secondary btn-xs trk-hist">History</button>
-                ${r.reply_count ? `<button type="button" class="btn btn-secondary btn-xs trk-rp" data-cand="${r.candidate_id}" title="Recruiter replies" style="margin-top:3px; ${r.replies_open ? 'border-color:#f59e0b; background:#fffbeb;' : ''}">💬 ${r.reply_count}${r.replies_open ? ' new' : ''}</button>` : ''}</td>
-        </tr>`).join('');
-    body.querySelectorAll('.trk-f').forEach(el => el.addEventListener('change', () => trkSave(el)));
-    body.querySelectorAll('.trk-hist').forEach(b => b.addEventListener('click', () => trkHistory(b.closest('tr'))));
-    body.querySelectorAll('.trk-rp').forEach(b => b.addEventListener('click', () =>
-        openReplies(b.getAttribute('data-cand'), parseInt(b.closest('tr').getAttribute('data-app-id')))));
+    list.innerHTML = rows.map(r => {
+        const next = appNextStep(r);
+        return `<div class="ai-item trk-item ${trk.current === r.id ? 'sel' : ''}" data-app-id="${r.id}">
+            <div class="ai-item-top"><span class="ai-item-title">${escapeHtml(r.job_title || '')}</span>
+                <span class="ai-date">${escapeHtml((r.applied_date || r.drafted_at || '').slice(0, 10))}</span></div>
+            <div class="ai-item-sub">${escapeHtml(r.job_company || '')}${!trk.candId && r.candidate_name ? ' · ' + escapeHtml(r.candidate_name) : ''}</div>
+            <div style="margin-top:4px;"><span class="ai-pill" style="background:${TRK_STATUS_COLORS[r.stage] || '#f1f5f9'};">${escapeHtml(r.status_label || r.stage || '')}</span>
+                ${next.text ? `<span class="ai-next ${next.warn ? 'warn' : ''}">→ ${escapeHtml(next.text)}</span>` : ''}
+                ${r.reply_count ? `<span class="ai-pill" style="margin-left:4px; ${r.replies_open ? 'background:#fef3c7;' : ''}">💬 ${r.reply_count}</span>` : ''}</div>
+        </div>`;
+    }).join('');
 }
 
-async function trkSave(el) {
-    const tr = el.closest('tr');
-    const id = parseInt(tr.getAttribute('data-app-id'));
+async function appOpen(id) {
+    const r = trk.rows.find(x => x.id === id);
+    if (!r) return;
+    trk.current = id;
+    document.querySelectorAll('.trk-item').forEach(el => el.classList.toggle('sel', parseInt(el.dataset.appId) === id));
+    const next = appNextStep(r);
+    const opt = (list, cur) => list.map(o => `<option value="${o.value}" ${o.value === (cur || '') ? 'selected' : ''}>${escapeHtml(o.value ? o.label : '-')}</option>`).join('');
+    const detail = document.getElementById('trk-detail');
+    detail.innerHTML = `
+        <div style="font-weight:800; font-size:1rem; color:#0f172a;">${escapeHtml(r.job_title || '')}</div>
+        <div style="font-size:0.85rem; color:#475569;">${escapeHtml(r.job_company || '')}${r.job_location ? ' · ' + escapeHtml(r.job_location) : ''} · ${escapeHtml(r.candidate_name || '')}
+            ${r.job_url ? ` · <a href="${escapeHtml(r.job_url)}" target="_blank" rel="noopener noreferrer">posting ↗</a>` : ''}</div>
+        ${next.text ? `<div class="ai-step ${next.warn ? 'warn' : ''}" style="margin-top:12px;"><span><b>Next step:</b> ${escapeHtml(next.text)}</span>
+            ${next.action === 'reply' ? '<button type="button" class="btn btn-primary btn-sm" id="trk-go-reply">Answer now</button>' : ''}</div>` : ''}
+        <div class="ai-h">Details</div>
+        <div class="ai-grid" data-app-id="${r.id}">
+            <div><label>Status</label><select class="form-control trk-f" data-f="status">${opt(trk.statuses, r.stage)}</select></div>
+            <div><label>How applied</label><select class="form-control trk-f" data-f="apply_method">${opt(trk.methods, r.apply_method)}</select></div>
+            <div><label>Recruiter email</label><input class="form-control trk-f" data-f="recruiter_email" value="${escapeHtml(r.recruiter_email || '')}" placeholder="email"></div>
+            <div><label>Rate</label><input class="form-control trk-f" data-f="rate" value="${escapeHtml(r.rate || '')}" placeholder="e.g. $70/hr"></div>
+            <div><label>Follow-up date</label><input type="date" class="form-control trk-f" data-f="follow_up_date" value="${escapeHtml(r.follow_up_date || '')}"></div>
+            <div><label>Interview date / round</label><div style="display:flex; gap:6px;"><input type="date" class="form-control trk-f" data-f="interview_at" value="${escapeHtml((r.interview_at || '').slice(0, 10))}">
+                <input class="form-control trk-f" data-f="interview_round" value="${escapeHtml(r.interview_round || '')}" placeholder="round" style="max-width:90px;"></div></div>
+        </div>
+        <div style="margin-top:8px;"><label style="font-size:0.75rem; font-weight:600; color:#475569; text-transform:none;">Notes</label>
+            <textarea class="form-control trk-f" data-f="notes" rows="2" style="font-size:0.82rem;">${escapeHtml(r.notes || '')}</textarea></div>
+        <div style="font-size:0.82rem; color:#334155; margin-top:10px;">
+            <b>Resume sent:</b> ${r.resume_filename ? `<a href="/api/optimized-resumes/${r.resume_version_id}/download">${escapeHtml(r.resume_filename)}</a>` : '<span style="color:#64748b;">original resume</span>'}
+            &nbsp;·&nbsp; <b>Applied / drafted:</b> ${escapeHtml((r.applied_date || r.drafted_at || '-').slice(0, 10))}
+            ${r.last_reply_at ? ` &nbsp;·&nbsp; <b style="color:#059669;">Last reply:</b> ${escapeHtml(r.last_reply_at.slice(0, 10))}` : ''}</div>
+        <div class="ai-h">Emails ${r.reply_count ? `(${r.reply_count})` : ''}</div>
+        <div id="trk-emails" style="font-size:0.82rem; color:#64748b;">${r.reply_count ? 'Loading...' : 'No recruiter reply yet. "Check Gmail now" reads new replies.'}</div>
+        <div class="ai-h">History</div>
+        <div id="trk-history" style="font-size:0.8rem; color:#334155;">Loading...</div>`;
+    detail.querySelectorAll('.trk-f').forEach(el => el.addEventListener('change', () => appSave(el)));
+    const go = document.getElementById('trk-go-reply');
+    if (go) go.addEventListener('click', () => openReplies(r.candidate_id, r.id));
+    fetch(`/api/applications/${id}/events`).then(x => x.json()).then(d => {
+        if (trk.current !== id) return;
+        document.getElementById('trk-history').innerHTML = (d.events || []).map(e =>
+            `<div>${escapeHtml(e.created_at)} · <b>${escapeHtml(e.who)}</b> · ${escapeHtml(e.detail || e.kind)}</div>`).join('') || 'No history yet.';
+    }).catch(() => {});
+    if (r.reply_count) {
+        const d = await fetch(`/api/replies?candidate_id=${r.candidate_id}`).then(x => x.json()).catch(() => ({}));
+        if (trk.current !== id) return;
+        const mine = (d.replies || []).filter(x => x.application_id === id)   // real replies first, out-of-office last
+            .sort((x, y) => (x.category === 'auto_reply') - (y.category === 'auto_reply'));
+        document.getElementById('trk-emails').innerHTML = mine.map(x => `
+            <div class="trk-email" data-id="${x.id}" style="border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:6px; cursor:pointer;">
+                <div style="display:flex; justify-content:space-between; gap:8px;"><b style="color:#0f172a;">${escapeHtml(x.from_name || x.from_email)}</b><span class="ai-date">${escapeHtml((x.received_at || '').slice(0, 16))}</span></div>
+                <div style="color:#334155;">${escapeHtml(x.subject || '')}</div>
+                <span class="ai-pill" style="background:${RP_CAT_COLORS[x.category] || '#f1f5f9'}; margin-top:3px;">${escapeHtml(x.category_label)}</span>
+                ${x.handled ? '<span style="font-size:0.72rem; color:#059669; font-weight:700; margin-left:4px;">✓ handled</span>' : '<span style="font-size:0.72rem; color:#b45309; font-weight:700; margin-left:4px;">needs an answer</span>'}
+            </div>`).join('') || 'No recruiter reply yet.';
+        document.querySelectorAll('.trk-email').forEach(el => el.addEventListener('click', () => {
+            aiShow('replies'); rpOpen(parseInt(el.dataset.id));
+        }));
+    }
+}
+
+async function appSave(el) {
+    const id = parseInt(el.closest('[data-app-id]') ? el.closest('[data-app-id]').dataset.appId : trk.current) || trk.current;
     const res = await fetch(`/api/applications/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [el.getAttribute('data-f')]: el.value }) });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
     const i = trk.rows.findIndex(r => r.id === id);
     if (i >= 0) trk.rows[i] = d.application;
-    tr.style.background = d.application.follow_up_due ? '#fffbeb' : '';
+    appRender();
+    if (el.getAttribute('data-f') === 'status' || el.getAttribute('data-f') === 'follow_up_date' || el.getAttribute('data-f') === 'interview_at') appOpen(id);
     showToast('Saved', 'success', 1500);
 }
 
-async function trkHistory(tr) {
-    const next = tr.nextElementSibling;
-    if (next && next.classList.contains('trk-hist-row')) { next.remove(); return; }
-    const res = await fetch(`/api/applications/${tr.getAttribute('data-app-id')}/events`);
-    const d = await res.json().catch(() => ({ events: [] }));
-    const row = document.createElement('tr');
-    row.className = 'trk-hist-row';
-    row.innerHTML = `<td colspan="11" style="background:#f8fafc; font-size:0.8rem; color:#334155;">` +
-        ((d.events || []).map(e => `<div>${escapeHtml(e.created_at)} &middot; <b>${escapeHtml(e.who)}</b> &middot; ${escapeHtml(e.detail || e.kind)}</div>`).join('') || 'No history yet.') + '</td>';
-    tr.after(row);
-}
-
-async function trkAddSave() {
+async function appAddSave() {
     const v = id => document.getElementById(id).value.trim();
     const res = await fetch('/api/applications', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidate_id: parseInt(v('trk-consultant')), job_title: v('trk-a-title'), company: v('trk-a-company'),
+        body: JSON.stringify({ candidate_id: parseInt(trk.candId), job_title: v('trk-a-title'), company: v('trk-a-company'),
             job_url: v('trk-a-url'), recruiter_email: v('trk-a-email'), status: v('trk-a-status'), apply_method: v('trk-a-method') }) });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { trkMsg(d.error || 'Could not add.', 'err'); return; }
+    if (!res.ok) { aiMsg(d.error || 'Could not add.', 'err'); return; }
     ['trk-a-title', 'trk-a-company', 'trk-a-url', 'trk-a-email'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('trk-add').style.display = 'none';
-    trkMsg('Application added.', 'ok');
-    trkLoad();
+    aiMsg('Application added.', 'ok');
+    if (d.application && d.application.id) trk.current = d.application.id;
+    appLoad();
 }
 
-async function trkCheckReplies() {
-    const btn = document.getElementById('trk-replies-btn');
-    btn.disabled = true;
-    trkMsg('Checking the consultant\'s Gmail (read-only)...', '');
-    try {
-        const res = await fetch('/api/applications/check-replies', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ candidate_id: parseInt(trk.candId) }) });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) { trkMsg(d.error || 'Could not check replies.', 'err'); return; }
-        trkMsg(d.new_replies
-            ? `${d.new_replies} new repl${d.new_replies === 1 ? 'y' : 'ies'} read and sorted (${d.replied.map(r => r.job_title).join(', ')}) - open 📨 Replies to answer.`
-            : `Checked ${d.checked} open application${d.checked === 1 ? '' : 's'} - no new replies.`, d.new_replies ? 'ok' : '');
-        trkLoad();
-    } finally { btn.disabled = false; }
-}
-
-// =========================================================================
-// Recruiter replies (reply_inbox.py): read, sorted by AI, answered with AI, saved in the Gmail thread.
-// =========================================================================
-const rp = { wired: false, rows: [], current: null, focusApp: null };
+// ---------------------------------------------------------------- Recruiter replies
+const rp = { wired: true, rows: [], current: null, focusApp: null };
 const RP_CAT_COLORS = { interview: '#dcfce7', question: '#e0f2fe', needs_resume: '#ede9fe', rejection: '#fee2e2', auto_reply: '#f1f5f9', other: '#f1f5f9' };
-
-function openReplies(candId, focusAppId) {
-    const $ = id => document.getElementById(id);
-    rpWire();
-    $('rp-consultant').innerHTML = '<option value="">All my consultants</option>' + (state.consultants || [])
-        .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-    $('rp-consultant').value = candId ? String(candId) : '';
-    rp.focusApp = focusAppId || null;
-    $('rp-open').checked = !focusAppId;
-    $('rp-msg').innerHTML = '';
-    $('rp-detail').innerHTML = '<div style="color:#64748b; font-size:0.9rem;">Pick a reply on the left.</div>';
-    $('modal-replies').style.display = 'flex';
-    rpLoad();
-}
-
-function rpWire() {
-    if (rp.wired) return;
-    rp.wired = true;
-    const $ = id => document.getElementById(id);
-    $('btn-close-replies').addEventListener('click', () => { $('modal-replies').style.display = 'none'; if (document.getElementById('modal-tracker').style.display === 'flex') trkLoad(); });
-    ['rp-consultant', 'rp-open'].forEach(id => $(id).addEventListener('change', rpLoad));
-    $('rp-check').addEventListener('click', rpCheck);
-    $('rp-mode').addEventListener('change', async () => {
-        const res = await fetch('/api/me/auto-reply-mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: $('rp-mode').value }) });
-        const d = await res.json().catch(() => ({}));
-        showToast(res.ok ? 'Auto-reply setting saved' : (d.error || 'Could not save'), res.ok ? 'success' : 'error');
-    });
-    $('rp-list').addEventListener('click', (e) => { const it = e.target.closest('.rp-item'); if (it) rpOpen(parseInt(it.getAttribute('data-id'))); });
-}
-
-function rpMsg(text, kind) {
-    const colors = { ok: '#059669', warn: '#b45309', err: '#b91c1c' };
-    document.getElementById('rp-msg').innerHTML = text ? `<span style="color:${colors[kind] || '#475569'};">${escapeHtml(text)}</span>` : '';
-}
 
 async function rpLoad() {
     const $ = id => document.getElementById(id);
     const p = new URLSearchParams();
-    if ($('rp-consultant').value) p.set('candidate_id', $('rp-consultant').value);
+    if (trk.candId) p.set('candidate_id', trk.candId);
     if ($('rp-open').checked) p.set('open', '1');
     const res = await fetch('/api/replies?' + p.toString());
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { rpMsg(d.error || 'Could not load replies.', 'err'); return; }
+    if (!res.ok) { aiMsg(d.error || 'Could not load replies.', 'err'); return; }
     rp.rows = d.replies || [];
     if (!$('rp-mode').options.length) {   // filled once: a list refresh never overwrites the choice being saved
         $('rp-mode').innerHTML = Object.entries(d.modes || {}).map(([k, v]) => `<option value="${k}" ${k === d.mode ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
     }
+    if ($('rp-open').checked) aiBadge('ai-count-replies', rp.rows.filter(r => !r.handled).length, true);
     const rows = rp.focusApp ? [...rp.rows.filter(r => r.application_id === rp.focusApp), ...rp.rows.filter(r => r.application_id !== rp.focusApp)] : rp.rows;
     $('rp-list').innerHTML = rows.length ? rows.map(r => `
-        <div class="rp-item" data-id="${r.id}" style="padding:10px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; ${r.handled ? 'opacity:0.65;' : ''}">
-            <div style="display:flex; justify-content:space-between; gap:6px;"><b style="font-size:0.85rem; color:#0f172a;">${escapeHtml(r.from_name || r.from_email)}</b>
-                <span style="font-size:0.72rem; color:#64748b; white-space:nowrap;">${escapeHtml((r.received_at || '').slice(0, 16))}</span></div>
-            <div style="font-size:0.8rem; color:#334155; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(r.subject || '')}</div>
-            <div style="font-size:0.75rem; color:#64748b;">${escapeHtml(r.candidate_name || '')} · ${escapeHtml(r.job_title || '')}</div>
-            <span style="display:inline-block; margin-top:4px; font-size:0.7rem; font-weight:700; padding:1px 8px; border-radius:999px; background:${RP_CAT_COLORS[r.category] || '#f1f5f9'}; color:#0f172a;">${escapeHtml(r.category_label)}</span>
-            ${r.sent_at ? '<span style="font-size:0.7rem; color:#059669; font-weight:700; margin-left:4px;">✓ answered automatically</span>' : r.gmail_draft_at ? '<span style="font-size:0.7rem; color:#059669; font-weight:700; margin-left:4px;">✓ draft in Gmail</span>' : r.has_draft ? '<span style="font-size:0.7rem; color:#2563eb; font-weight:700; margin-left:4px;">✎ reply ready</span>' : ''}
-        </div>`).join('') : '<div style="padding:16px; color:#64748b; font-size:0.85rem;">No replies here yet. Click "Check Gmail now" - or turn off "Only not handled".</div>';
-    if (rp.focusApp) {   // from a tracker badge: open that application's real reply (not an out-of-office)
+        <div class="ai-item rp-item ${rp.current && rp.current.id === r.id ? 'sel' : ''}" data-id="${r.id}" style="${r.handled ? 'opacity:0.65;' : ''}">
+            <div class="ai-item-top"><span class="ai-item-title">${escapeHtml(r.from_name || r.from_email)}</span>
+                <span class="ai-date">${escapeHtml((r.received_at || '').slice(0, 16))}</span></div>
+            <div class="ai-item-sub" style="color:#334155;">${escapeHtml(r.subject || '')}</div>
+            <div class="ai-item-sub">${escapeHtml(r.candidate_name || '')} · ${escapeHtml(r.job_title || '')}</div>
+            <div style="margin-top:4px;"><span class="ai-pill" style="background:${RP_CAT_COLORS[r.category] || '#f1f5f9'};">${escapeHtml(r.category_label)}</span>
+            ${r.sent_at ? '<span style="font-size:0.7rem; color:#059669; font-weight:700; margin-left:4px;">✓ answered automatically</span>' : r.gmail_draft_at ? '<span style="font-size:0.7rem; color:#059669; font-weight:700; margin-left:4px;">✓ draft in Gmail</span>' : r.has_draft ? '<span style="font-size:0.7rem; color:#2563eb; font-weight:700; margin-left:4px;">✎ reply ready</span>' : ''}</div>
+        </div>`).join('') : '<div class="ai-empty">No replies to answer. "Check Gmail now" reads new ones - or turn off "Only not answered" to see all.</div>';
+    if (rp.focusApp) {   // from an application: open that application's real reply (not an out-of-office)
         const mine = rows.filter(r => r.application_id === rp.focusApp);
         const pick = mine.find(r => r.category !== 'auto_reply' && !r.handled) || mine.find(r => r.category !== 'auto_reply') || mine[0];
         rp.focusApp = null;
@@ -6381,23 +6467,24 @@ async function rpLoad() {
 async function rpOpen(id) {
     const res = await fetch(`/api/replies/${id}`);
     const r = await res.json().catch(() => ({}));
-    if (!res.ok) { rpMsg(r.error || 'Could not open the reply.', 'err'); return; }
+    if (!res.ok) { aiMsg(r.error || 'Could not open the reply.', 'err'); return; }
     rp.current = r;
     rp.undo = [];
-    document.querySelectorAll('.rp-item').forEach(el => { el.style.background = parseInt(el.getAttribute('data-id')) === id ? '#eff6ff' : ''; });
-    const L = 'font-size:0.72rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.04em; margin:12px 0 4px;';
+    document.querySelectorAll('.rp-item').forEach(el => el.classList.toggle('sel', parseInt(el.getAttribute('data-id')) === id));
     const chip = (t) => `<button type="button" class="btn-prompt-chip rp-chip">${escapeHtml(t)}</button>`;
+    const done = r.sent_at ? `Sent automatically ${escapeHtml(String(r.sent_at).slice(0, 16))}` : r.gmail_draft_at ? `Saved as a Gmail draft ${escapeHtml(String(r.gmail_draft_at).slice(0, 16))} - open Gmail and press Send` : '';
     document.getElementById('rp-detail').innerHTML = `
         <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
             <div><div style="font-weight:800; color:#0f172a;">${escapeHtml(r.subject || '')}</div>
                 <div style="font-size:0.8rem; color:#475569;">From ${escapeHtml(r.from_name ? `${r.from_name} <${r.from_email}>` : r.from_email)} · ${escapeHtml(r.received_at || '')}</div>
                 <div style="font-size:0.8rem; color:#475569;">${escapeHtml(r.candidate_name || '')} → ${escapeHtml(r.job_title || '')} (${escapeHtml(r.job_company || '')})</div></div>
-            <span style="font-size:0.75rem; font-weight:700; padding:2px 10px; border-radius:999px; background:${RP_CAT_COLORS[r.category] || '#f1f5f9'}; white-space:nowrap;" title="${escapeHtml(r.category_reason || '')}">${escapeHtml(r.category_label)}</span>
+            <span class="ai-pill" style="background:${RP_CAT_COLORS[r.category] || '#f1f5f9'};" title="${escapeHtml(r.category_reason || '')}">${escapeHtml(r.category_label)}</span>
         </div>
-        ${r.category_reason ? `<div style="font-size:0.78rem; color:#64748b; margin-top:4px;">AI: ${escapeHtml(r.category_reason)}</div>` : ''}
-        <div style="${L}">Recruiter wrote</div>
-        <div id="rp-body" style="white-space:pre-wrap; font-size:0.85rem; color:#0f172a; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; max-height:200px; overflow-y:auto;">${escapeHtml(r.body || '(no text)')}</div>
-        <div style="${L}">Your reply ${r.gmail_draft_at ? '<span style="color:#059669; text-transform:none;">- saved as a Gmail draft ' + escapeHtml(String(r.gmail_draft_at).slice(0, 16)) + '</span>' : ''}${r.sent_at ? '<span style="color:#059669; text-transform:none;"> - sent automatically ' + escapeHtml(String(r.sent_at).slice(0, 16)) + '</span>' : ''}</div>
+        <div class="ai-step ${done ? '' : 'warn'}" style="margin-top:10px;"><span><b>${done ? 'Done:' : 'Next step:'}</b> ${done || 'Check the reply below, then save it to Gmail'}</span></div>
+        <div class="ai-h">Recruiter wrote</div>
+        <div id="rp-body" style="white-space:pre-wrap; font-size:0.85rem; color:#0f172a; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; max-height:220px; overflow-y:auto;">${escapeHtml(r.body || '(no text)')}</div>
+        ${r.category_reason ? `<div style="font-size:0.75rem; color:#64748b; margin-top:4px;">Why "${escapeHtml(r.category_label)}": ${escapeHtml(r.category_reason)}</div>` : ''}
+        <div class="ai-h">Your reply</div>
         ${r.draft_note ? `<div id="rp-note" style="font-size:0.78rem; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:6px 8px; margin-bottom:6px;">${escapeHtml(r.draft_note)}</div>` : '<div id="rp-note"></div>'}
         <textarea id="rp-draft" rows="8" class="form-control" style="width:100%; font-size:0.85rem; line-height:1.5;" placeholder="Write the reply, or ask the AI below.">${escapeHtml(r.draft_body || '')}</textarea>
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">${chip('Write a reply')}${chip('Shorter')}${chip('Share availability for a call')}${chip('Say the resume is attached')}${chip('Politely ask for the rate and client name')}</div>
@@ -6409,10 +6496,10 @@ async function rpOpen(id) {
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px solid #f1f5f9;">
             <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; margin:0; text-transform:none; font-weight:500;"><input type="checkbox" id="rp-attach" ${r.category === 'needs_resume' ? 'checked' : ''}> Attach resume</label>
             <span style="flex:1"></span>
-            <button type="button" class="btn btn-secondary btn-sm" id="rp-handled">${r.handled ? 'Mark not handled' : 'Mark handled'}</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="rp-handled">${r.handled ? 'Mark not answered' : 'No answer needed'}</button>
             <button type="button" class="btn btn-primary btn-sm" id="rp-save">🚀 Save reply to Gmail (same thread)</button>
         </div>
-        <div style="font-size:0.75rem; color:#94a3b8; margin-top:6px;">The reply is saved in the consultant's Gmail Drafts as "Re: ..." in this recruiter's thread - open Gmail and press Send.</div>`;
+        <div style="font-size:0.75rem; color:#94a3b8; margin-top:6px;">Saved in the consultant's Gmail Drafts as "Re: ..." in this recruiter's thread - open Gmail and press Send.</div>`;
     const $ = id => document.getElementById(id);
     document.querySelectorAll('.rp-chip').forEach(b => b.addEventListener('click', () => rpAi(b.textContent)));
     $('rp-ai').addEventListener('click', () => rpAi($('rp-instr').value.trim()));
@@ -6421,7 +6508,7 @@ async function rpOpen(id) {
     $('rp-save').addEventListener('click', rpSave);
     $('rp-handled').addEventListener('click', async () => {
         await fetch(`/api/replies/${r.id}/handled`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ handled: !r.handled }) });
-        rpLoad(); rpOpen(r.id);
+        rpLoad(); rpOpen(r.id); aiCounts();
     });
 }
 
@@ -6435,7 +6522,7 @@ async function rpAi(instruction) {
         const res = await fetch(`/api/replies/${rp.current.id}/ai`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ instruction, current_body: current }) });
         const d = await res.json().catch(() => ({}));
-        if (!res.ok) { rpMsg(d.error || 'The AI could not answer.', 'err'); return; }
+        if (!res.ok) { aiMsg(d.error || 'The AI could not answer.', 'err'); return; }
         const notes = [d.note, ...(d.needs_info || []).map(q => '❓ ' + q)].filter(Boolean);
         $('rp-note').innerHTML = notes.length ? `<div style="font-size:0.78rem; color:${d.applied ? '#334155' : '#92400e'}; background:${d.applied ? '#f1f5f9' : '#fffbeb'}; border:1px solid ${d.applied ? '#e2e8f0' : '#fde68a'}; border-radius:8px; padding:6px 8px; margin-bottom:6px;">${notes.map(escapeHtml).join('<br>')}</div>` : '';
         if (d.applied) {
@@ -6459,89 +6546,83 @@ async function rpSave() {
         showToast(`Reply saved in Gmail Drafts (same thread)${d.attached ? ' with ' + d.attached : ''} - open Gmail to send it.`, 'success', 7000);
         rpLoad();
         rpOpen(rp.current.id);
+        aiCounts();
     } finally { btn.disabled = false; }
 }
 
-async function rpCheck() {
-    const $ = id => document.getElementById(id);
-    const btn = $('rp-check');
-    btn.disabled = true;
-    rpMsg('Reading recruiter replies from Gmail (nothing is marked read or changed)...', '');
-    try {
-        const cid = $('rp-consultant').value;
-        const res = cid
-            ? await fetch('/api/applications/check-replies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: parseInt(cid) }) })
-            : await fetch('/api/replies/check-all', { method: 'POST' });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) { rpMsg(d.error || 'Could not check Gmail.', 'err'); return; }
-        rpMsg(`${d.new_replies || 0} new repl${d.new_replies === 1 ? 'y' : 'ies'}.` + ((d.errors || []).length ? ' Problems: ' + d.errors.join('; ') : ''), d.new_replies ? 'ok' : '');
-        rpLoad();
-    } finally { btn.disabled = false; }
-}
-
-// =========================================================================
-// Requirements from Gmail (inbox_requirements.py): requirement email -> tailored resume -> draft reply.
-// =========================================================================
-const rq = { wired: false, poll: null, recheckId: null, recheckUntil: 0 };
+// ---------------------------------------------------------------- New requirements
+const rq = { wired: true, poll: null, recheckId: null, recheckUntil: 0, rows: [], current: null };
 const RQ_COLORS = { review: '#dbeafe', drafted: '#dcfce7', drafted_input: '#fef9c3', low_match: '#fef3c7', not_requirement: '#f1f5f9', filtered: '#f1f5f9', error: '#fee2e2', checking: '#e0f2fe' };
-
-function openRequirements(candId) {
-    const $ = id => document.getElementById(id);
-    if (!rq.wired) {
-        rq.wired = true;
-        $('btn-close-reqs').addEventListener('click', () => { $('modal-reqs').style.display = 'none'; clearTimeout(rq.poll); });
-        ['rq-consultant', 'rq-status'].forEach(id => $(id).addEventListener('change', rqLoad));
-        $('rq-scan').addEventListener('click', rqScan);
-    }
-    $('rq-consultant').innerHTML = '<option value="">All my consultants</option>' + (state.consultants || [])
-        .map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-    $('rq-consultant').value = candId ? String(candId) : '';
-    $('rq-msg').textContent = '';
-    $('modal-reqs').style.display = 'flex';
-    rqLoad();
-}
 
 async function rqLoad() {
     const $ = id => document.getElementById(id);
-    const cid = $('rq-consultant').value;
+    const cid = trk.candId;
     const res = await fetch('/api/requirements' + (cid ? `?candidate_id=${cid}` : ''));
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { $('rq-msg').textContent = d.error || 'Could not load.'; return; }
+    if (!res.ok) { aiMsg(d.error || 'Could not load.', 'err'); return; }
     $('rq-min').textContent = d.min_match;
+    rq.rows = d.requirements || [];
+    aiBadge('ai-count-reqs', rq.rows.filter(r => r.status === 'review').length, true);
     const want = $('rq-status').value;
-    const rows = (d.requirements || []).filter(r => !want || r.status === want || (want === 'drafted' && r.status === 'drafted_input') || (want === 'error' && r.status === 'checking'));
-    $('rq-body').innerHTML = rows.length ? rows.map(r => `
-        <tr data-id="${r.id}">
-            <td style="white-space:nowrap;">${escapeHtml((r.received_at || '').slice(0, 16))}</td>
-            <td>${escapeHtml(r.candidate_name || '')}</td>
-            <td>${escapeHtml(r.from_name || '')}<div style="color:#64748b;">${escapeHtml(r.from_email || '')}</div></td>
-            <td style="min-width:200px;">${escapeHtml(r.subject || '')}${r.job_title ? `<div style="color:#64748b;">${escapeHtml(r.job_title)}${r.job_company ? ' · ' + escapeHtml(r.job_company) : ''}</div>` : ''}</td>
-            <td><span style="display:inline-block; padding:2px 8px; border-radius:999px; font-weight:700; background:${RQ_COLORS[r.status] || '#f1f5f9'}; white-space:nowrap;">${escapeHtml(r.status_label)}</span></td>
-            <td>${r.match_pct != null ? r.match_pct + '%' : '-'}</td>
-            <td style="max-width:170px; word-break:break-all;">${r.resume_version_id ? `<a href="/api/optimized-resumes/${r.resume_version_id}/download">${escapeHtml(r.resume_filename || 'tailored resume')}</a>` : (r.status === 'drafted' ? '<span style="color:#94a3b8;">original</span>' : '-')}</td>
-            <td style="min-width:220px; color:#475569;">${escapeHtml(r.reason || '')}${r.status === 'review'
-                ? `<div><button type="button" class="btn btn-primary btn-xs rq-review" data-id="${r.id}" style="margin-top:4px;">👁 Review &amp; create draft</button></div>` : ''}${['not_requirement', 'filtered', 'low_match'].includes(r.status)
-                ? `<div><button type="button" class="btn btn-secondary btn-xs rq-recheck" data-id="${r.id}" style="margin-top:4px;">↻ Check again</button></div>` : ''}</td>
-        </tr>`).join('') : `<tr><td colspan="8" style="text-align:center; color:#64748b; padding:18px;">${want ? 'Nothing with this result yet - choose "All".' : 'No requirement emails checked yet - click "Scan Gmail now".'}</td></tr>`;
-    $('rq-body').querySelectorAll('.rq-recheck').forEach(b => b.addEventListener('click', () => rqRecheck(b)));
-    $('rq-body').querySelectorAll('.rq-review').forEach(b => b.addEventListener('click', () => rqReview(parseInt(b.dataset.id))));
+    const rows = rq.rows.filter(r => !want || r.status === want || (want === 'drafted' && r.status === 'drafted_input') || (want === 'error' && r.status === 'checking'));
+    $('rq-list').innerHTML = rows.length ? rows.map(r => `
+        <div class="ai-item rq-item ${rq.current === r.id ? 'sel' : ''}" data-id="${r.id}">
+            <div class="ai-item-top"><span class="ai-item-title">${escapeHtml(r.job_title || r.subject || '')}</span>
+                <span class="ai-date">${escapeHtml((r.received_at || '').slice(0, 16))}</span></div>
+            <div class="ai-item-sub">${escapeHtml(r.from_name || r.from_email || '')}${!cid && r.candidate_name ? ' · for ' + escapeHtml(r.candidate_name) : ''}</div>
+            <div style="margin-top:4px;"><span class="ai-pill" style="background:${RQ_COLORS[r.status] || '#f1f5f9'};">${escapeHtml(r.status_label)}</span>
+                ${r.match_pct != null ? `<span class="ai-pill" style="margin-left:4px;">${r.match_pct}% match</span>` : ''}
+                ${r.status === 'review' ? '<span class="ai-next warn">→ Review &amp; create the draft</span>' : ''}</div>
+        </div>`).join('') : `<div class="ai-empty">${want ? 'Nothing with this result yet - choose "All".' : 'No requirement emails checked yet - click "Check Gmail now".'}</div>`;
+    if (rq.current && rows.some(r => r.id === rq.current)) rqOpen(rq.current);
+    else if (rq.current) { rq.current = null; $('rq-detail').innerHTML = '<div class="ai-empty">Pick an email on the left.</div>'; }
     clearTimeout(rq.poll);
     // "Check again": keep refreshing until that email has its new result (the scan may run on another server worker)
     const waiting = rq.recheckId && Date.now() < rq.recheckUntil &&
-        (d.requirements || []).some(r => r.id === rq.recheckId && (r.status === 'checking' || (r.status === 'error' && !r.attempts)));
+        rq.rows.some(r => r.id === rq.recheckId && (r.status === 'checking' || (r.status === 'error' && !r.attempts)));
     if (rq.recheckId && !waiting) {
-        const r = (d.requirements || []).find(x => x.id === rq.recheckId);
-        if (r) $('rq-msg').textContent = `Checked again: ${r.status_label}.`;
+        const r = rq.rows.find(x => x.id === rq.recheckId);
+        if (r) aiMsg(`Checked again: ${r.status_label}.`, 'ok');
         rq.recheckId = null;
     }
-    if (waiting && $('modal-reqs').style.display === 'flex') {
+    const open = $('modal-tracker').style.display === 'flex' && trk.pane === 'reqs';
+    if (waiting && open) {
         rq.poll = setTimeout(rqLoad, 6000);
-    } else if (d.scanning && $('modal-reqs').style.display === 'flex') {
-        $('rq-msg').textContent = 'Scanning Gmail and tailoring resumes... (about a minute per requirement)';
+    } else if (d.scanning && open) {
+        aiMsg('Reading requirement emails and tailoring resumes... (about a minute per requirement)', '');
         rq.poll = setTimeout(rqLoad, 8000);
-    } else if ($('rq-msg').textContent.startsWith('Scanning')) {
-        $('rq-msg').textContent = 'Scan finished.';
     }
+}
+
+// What each result means, in one line, and what the recruiter can do about it.
+const RQ_NEXT = {
+    review: 'Review the tailored resume and the reply, then create the Gmail draft.',
+    drafted: 'The draft is in the consultant\'s Gmail Drafts - open Gmail and press Send.',
+    drafted_input: 'The draft is in Gmail but needs details only you know - fill them in Gmail, then Send.',
+    low_match: 'The resume matches less than the minimum, so no draft was made. Check again if you think it fits.',
+    not_requirement: 'The AI read this as not a job requirement. If it is one, click "Check again".',
+    filtered: 'Skipped as an automatic / notification email. If it is a real requirement, click "Check again".',
+    error: 'Something went wrong - it is tried again automatically on the next check.',
+    checking: 'Being checked right now...',
+};
+
+function rqOpen(id) {
+    const r = rq.rows.find(x => x.id === id);
+    if (!r) return;
+    rq.current = id;
+    document.querySelectorAll('.rq-item').forEach(el => el.classList.toggle('sel', parseInt(el.dataset.id) === id));
+    const warn = ['review', 'drafted_input', 'not_requirement', 'filtered', 'low_match'].includes(r.status);
+    document.getElementById('rq-detail').innerHTML = `
+        <div style="font-weight:800; font-size:1rem; color:#0f172a;">${escapeHtml(r.subject || '')}</div>
+        <div style="font-size:0.82rem; color:#475569;">From ${escapeHtml(r.from_name ? `${r.from_name} <${r.from_email}>` : (r.from_email || ''))} · ${escapeHtml((r.received_at || '').slice(0, 16))}</div>
+        <div style="font-size:0.82rem; color:#475569;">For ${escapeHtml(r.candidate_name || '')}${r.job_title ? ` → ${escapeHtml(r.job_title)}${r.job_company ? ' · ' + escapeHtml(r.job_company) : ''}` : ''}</div>
+        <div class="ai-step ${warn ? 'warn' : ''}" style="margin-top:12px;"><span><b>${escapeHtml(r.status_label)}${r.match_pct != null ? ` · ${r.match_pct}% match` : ''}</b><br>${escapeHtml(RQ_NEXT[r.status] || '')}</span>
+            ${r.status === 'review' ? `<button type="button" class="btn btn-primary btn-sm rq-review" data-id="${r.id}">👁 Review &amp; create draft</button>` : ''}
+            ${['not_requirement', 'filtered', 'low_match'].includes(r.status) ? `<button type="button" class="btn btn-secondary btn-sm rq-recheck" data-id="${r.id}">↻ Check again</button>` : ''}</div>
+        ${r.reason ? `<div class="ai-h">Details</div><div style="font-size:0.82rem; color:#334155;">${escapeHtml(r.reason)}</div>` : ''}
+        ${r.resume_version_id ? `<div class="ai-h">Tailored resume</div><a href="/api/optimized-resumes/${r.resume_version_id}/download">${escapeHtml(r.resume_filename || 'tailored resume')}</a>` : ''}`;
+    document.querySelectorAll('#rq-detail .rq-recheck').forEach(b => b.addEventListener('click', () => rqRecheck(b)));
+    document.querySelectorAll('#rq-detail .rq-review').forEach(b => b.addEventListener('click', () => rqReview(parseInt(b.dataset.id))));
 }
 
 // Review: the tailored resume and the prepared reply in the Optimize window; the draft is created from there.
@@ -6550,7 +6631,7 @@ async function rqReview(id) {
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { showToast(d.error || 'Could not open it.', 'error'); return; }
     if (d.status !== 'review') { showToast(`This one is already: ${d.status_label}.`, 'info'); rqLoad(); return; }
-    document.getElementById('modal-reqs').style.display = 'none';
+    document.getElementById('modal-tracker').style.display = 'none';
     clearTimeout(rq.poll);
     const title = [d.job.title, d.job.company].filter(Boolean).join(' - ') || d.subject;
     await openOptimizePanel({ mode: 'job', candId: d.candidate_id, jobId: d.job_id, title, jdText: d.job.description,
@@ -6561,23 +6642,11 @@ async function rqRecheck(btn) {
     btn.disabled = true;
     const res = await fetch(`/api/requirements/${btn.dataset.id}/recheck`, { method: 'POST' });
     const d = await res.json().catch(() => ({}));
-    const msg = document.getElementById('rq-msg');
-    if (!res.ok) { msg.textContent = d.error || 'Could not check it again.'; btn.disabled = false; return; }
-    msg.textContent = d.started ? 'Checking it again - reading the email, then tailoring the resume (about a minute)...' : (d.message || '');
+    if (!res.ok) { aiMsg(d.error || 'Could not check it again.', 'err'); btn.disabled = false; return; }
+    aiMsg(d.started ? 'Checking it again - reading the whole email, then tailoring the resume (about a minute)...' : (d.message || ''), '');
     rq.recheckId = parseInt(btn.dataset.id);
     rq.recheckUntil = Date.now() + 4 * 60 * 1000;
     setTimeout(rqLoad, 3000);
-}
-
-async function rqScan() {
-    const $ = id => document.getElementById(id);
-    const cid = $('rq-consultant').value;
-    const res = await fetch('/api/requirements/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cid ? { candidate_id: parseInt(cid) } : {}) });
-    const d = await res.json().catch(() => ({}));
-    if (!res.ok) { $('rq-msg').textContent = d.error || 'Could not start the scan.'; return; }
-    $('rq-msg').textContent = d.started ? 'Scanning Gmail and tailoring resumes... (about a minute per requirement)' : (d.message || '');
-    if (d.started) setTimeout(rqLoad, 3000);
 }
 
 // =========================================================================

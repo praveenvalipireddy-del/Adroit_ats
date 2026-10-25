@@ -187,19 +187,21 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.91.0" in page.content(), "cache-buster not bumped to 5.91.0")
+        check("app.js?v=5.92.0" in page.content(), "cache-buster not bumped to 5.92.0")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
         page.evaluate(f"openTracker({cid})")
-        page.click("#trk-open-reqs")
-        page.wait_for_selector("#rq-body .rq-review", timeout=10000)
-        check(page.locator("#rq-body .rq-review").count() == 2 and "Ready to review" in page.inner_text("#rq-body"), "Review offered on both")
+        page.click("#ai-tab-reqs")
+        page.wait_for_selector("#rq-list .rq-item", timeout=10000)
+        check(page.inner_text("#rq-list").count("Review & create the draft") == 2 and "Ready to review" in page.inner_text("#rq-list"), "Review offered on both")
+        check(page.inner_text("#ai-count-reqs").strip() == "2", f"tab badge = 2 to review: {page.inner_text('#ai-count-reqs')!r}")
 
         # ---- 1. tailored resume + prepared reply, edited, then the draft
         ai_calls.clear()
-        page.click(f"#rq-body .rq-review[data-id='{r1['id']}']")
+        page.click(f".rq-item[data-id='{r1['id']}']")
+        page.click(f"#rq-detail .rq-review[data-id='{r1['id']}']")
         page.wait_for_function("document.querySelector('#rv-preview .docx-wrapper') && document.querySelector('#rv-preview').innerText.includes('Microservices')", timeout=15000)
         page.wait_for_function("document.getElementById('do-email-to') && document.getElementById('do-email-to').value", timeout=10000)
-        check(not page.is_visible("#modal-reqs"), "the Requirements window steps aside")
+        check(not page.is_visible("#modal-tracker"), "the Applications & Inbox window steps aside")
         check(page.input_value("#do-email-to") == "risa@techdigital-test.example" and page.input_value("#do-email-subject") == "Re: Java Backend Developer on W2",
               f"prepared reply shown: {page.input_value('#do-email-to')} / {page.input_value('#do-email-subject')}")
         check(page.input_value("#do-email-body") == r1["draft_body"], "the body is exactly the prepared one")
@@ -221,16 +223,18 @@ try:
 
         # ---- 2. no changes needed: the original resume is shown and attached
         page.evaluate(f"openTracker({cid})")
-        page.click("#trk-open-reqs")
-        page.wait_for_selector(f"#rq-body .rq-review[data-id='{r2['id']}']", timeout=10000)
+        page.click("#ai-tab-reqs")
+        page.wait_for_selector(f".rq-item[data-id='{r2['id']}']", timeout=10000)
         for _ in range(10):        # the draft request may still be finishing (it runs after the window closes)
-            if "Draft created after your review" in page.inner_text("#rq-body"):
+            page.click(f".rq-item[data-id='{r1['id']}']")
+            if "Draft created after your review" in page.inner_text("#rq-detail"):
                 break
             page.wait_for_timeout(1000)
             page.evaluate("rqLoad()")
-        check(page.locator(f"#rq-body .rq-review[data-id='{r1['id']}']").count() == 0 and "Draft created after your review" in page.inner_text("#rq-body"),
+        check(page.locator(f"#rq-detail .rq-review").count() == 0 and "Draft created after your review" in page.inner_text("#rq-detail"),
               "the reviewed one is now Draft created")
-        page.click(f"#rq-body .rq-review[data-id='{r2['id']}']")
+        page.click(f".rq-item[data-id='{r2['id']}']")
+        page.click(f"#rq-detail .rq-review[data-id='{r2['id']}']")
         page.wait_for_function("document.getElementById('do-status').innerText.includes('no changes were needed')", timeout=15000)
         page.wait_for_function("document.getElementById('do-email-to').value === 'sam@platform-vendor.example'", timeout=10000)
         page.click("#btn-do-save")

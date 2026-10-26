@@ -130,7 +130,7 @@ check(jobs and jobs[0]["salary"] == "" and jobs[0]["country"] == "India" and job
 posts_calls.clear()
 res = linkedin_posts.search("DevOps Engineer", market="United States")
 call = posts_calls[-1][1]
-check('"DevOps Engineer" AND (hiring OR' in call["searchQueries"][0] and call["maxPosts"] == 50 and call["postedLimit"] == "24h" and call["sortBy"] == "date",
+check(call["searchQueries"] == ["hiring DevOps Engineer"] and call["maxPosts"] == 50 and call["postedLimit"] == "24h" and call["sortBy"] == "date",
       f"LinkedIn post search: {call}")
 read = sorted(n for c in ai_calls for n in c)
 check(2 not in read and read == [1, 3, 4, 5, 6], f"the job seeker is dropped without AI, every other post is read: {read}")
@@ -140,6 +140,23 @@ check(("Riya Recruiter", "riya@cloudhire-portaltest.example", "+1 469 555 0199")
 sam = [x for x in res["jobs"] if x["recruiter_name"] == "Sam Vendor"]
 check(sam and sam[0]["recruiter_email"] == "", "an email the post doesn't contain is dropped")
 check(abs(res["cost_usd"] - 0.012) < 1e-9, f"cost reported ($0.002 x 6 posts): {res['cost_usd']}")
+
+# nothing in 24 hours -> one more search over the last week; nothing there -> said so, $0.002 for two empty searches
+real_fake_post = ij.requests.post
+week = []
+def _empty_then_week(url, params=None, json=None, timeout=None):
+    week.append(json.get("postedLimit"))
+    return Resp(200, [] if json.get("postedLimit") == "24h" else POSTS[:1])
+ij.requests.post = _empty_then_week
+r_w = linkedin_posts.search("DevOps Engineer", market="United States")
+check(week == ["24h", "week"] and r_w["widened"] and r_w["read"] == 1, f"widened to the last week: {week} {r_w['read']}")
+ij.requests.post = lambda url, params=None, json=None, timeout=None: Resp(200, [])
+r_e = linkedin_posts.search("DevOps Engineer", market="United States")
+check(r_e["read"] == 0 and r_e["cost_usd"] == 0.002 and not r_e["error"], f"two empty searches: {r_e}")
+ij.requests.post = lambda url, params=None, json=None, timeout=None: Resp(200, [{"type": "post", "id": "9", "unknownField": "x"}])
+r_f = linkedin_posts.search("DevOps Engineer", market="United States")
+check("format this app doesn't read yet" in r_f["error"], f"a renamed field is reported, not shown as 0 posts: {r_f['error']}")
+ij.requests.post = real_fake_post
 riya = [x for x in res["jobs"] if x["recruiter_name"] == "Riya Recruiter"][0]
 check("Profile: https://www.linkedin.com/in/rec1" in riya["description"] and "Talent Acquisition at CloudHire" in riya["description"]
       and riya["url"].endswith("test-portaltest-1") and riya["source"] == "Recruiter Post", f"recruiter + post links: {riya['description'][:200]}")
@@ -152,7 +169,7 @@ r = us.run_multi_source_us_scrape(["DevOps Engineer"], save_to_db=False)
 check(not posts_calls and set(r["sources"]) == {"Dice", "LinkedIn"}, f"All US portals = free only, no Apify: {posts_calls} {r['sources']}")
 r = us.run_multi_source_us_scrape(["DevOps Engineer"], save_to_db=True, sources=["Recruiter Post"], job_type="")
 check([c[0] for c in posts_calls] == ["posts"] and r["sources"]["Recruiter Post"]["count"] == 3
-      and "read 6 posts, 3 real requirements" in r["sources"]["Recruiter Post"]["note"] and "$0.01" in r["sources"]["Recruiter Post"]["note"],
+      and "read 6 posts, 3 real requirements" in r["sources"]["Recruiter Post"]["note"] and "$0.012" in r["sources"]["Recruiter Post"]["note"],
       f"recruiter posts only, with the note: {r['sources']}")
 saved = [x for x in models.get_jobs(source="Recruiter Post", country="United States")]
 check(len(saved) == 3 and all(x["title"] == "DevOps Engineer" for x in saved), f"three posts with the same title stay three jobs: {len(saved)}")

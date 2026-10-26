@@ -235,10 +235,11 @@ def scrape_recruiter_posts(keyword: str, market: str, job_type: str = "") -> Lis
     LAST_ERROR[linkedin_posts.SOURCE] = res["error"]
     n = res["requirements"]
     LAST_NOTE[linkedin_posts.SOURCE] = "" if res["error"] else (
-        f"read {res['read']} posts, {n} real requirement{'s' if n != 1 else ''}"
+        ("LinkedIn found no posts for this search in the last week" if not res["read"] else
+         f"read {res['read']} posts{' from the last week (none in 24 hours)' if res['widened'] else ''}, {n} real requirement{'s' if n != 1 else ''}")
         + (f", {res['other_market']} for the other market" if res["other_market"] else "")
         + (f", {res['ai_failed']} the AI couldn't read" if res["ai_failed"] else "")
-        + " (about $" + f"{res['cost_usd']:.2f})")
+        + " (about $" + f"{res['cost_usd']:.3f})")
     return res["jobs"]
 
 

@@ -53,9 +53,9 @@ Return ONLY JSON: {"posts": [{"n": <the post number>, "is_requirement": true/fal
 
 
 def build_query(keyword: str) -> str:
-    """The LinkedIn search: the keyword together with hiring words (LinkedIn's search takes AND / OR / quotes)."""
-    kw = keyword.strip().replace('"', "")
-    return f'"{kw}" AND (hiring OR requirement OR opening OR "looking for" OR "share resume" OR C2C OR urgent)'
+    """The LinkedIn search: plain words, like the scraper's own examples ("Hiring software engineer"). A strict
+    form ('"AI Automation Engineer" AND (hiring OR ...)') found nothing on the live site; the AI does the sorting."""
+    return f"hiring {keyword.strip().replace(chr(34), '')}"
 
 
 def estimated_cost(max_posts: int = None) -> float:
@@ -100,18 +100,25 @@ def _only_if_written(value: str, content: str, pattern) -> str:
 def search(keyword: str, market: str = "United States", max_posts: int = None, posted: str = "24h") -> Dict:
     """Returns {jobs, read, worth_reading, requirements, not_requirements, other_market, ai_failed, cost_usd, error}."""
     max_posts = max(5, min(int(max_posts or MAX_POSTS), 200))
-    out = {"jobs": [], "read": 0, "worth_reading": 0, "requirements": 0, "not_requirements": 0, "other_market": 0,
-           "ai_failed": 0, "cost_usd": 0.0, "error": ""}
-    items, err = ij._run_actor_sync(ACTOR, {"searchQueries": [build_query(keyword)], "maxPosts": max_posts, "postedLimit": posted,
-                                            "sortBy": "date", "profileScraperMode": "short"}, timeout=200)
+    out = {"jobs": [], "read": 0, "returned": 0, "worth_reading": 0, "requirements": 0, "not_requirements": 0, "other_market": 0,
+           "ai_failed": 0, "cost_usd": 0.0, "error": "", "widened": False}
+    payload = {"searchQueries": [build_query(keyword)], "maxPosts": max_posts, "postedLimit": posted, "sortBy": "date", "profileScraperMode": "short"}
+    items, err = ij._run_actor_sync(ACTOR, payload, timeout=200)
+    searches = 1
+    if not err and not items and posted == "24h":
+        # nothing in the last 24 hours: one more search over the last week (an empty search costs $0.001)
+        items, err = ij._run_actor_sync(ACTOR, dict(payload, postedLimit="week"), timeout=200)
+        searches, out["widened"] = 2, True
     ij.LAST_ERROR[SOURCE] = err or ""
     if err:
         out["error"] = err
         return out
+    out["returned"] = len(items)
+    out["cost_usd"] = round(len(items) * PRICE_PER_POST + (searches if not items else searches - 1) * 0.001, 3)
     posts = []
     for it in items:
-        content = (it.get("content") or it.get("text") or "").strip()
-        if not content or (it.get("type") not in (None, "post")):
+        content = ij._first(it, "content", "text", "commentary", "postText", "description")
+        if not content or (it.get("type") or "post") in ("comment", "reaction", "profile", "company"):
             continue
         a = it.get("author") if isinstance(it.get("author"), dict) else {}
         posted_at = it.get("postedAt") if isinstance(it.get("postedAt"), dict) else {}
@@ -120,7 +127,13 @@ def search(keyword: str, market: str = "United States", max_posts: int = None, p
                       "headline": a.get("info") or a.get("headline") or "",
                       "profile": (a.get("linkedinUrl") or "").split("?")[0], "posted": posted_at.get("postedAgoShort") or posted_at.get("date") or ""})
     out["read"] = len(posts)
-    out["cost_usd"] = round(len(items) * PRICE_PER_POST, 3) if items else 0.001
+    if items and not posts:
+        # the scraper answered, but its records have no post text - most likely renamed fields
+        logger.warning(f"LinkedIn posts: {len(items)} results without post text; fields seen: {sorted(items[0].keys())[:30]}")
+        out["error"] = (f"LinkedIn returned {len(items)} posts but in a format this app doesn't read yet "
+                        "(the scraper changed its fields) - tell the developer")
+        ij.LAST_ERROR[SOURCE] = out["error"]
+        return out
     todo = [p for p in posts if _worth_reading(p["content"])]
     out["worth_reading"] = len(todo)
     out["not_requirements"] = len(posts) - len(todo)

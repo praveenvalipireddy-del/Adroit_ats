@@ -36,9 +36,11 @@ NAUKRI_ACTOR = "epicscrapers~naukri-scraper"
 FOUNDIT_ACTOR = "crawloop~foundit-jobs-scraper"
 
 
-# source -> why its last search found nothing ('' = it worked)
+# source -> why its last search found nothing ('' = it worked); LAST_NOTE: what it did (posts read, cost)
 LAST_ERROR: Dict[str, str] = {}
-SOURCES = ("Naukri", "Foundit", "LinkedIn")
+LAST_NOTE: Dict[str, str] = {}
+SOURCES = ("Naukri", "Foundit", "Indeed", "LinkedIn", "Recruiter Post")
+ALL_SOURCES = ("Naukri", "Foundit", "Indeed", "LinkedIn")     # "All India portals" - recruiter posts only when picked (AI + $0.10 a search)
 
 
 def _token() -> str:
@@ -78,7 +80,7 @@ def _run_actor_sync(actor: str, payload: Dict, timeout: int = 150):
             items = items if isinstance(items, list) else []
             # every run is logged (search terms, results, time) - an empty result is visible in the server log
             logger.info(f"Apify {actor}: {len(items)} results in {time.monotonic() - started:.0f}s for "
-                        f"{ {k: v for k, v in payload.items() if k in ('keyword', 'position', 'location', 'jobAge', 'postedWithinDays')} }")
+                        f"{ {k: v for k, v in payload.items() if k in ('keyword', 'position', 'title', 'searchQueries', 'country', 'location', 'jobAge', 'postedWithinDays', 'datePosted', 'maxPosts', 'postedLimit')} }")
             return items, None
         logger.warning(f"Apify {actor}: HTTP {r.status_code} after {time.monotonic() - started:.0f}s: {r.text[:300]}")
         return None, explain_apify_error(r.status_code, r.text)
@@ -221,6 +223,25 @@ def scrape_linkedin_india(keyword: str = "Java", location: str = "India", limit:
     return jobs
 
 
+def scrape_indeed_india(keyword: str = "Java", location: str = "India", limit: int = 15, job_type: str = "") -> List[Dict]:
+    import indeed_jobs
+    return indeed_jobs.scrape_indeed(keyword, location=location, country="India", limit=max(limit, 25), job_type=job_type)
+
+
+def scrape_recruiter_posts(keyword: str, market: str, job_type: str = "") -> List[Dict]:
+    """LinkedIn recruiter posts (linkedin_posts.py) - the summary (posts read, requirements, cost) goes to LAST_NOTE."""
+    import linkedin_posts
+    res = linkedin_posts.search(keyword, market=market)
+    LAST_ERROR[linkedin_posts.SOURCE] = res["error"]
+    n = res["requirements"]
+    LAST_NOTE[linkedin_posts.SOURCE] = "" if res["error"] else (
+        f"read {res['read']} posts, {n} real requirement{'s' if n != 1 else ''}"
+        + (f", {res['other_market']} for the other market" if res["other_market"] else "")
+        + (f", {res['ai_failed']} the AI couldn't read" if res["ai_failed"] else "")
+        + " (about $" + f"{res['cost_usd']:.2f})")
+    return res["jobs"]
+
+
 def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location: str = "India",
                                   save_to_db: bool = True, sources: Optional[List[str]] = None, job_type: str = "") -> Dict:
     """Mirrors run_multi_source_us_scrape in us_job_scrapers.py, for the India market.
@@ -230,12 +251,13 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
 
     if not keywords:
         keywords = ["Java", "Python Developer", "Data Analyst", "React Developer"]
-    wanted = [x for x in SOURCES if not sources or x in sources]
-    scrapers = {"Naukri": scrape_naukri, "Foundit": scrape_foundit, "LinkedIn": scrape_linkedin_india}
+    wanted = [x for x in SOURCES if (x in sources if sources else x in ALL_SOURCES)]
+    scrapers = {"Naukri": scrape_naukri, "Foundit": scrape_foundit, "Indeed": scrape_indeed_india, "LinkedIn": scrape_linkedin_india,
+                "Recruiter Post": lambda kw, location="India", limit=8, job_type="": scrape_recruiter_posts(kw, "India", job_type)}
 
     all_jobs = []
     seen_keys = set()
-    status = {name: {"count": 0, "error": ""} for name in wanted}
+    status = {name: {"count": 0, "error": "", "note": ""} for name in wanted}
     for name in wanted:                        # a portal that can't filter the wanted type isn't searched
         if job_types.portal_code(name, job_type) is None:
             status[name]["error"] = job_types.skip_reason(name, job_type)
@@ -245,10 +267,11 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
                 continue
             found = scrapers[name](kw, location=location, limit=8, job_type=job_type)
             status[name]["count"] += len(found)
+            status[name]["note"] = LAST_NOTE.get(name, "")
             if not found and LAST_ERROR.get(name):
                 status[name]["error"] = LAST_ERROR[name]
             for j in found:
-                key = f"{j['title'].lower()}|{j['company'].lower()}"
+                key = j["url"] if name == "Recruiter Post" else f"{j['title'].lower()}|{j['company'].lower()}"
                 if key not in seen_keys:
                     seen_keys.add(key)
                     all_jobs.append(j)
@@ -257,7 +280,8 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
     if save_to_db:
         for job_data in all_jobs:
             try:
-                job_id = models.save_or_update_scraped_job(job_data)
+                # a recruiter post is its own requirement - never merged with another post of the same title
+                job_id = models.save_or_update_scraped_job(job_data, match_title_company=job_data.get("source") != "Recruiter Post")
                 job_data["id"] = job_id
                 saved_count += 1
             except Exception as e:

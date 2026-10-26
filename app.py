@@ -808,7 +808,9 @@ def api_jobs_search():
     # India portals are paid (Apify): an empty result only triggers a scrape when the recruiter clicked Search Jobs
     # (automatic searches - opening the tab, changing a filter - send no_scrape), and never right after the
     # page's own Live 24h Scrape. US portals are read for free, so they keep scraping on an empty result.
-    no_scrape = bool(data.get("no_scrape")) and country.lower() == "india"
+    us_picked = _us_sources_for(source)
+    paid = country.lower() == "india" or any(s in us_job_scrapers.US_SOURCES and s not in us_job_scrapers.US_FREE_SOURCES for s in us_picked or [])
+    no_scrape = bool(data.get("no_scrape")) and paid
     if (len(results) == 0 and not no_scrape) or live_scrape:
         scrape_query = query or "Software Engineer"
         try:
@@ -826,8 +828,10 @@ def api_jobs_search():
                     contract_only=True,
                     save_to_db=True,
                     experience_years=my_experience,
-                    job_type=type_filter
+                    job_type=type_filter,
+                    sources=us_picked
                 )
+                scrape_sources = scrape_res.get("sources")
             results = models.get_jobs(
                 query=query if query else None,
                 location=location if location and location.lower() != "united states" else None,
@@ -860,6 +864,12 @@ def api_jobs_search():
         "is_24h_only": is_24h_only
     })
 
+def _us_sources_for(source: str):
+    """The US portals a Jobs-tab pick means (None = "All US portals" = the free ones, Dice + LinkedIn)."""
+    s = (source or "").strip().lower()
+    return next(([p] for p in us_job_scrapers.US_SOURCES if s and s != "all" and p.lower() == s.replace(".com", "")), None)
+
+
 @app.route("/api/jobs/scrape-us", methods=["POST", "OPTIONS"])
 def api_trigger_us_scrape():
     if request.method == "OPTIONS":
@@ -880,7 +890,8 @@ def api_trigger_us_scrape():
         location=location,
         contract_only=contract_only,
         save_to_db=True,
-        job_type=us_type
+        job_type=us_type,
+        sources=_us_sources_for(data.get("source") or "All")
     )
 
     models.log_activity(
@@ -896,6 +907,7 @@ def api_trigger_us_scrape():
         "success": True,
         "count": scrape_res.get("count", 0),
         "saved_to_db": scrape_res.get("saved_to_db", 0),
+        "sources": scrape_res.get("sources"),
         "message": f"Successfully scraped {scrape_res.get('count', 0)} fresh US contract jobs."
     })
 

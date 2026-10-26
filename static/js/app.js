@@ -617,19 +617,46 @@ function syncJobsMarketUi() {
     }
     if (sourceSelect) {
         sourceSelect.innerHTML = isIndia
-            ? `<option value="All">All India Portals (Naukri, Foundit, LinkedIn)</option>
+            ? `<option value="All">All India Portals (Naukri, Foundit, Indeed, LinkedIn)</option>
                <option value="Naukri">Naukri.com</option>
                <option value="Foundit">Foundit / Monster India</option>
-               <option value="LinkedIn">LinkedIn (Live)</option>`
+               <option value="Indeed">Indeed India</option>
+               <option value="LinkedIn">LinkedIn (Live)</option>
+               <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>`
             : `<option value="All">All US Portals (LinkedIn, Dice)</option>
                <option value="LinkedIn">LinkedIn (Live 24h)</option>
-               <option value="Dice">Dice.com</option>`;
+               <option value="Dice">Dice.com</option>
+               <option value="Indeed">Indeed</option>
+               <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>`;
+        jobsPortalCostHint();
     }
     if (descEl) {
         descEl.innerText = isIndia
             ? 'Scraped fresh requisitions from Naukri, Foundit (Monster India), and LinkedIn India. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.'
             : 'Scraped fresh C2C contract requisitions from LinkedIn US and Dice.com. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.';
     }
+}
+
+// Paid portals say what a search costs before it runs (Apify prices, Oct 2026).
+const PORTAL_COST = {
+    'Indeed': 'Indeed: about $0.004 per search (25 jobs) - paid from the Apify credit.',
+    'Recruiter Post': 'Recruiter posts: reads up to 50 LinkedIn posts from the last 24 hours, the AI keeps the real requirements - about $0.10 per search (Apify credit). Takes 1-2 minutes.',
+    'Naukri': 'Naukri: about $0.001 per job found (Apify credit).',
+    'Foundit': 'Foundit: about $0.001 per job found (Apify credit).',
+};
+function jobsPortalCostHint() {
+    const src = document.getElementById('filter-source')?.value || 'All';
+    const india = (document.getElementById('filter-country')?.value || '') === 'India';
+    let el = document.getElementById('jobs-portal-cost');
+    const sel = document.getElementById('filter-source');
+    if (!sel) return;
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'jobs-portal-cost';
+        el.style.cssText = 'font-size:0.74rem; color:#92400e; margin-top:3px; max-width:280px; line-height:1.3;';
+        sel.insertAdjacentElement('afterend', el);
+    }
+    el.textContent = PORTAL_COST[src] || (india && src === 'All' ? 'Naukri, Foundit and Indeed are paid per job found (Apify credit).' : '');
 }
 
 function initJobsTable() {
@@ -643,6 +670,7 @@ function initJobsTable() {
     if (countrySelect) {
         countrySelect.addEventListener('change', () => { syncJobsMarketUi(); searchJobs(false); });
     }
+    if (sourceSelect) sourceSelect.addEventListener('change', jobsPortalCostHint);
 
     if (btnSearch) {
         btnSearch.addEventListener('click', () => searchJobs(false, { allowScrape: true }));
@@ -750,7 +778,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
             countLabel.innerText = `Showing ${state.jobs.length} Fresh ${country} Requisitions`;
             // what each portal returned on this live search, and why one found nothing
             const st = data.scrape_sources || opts.sources || {};
-            const parts = Object.entries(st).map(([name, v]) => v.error ? `${name}: 0 jobs - ${v.error}` : `${name}: ${v.count} found`);
+            const parts = Object.entries(st).map(([name, v]) => v.error ? `${name}: 0 jobs - ${v.error}` : `${name}: ${v.count} found${v.note ? ' (' + v.note + ')' : ''}`);
             let note = document.getElementById('jobs-source-status');
             if (!note) {
                 note = document.createElement('div');
@@ -772,7 +800,9 @@ async function searchJobs(liveScrape = false, opts = {}) {
 }
 
 async function triggerUsScrape() {
-    showToast('🚀 Running Live 24h US Requisition Scraper (Dice, LinkedIn)...', 'info', 6000);
+    const source = document.getElementById('filter-source')?.value || 'All';
+    const portalName = source === 'All' ? 'Dice, LinkedIn' : (document.getElementById('filter-source')?.selectedOptions[0]?.textContent || source);
+    showToast(`🚀 Running Live 24h US Requisition Scraper (${portalName})...`, 'info', 6000);
     const query = document.getElementById('filter-query')?.value?.trim() || 'Software Engineer';
     const location = document.getElementById('filter-location')?.value?.trim() || 'United States';
 
@@ -784,13 +814,16 @@ async function triggerUsScrape() {
                 keywords: [query],
                 location: location,
                 contract_only: true,
+                source,
                 type_filter: document.getElementById('filter-job-type')?.value || ''
             })
         });
         const data = await res.json();
         if (data.success) {
-            showToast(`✅ Scraped & saved ${data.count || 0} fresh US requisitions!`, 'success');
-            searchJobs(false);
+            const problems = Object.entries(data.sources || {}).filter(([, v]) => v.error).map(([n, v]) => `${n}: ${v.error}`);
+            showToast(`✅ Scraped & saved ${data.count || 0} fresh US requisitions!` + (problems.length ? ` ⚠ ${problems.join(' · ')}` : ''),
+                problems.length ? 'warning' : 'success', problems.length ? 12000 : 5000);
+            searchJobs(false, { noScrape: true, sources: data.sources });
         } else {
             showToast(`Scrape completed with notice: ${data.message || 'Ready'}`, 'info');
             searchJobs(false);
@@ -875,6 +908,7 @@ function renderJobsTable(jobs) {
                 <div style="font-size: 0.85rem; color: var(--text-muted); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                     ${j.company ? `<span>🏢 ${escapeHtml(j.company)}</span>` : ''}
                     ${j.location ? `<span>📍 ${escapeHtml(j.location)}</span>` : ''}
+                    ${j.source === 'Recruiter Post' ? `<span class="post-badge" title="A recruiter's LinkedIn post, read by the AI" style="background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; border-radius:999px; padding:1px 8px; font-size:0.75rem; font-weight:700;">📣 Post by ${escapeHtml(j.recruiter_name || 'recruiter')}</span>` : ''}
                     ${j.vendor ? `<span class="vendor-badge" title="${j.vendor.count} of your vendor contacts at ${escapeHtml(j.vendor.company)} will be BCC'd on a draft" style="background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; border-radius:999px; padding:1px 8px; font-size:0.75rem; font-weight:700;">🤝 Known vendor &middot; ${j.vendor.count}</span>` : ''}
                     ${reqUrl && reqUrl !== '#' ? `<a href="${reqUrl}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:none;" title="Open original job posting">View Req ↗</a>` : ''}
                 </div>

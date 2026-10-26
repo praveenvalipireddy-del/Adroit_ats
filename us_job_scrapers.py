@@ -195,38 +195,51 @@ def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United Stat
 
 # --- 3. MASTER MULTI-SOURCE US SCRAPER RUNNER ---
 
+US_FREE_SOURCES = ("Dice", "LinkedIn")                 # read directly, no cost - "All US portals"
+US_SOURCES = ("Dice", "LinkedIn", "Indeed", "Recruiter Post")   # Indeed + recruiter posts are paid (Apify): only when picked
+
+
 def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: str = "United States", contract_only: bool = True, save_to_db: bool = True,
-                               experience_years: Optional[int] = None, job_type: Optional[str] = None) -> Dict[str, Any]:
+                               experience_years: Optional[int] = None, job_type: Optional[str] = None,
+                               sources: Optional[List[str]] = None) -> Dict[str, Any]:
+    """sources: the portals to search (None = the free ones, Dice + LinkedIn). Returns {count, saved_to_db, jobs,
+    sources: {portal: {count, error, note}}}."""
+    import india_job_scrapers as ij
+    import indeed_jobs
     if job_type is None:
         job_type = "Contract" if contract_only else ""
     if not keywords:
         keywords = ["Java Spring Boot", "Python AI", "AWS DevOps", "React TypeScript"]
+    wanted = [s for s in US_SOURCES if (s in sources if sources else s in US_FREE_SOURCES)]
+    scrapers = {
+        "Dice": lambda kw: scrape_dice_us(kw, location=location, limit=8, job_type=job_type),
+        "LinkedIn": lambda kw: scrape_linkedin_us(kw, location=location, contract_only=contract_only, limit=8, experience_years=experience_years, job_type=job_type),
+        "Indeed": lambda kw: indeed_jobs.scrape_indeed(kw, location=location, country="United States", limit=25, job_type=job_type),
+        "Recruiter Post": lambda kw: ij.scrape_recruiter_posts(kw, "United States", job_type),
+    }
 
     all_jobs = []
     seen_keys = set()
+    status = {name: {"count": 0, "error": "", "note": ""} for name in wanted}
 
     for kw in keywords:
-        # 1. Direct Dice.com US Contracts (Direct dice.com/job-detail links)
-        dice_jobs = scrape_dice_us(kw, location=location, limit=8, job_type=job_type)
-        for j in dice_jobs:
-            key = f"{j['title'].lower()}|{j['company'].lower()}"
-            if key not in seen_keys:
-                seen_keys.add(key)
-                all_jobs.append(j)
-
-        # 2. Direct LinkedIn US (24h)
-        li_jobs = scrape_linkedin_us(kw, location=location, contract_only=contract_only, limit=8, experience_years=experience_years, job_type=job_type)
-        for j in li_jobs:
-            key = f"{j['title'].lower()}|{j['company'].lower()}"
-            if key not in seen_keys:
-                seen_keys.add(key)
-                all_jobs.append(j)
+        for name in wanted:
+            found = scrapers[name](kw)
+            status[name]["count"] += len(found)
+            status[name]["note"] = ij.LAST_NOTE.get(name, "")
+            if not found and ij.LAST_ERROR.get(name):
+                status[name]["error"] = ij.LAST_ERROR[name]
+            for j in found:
+                key = j["url"] if name == "Recruiter Post" else f"{j['title'].lower()}|{j['company'].lower()}"
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    all_jobs.append(j)
 
     saved_count = 0
     if save_to_db:
         for job_data in all_jobs:
             try:
-                job_id = models.save_or_update_scraped_job(job_data)
+                job_id = models.save_or_update_scraped_job(job_data, match_title_company=job_data.get("source") != "Recruiter Post")
                 job_data["id"] = job_id
                 saved_count += 1
             except Exception as e:
@@ -235,5 +248,6 @@ def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: s
     return {
         "count": len(all_jobs),
         "saved_to_db": saved_count,
-        "jobs": all_jobs
+        "jobs": all_jobs,
+        "sources": status,
     }

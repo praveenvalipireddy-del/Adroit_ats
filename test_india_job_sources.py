@@ -56,7 +56,7 @@ OLD_FORMAT_ITEM = {"jobId": "211025000001", "title": "Platform Engineer", "compa
 
 
 def fake_post(url, params=None, json=None, timeout=None):
-    actor = "naukri" if ij.NAUKRI_ACTOR in url else "foundit" if ij.FOUNDIT_ACTOR in url else "?"
+    actor = "naukri" if ij.NAUKRI_ACTOR in url else "foundit" if ij.FOUNDIT_ACTOR in url else "indeed" if "indeed" in url else "?"
     calls.append(actor)
     if actor == "naukri":
         if MODE["naukri"] == "no_credit":
@@ -76,11 +76,12 @@ ij.scrape_linkedin_us = lambda keyword, location="India", contract_only=False, l
 # ---- 1-2. only the chosen portal; the reason when it finds nothing
 r = ij.run_multi_source_india_scrape(["Cloud DevOps Engineer"], sources=["Naukri"], save_to_db=False)
 check(calls == ["naukri"], f"only Naukri searched: {calls}")
-check(r["sources"] == {"Naukri": {"count": 0, "error": ij.LAST_ERROR["Naukri"]}} and "monthly credit is used up" in r["sources"]["Naukri"]["error"],
+check(r["sources"] == {"Naukri": {"count": 0, "error": ij.LAST_ERROR["Naukri"], "note": ""}} and "monthly credit is used up" in r["sources"]["Naukri"]["error"],
       f"reason reported: {r['sources']}")
 calls.clear()
 r = ij.run_multi_source_india_scrape(["Cloud DevOps Engineer"], save_to_db=False)
-check(calls == ["naukri", "foundit", "linkedin"] and r["sources"]["LinkedIn"]["count"] == 1 and r["sources"]["Foundit"] == {"count": 0, "error": ""},
+check(calls == ["naukri", "foundit", "indeed", "linkedin"] and "Recruiter Post" not in r["sources"] and r["sources"]["LinkedIn"]["count"] == 1
+      and r["sources"]["Foundit"] == {"count": 0, "error": "", "note": ""},
       f"'All' searches every portal: {calls} {r['sources']}")
 check("token on the server is not valid" in ij.explain_apify_error(401, "") and "too long" in ij.explain_apify_error(408, ""), "other reasons in words")
 
@@ -106,7 +107,7 @@ check(urls.get("Cloud Devops Engineer") == NAUKRI_ITEM["jobURL"], f"live format 
 direct = {j["title"]: j["url"] for j in ij.scrape_naukri("Cloud DevOps Engineer")}
 check(direct.get("Platform Engineer") == "https://www.naukri.com/job-listings-platform-engineer-211025000001"
       and direct.get("Cloud Devops Engineer") == NAUKRI_ITEM["jobURL"], f"both formats read (jobURL and jdURL): {direct}")
-check(all("Naukri" in j["source"] for j in d["jobs"]) and d["scrape_sources"]["Naukri"] == {"count": 2, "error": ""},
+check(all("Naukri" in j["source"] for j in d["jobs"]) and d["scrape_sources"]["Naukri"] == {"count": 2, "error": "", "note": ""},
       f"Naukri jobs shown: {[(j['title'], j['source']) for j in d['jobs']]} {d['scrape_sources']}")
 # after a Live 24h Scrape the page searches the saved jobs (no_scrape, contract_only as the page sends it):
 # full-time Naukri jobs located "Bengaluru" must show for location "India"
@@ -136,7 +137,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.93.0" in page.content(), "cache-buster not bumped to 5.93.0")
+        check("app.js?v=5.94.0" in page.content(), "cache-buster not bumped to 5.94.0")
         page.click("a.nav-item[data-tab=jobs]")
         page.select_option("#filter-country", "India")
         page.fill("#filter-query", "Platform Engineer")

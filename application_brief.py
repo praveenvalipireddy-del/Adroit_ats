@@ -150,8 +150,10 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
     opening = ("This email ANSWERS the vendor's requirement email - open by thanking them for sharing it."
                if reply else "This is a new application email.")
     import consultant_rules
+    import email_memory
     rules = consultant_rules.prompt_block(cand.get("id"), "email")
-    prompt = (rules + f"GREETING: {_greeting(job)}\n{opening}\n"
+    memory = email_memory.prompt_block(cand.get("id"))
+    prompt = (rules + memory + f"GREETING: {_greeting(job)}\n{opening}\n"
               f"{'The attached resume was tailored to this job - say the resume is updated for this role.' if tailored else ''}\n\n"
               f"FACTS:\n{json.dumps(f, indent=1, default=str)}\n\nBRIEF:\n{json.dumps({k: v for k, v in b.items() if k != 'model'}, indent=1)}\n\n"
               f"JOB DESCRIPTION:\n{(jd_text or '')[:6000]}\n\nRESUME:\n{resume_text[:12000]}\n")
@@ -189,6 +191,8 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
                 notes = [str(x).strip() for x in (rv.get("notes") or []) if str(x).strip()][:4]
             except Exception:
                 pass
+            if memory:
+                notes.append(f"Wrote it in the style of your last {memory.count('--- Example')} approved email(s) for {cand.get('name') or 'this consultant'}")
             needs = [m.group(0) for m in FILL_RE.finditer(body)]
             return {"body": body, "needs_input": needs, "answered": [str(x) for x in data.get("answered") or []], "model": model,
                     "fallback": False, "notes": notes, "rule_conflicts": [str(x) for x in (plan.get("rule_conflicts") or []) if str(x).strip()][:3]}
@@ -243,6 +247,28 @@ def resume_text_for(cand: Dict, job_id: Optional[int], version_id: Optional[int]
     return "", False
 
 
+def job_link_line(job: Dict) -> str:
+    """'Position: <title> - <link>' for a job with a real web link (the vendor sees at once which opening it is).
+    None for an email requirement (its url is 'email:...'), a pasted requirement without a link, or no title."""
+    url = (job.get("url") or "").strip()
+    title = (job.get("title") or "").strip()
+    if not title or not re.match(r"^https?://", url, re.I):
+        return ""
+    if (job.get("source") or "") == "Recruiter Post":
+        return f"Position: {title} - your LinkedIn post: {url}"
+    return f"Position: {title} - {url}"
+
+
+def add_job_link(body: str, job: Dict) -> str:
+    """The job link right after the greeting, unless the email already has it."""
+    line = job_link_line(job)
+    url = (job.get("url") or "").strip()
+    if not line or not body or url in body:
+        return body
+    head, sep, rest = body.partition("\n\n")
+    return f"{head}\n\n{line}\n\n{rest}" if sep else f"{line}\n\n{body}"
+
+
 def build(cand: Dict, job: Dict, jd_text: str, version_id: Optional[int] = None, reply: bool = False,
           skills: Optional[List[str]] = None, default_to: str = "", default_subject: str = "",
           resume_text: Optional[str] = None, tailored: Optional[bool] = None) -> Dict:
@@ -254,6 +280,8 @@ def build(cand: Dict, job: Dict, jd_text: str, version_id: Optional[int] = None,
     else:
         resume_text, tailored = resume_text_for(cand, job.get("id"), version_id)
     w = write(cand, job, jd_text, resume_text, b, reply=reply, tailored=tailored, skills=skills)
+    if not reply:                    # a reply answers the vendor's own requirement email - they know the job
+        w["body"] = add_job_link(w["body"], job)
     to = b.get("apply_to_email") or default_to or (job.get("recruiter_email") or "")
     subject = b.get("required_subject") or default_subject or gmail_multi_manager.build_subject(cand, job)
     return {"to": to, "subject": subject, "body": w["body"], "needs_input": w["needs_input"], "brief": b,

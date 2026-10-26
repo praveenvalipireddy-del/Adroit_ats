@@ -478,6 +478,21 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    # Emails the recruiter approved, per consultant - the AI's version and what was saved as the draft
+    # (email_memory.py): the writers learn the recruiter's style from the last few.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS email_examples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        candidate_id INTEGER NOT NULL,
+        user_id INTEGER,
+        job_id INTEGER,
+        job_title TEXT,
+        ai_body TEXT,
+        final_body TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        drafted_at TIMESTAMP
+    );
+    """)
     # Recruiter replies to applications, read from the consultant's Gmail (reply_inbox.py): the text,
     # the AI's sorting (interview / question / ...), the prepared reply and what was done with it.
     cursor.execute("""
@@ -591,6 +606,7 @@ def init_db():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_application_replies_msg ON application_replies (candidate_id, message_id)",
         "CREATE INDEX IF NOT EXISTS ix_application_replies_app ON application_replies (application_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_requirements_msg ON inbox_requirements (candidate_id, message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_email_examples_cand ON email_examples (candidate_id)",
     ):
         try:
             cursor.execute(idx_sql)

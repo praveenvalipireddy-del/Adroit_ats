@@ -151,8 +151,9 @@ def edit_draft(cand: Dict, job: Dict, instruction: str, subject: str, body: str,
     jd = (jd_text or job.get("full_description") or job.get("description") or "").strip()[:8000]
     convo = resume_bot.chat_history_text(history)
     import consultant_rules
+    import email_memory
     rules_block = consultant_rules.prompt_block(cand.get("id"), "email")
-    prompt = (rules_block + f"FACTS:\n{json.dumps(f, indent=1, default=str)}\n\n" + (f"JOB_DESCRIPTION:\n{jd}\n\n" if jd else "")
+    prompt = (rules_block + email_memory.prompt_block(cand.get("id")) + f"FACTS:\n{json.dumps(f, indent=1, default=str)}\n\n" + (f"JOB_DESCRIPTION:\n{jd}\n\n" if jd else "")
               + (f"CONVERSATION SO FAR:\n{convo}\n\n" if convo else "")
               + f"CURRENT SUBJECT:\n{subject}\n\nCURRENT EMAIL:\n{body}\n\nRECRUITER'S MESSAGE:\n{instruction}\n")
     try:

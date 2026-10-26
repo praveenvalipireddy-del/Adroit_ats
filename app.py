@@ -24,6 +24,7 @@ import resume_editor
 import consultant_rules
 import docx_editor
 import application_brief
+import email_memory
 import regions
 import reply_inbox
 import inbox_requirements
@@ -1281,6 +1282,8 @@ def api_paste_and_draft():
         finally:
             conn.close()
     result["job_id"] = job_id
+    if (data.get("custom_body") or "").strip():
+        email_memory.remember_final(int(candidate_id), job_id, user["id"], job_title, data["custom_body"], pasted=True)
     return jsonify(result)
 
 @app.route("/api/outreach/create-draft", methods=["POST", "OPTIONS"])
@@ -1346,6 +1349,8 @@ def api_create_outreach_draft():
 
     if not result.get("success"):
         return jsonify(result), 400
+    if custom_body:
+        email_memory.remember_final(int(candidate_id), int(job_id), user["id"], (job or {}).get("title") or "", custom_body)
     if req_row:
         conn = models.get_db_connection()
         try:
@@ -1540,6 +1545,8 @@ def api_application_preview():
                                 default_to=(data.get("to_email") or job.get("recruiter_email") or "").strip(),
                                 resume_text=str(data.get("resume_text") or "")[:20000],
                                 tailored=None if data.get("tailored") is None else bool(data.get("tailored")))
+    if not b["fallback"]:
+        email_memory.remember_ai(cand["id"], job.get("id"), user["id"], job.get("title") or "", b["body"])
     return jsonify({"to": b["to"], "subject": b["subject"], "body": b["body"], "checklist": b["checklist"],
                     "needs_input": b["needs_input"], "fallback": b["fallback"], "notes": b.get("notes") or [],
                     "rule_conflicts": b.get("rule_conflicts") or []})

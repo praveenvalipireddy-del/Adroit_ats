@@ -106,6 +106,50 @@ out = application_brief.build(cand, job, JD, resume_text=cand["resume_text"], ta
 check(out["body"] == DRAFT and "$95" not in out["body"], "a review that adds a fact (a rate) is not used - the first draft stays")
 review_adds_rate["on"] = False
 
+# ---- 2b. the job link: right after the greeting, only for a real web link, never in a reply to their own email
+import email_memory  # noqa: E402
+LINK = "https://www.linkedin.com/jobs/view/4300000001"
+check(application_brief.job_link_line({"title": "DevOps Engineer", "url": LINK}) == f"Position: DevOps Engineer - {LINK}", "job link line")
+check(application_brief.job_link_line({"title": "DevOps Engineer", "url": "email:5:<m1@x>"}) == "", "no link for an email requirement")
+check("your LinkedIn post" in application_brief.job_link_line({"title": "DevOps Engineer", "url": LINK, "source": "Recruiter Post"}), "post link wording")
+job_l = dict(job, url=LINK)
+out = application_brief.build(cand, job_l, JD, resume_text=cand["resume_text"], tailored=False)
+check(out["body"].startswith(f"Hi Tushar,\n\nPosition: DevOps Engineer - {LINK}\n\nI came across"), f"link right after the greeting: {out['body'][:160]!r}")
+out_r = application_brief.build(cand, job_l, JD, resume_text=cand["resume_text"], tailored=False, reply=True)
+check(LINK not in out_r["body"], "no job link in a reply to the vendor's own requirement email")
+
+# ---- 2c. memory: the AI's version + what the recruiter saved; the next email learns from it
+check(email_memory.prompt_block(cid) == "", "no memory yet")
+email_memory.remember_ai(cid, 77, REC, "DevOps Engineer", "Hi Tushar,\n\nHope you are doing well!\n\nAI text.")
+email_memory.remember_final(cid, 77, REC, "DevOps Engineer", "Hi Tushar,\n\nRecruiter's own shorter text.\n\nVisu")
+conn = models.get_db_connection()
+cur = conn.cursor()
+cur.execute("SELECT ai_body, final_body, drafted_at FROM email_examples WHERE candidate_id = ?", (cid,))
+rows = [dict(r) for r in cur.fetchall()]
+conn.close()
+check(len(rows) == 1 and "AI text" in rows[0]["ai_body"] and "shorter text" in rows[0]["final_body"] and rows[0]["drafted_at"], f"one row, both versions: {rows}")
+mem = email_memory.prompt_block(cid)
+check("AI DRAFT:" in mem and "WHAT THE RECRUITER SENT INSTEAD:" in mem and "Never copy job-specific facts" in mem, "memory shows the change the recruiter made")
+email_memory.remember_final(cid, None, REC, "SRE", "Hi,\n\nTyped by hand.", pasted=True)
+check("SENT:\nHi,\n\nTyped by hand." in email_memory.prompt_block(cid), "an email the AI didn't write is remembered too")
+for i in range(4):
+    email_memory.remember_final(cid, 100 + i, REC, f"Job {i}", f"Hi,\n\nEmail {i}.")
+check(len(email_memory.examples(cid)) == 3 and email_memory.examples(cid)[0]["final_body"].endswith("Email 3."), "the last 3, newest first")
+calls.clear()
+seen = {}
+real_gen = rb._generate
+def _spy(client, types, system, prompt, want_json, max_tokens, **k):
+    if system == application_brief.WRITE_SYSTEM:
+        seen["write"] = prompt
+    return real_gen(client, types, system, prompt, want_json, max_tokens, **k)
+rb._generate = _spy
+out = application_brief.build(cand, job, JD, resume_text=cand["resume_text"], tailored=False)
+rb._generate = real_gen
+check("EMAILS THE RECRUITER APPROVED FOR THIS CONSULTANT" in seen.get("write", "") and "Email 3." in seen.get("write", ""), "the writer gets the approved emails")
+check(any("style of your last 3 approved email" in n for n in out["notes"]), f"the note says so: {out['notes']}")
+other = models.create_candidate("Other Memtest", "other-mem@example.invalid", title="QA", assigned_user_id=OTHER, country="India")
+check(email_memory.prompt_block(other) == "", "memory is per consultant")
+
 # ---- 3. rule check + API privacy
 client = app_module.app.test_client()
 with client.session_transaction() as s_:
@@ -119,6 +163,20 @@ conn.close()
 with client.session_transaction() as s_:
     s_["user"] = {"id": OTHER, "name": "Otto", "role": "Recruiter", "email": "think-other@example.invalid"}
 check(client.post(f"/api/consultants/{cid}/rules/check", json={"kind": "email", "text": "x y z"}).status_code == 404, "another recruiter's consultant: 404")
+
+# the preview route keeps the AI's version for the memory (the draft routes add the final one)
+with client.session_transaction() as s_:
+    s_["user"] = {"id": REC, "name": "Tara", "role": "Recruiter", "email": EMAIL}
+jid = models.save_or_update_scraped_job({"title": "Platform Engineer Memtest", "company": "Memco", "source": "LinkedIn (Live 24h)", "url": LINK + "9",
+                                         "description": JD, "country": "India"})
+jid = jid["id"] if isinstance(jid, dict) else jid
+pv = client.post("/api/outreach/application-preview", json={"candidate_id": cid, "job_id": jid, "jd_text": JD, "resume_text": cand["resume_text"]}).get_json()
+conn = models.get_db_connection()
+cur = conn.cursor()
+cur.execute("SELECT ai_body FROM email_examples WHERE candidate_id = ? AND job_id = ? AND final_body IS NULL", (cid, jid))
+kept = cur.fetchone()
+conn.close()
+check(kept and kept[0] == pv.get("body") and (LINK + "9") in pv.get("body", ""), f"preview kept the AI version (with the job link): {pv.get('body', '')[:120]!r}")
 
 # ---- 4. the Rules window
 with socket.socket() as sk:

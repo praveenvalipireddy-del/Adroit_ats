@@ -5472,11 +5472,40 @@ async function openRules(candId, kind) {
     if (!rules.wired) {
         rules.wired = true;
         $('btn-close-rules').addEventListener('click', () => { $('modal-rules').style.display = 'none'; });
+        // Add = the AI checks the rule first: a clean wording to approve, and duplicates / conflicts with saved rules
+        const save = async (text) => {
+            const r = await saveRule(rules.candId, $('rules-kind').value, text);
+            if (r) { $('rules-text').value = ''; $('rules-check').style.display = 'none'; rulesRender(); }
+        };
         const add = async () => {
             const text = $('rules-text').value.trim();
             if (!text) return;
-            const r = await saveRule(rules.candId, $('rules-kind').value, text);
-            if (r) { $('rules-text').value = ''; rulesRender(); }
+            const btn = $('rules-add');
+            btn.disabled = true; btn.textContent = 'Checking...';
+            let d = {};
+            try {
+                const res = await fetch(`/api/consultants/${rules.candId}/rules/check`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: $('rules-kind').value, text }) });
+                d = await res.json().catch(() => ({}));
+                if (!res.ok) { $('rules-msg').textContent = d.error || 'Could not check the rule.'; return; }
+            } finally { btn.disabled = false; btn.textContent = 'Add'; }
+            const same = (d.clean || '').trim().toLowerCase() === text.toLowerCase();
+            const warn = [...(d.duplicates || []).map(x => `Already said by rule ${x.n}: "${x.text}"`),
+                          ...(d.conflicts || []).map(x => `Conflicts with rule ${x.n} ("${x.text}") - ${x.why}`)];
+            if (same && !warn.length) { await save(text); return; }
+            const box = $('rules-check');
+            box.innerHTML = `<b>Before saving</b>` +
+                (!same ? `<div style="margin-top:6px;">Suggested wording:<div style="background:#fff; border:1px solid #c7d2fe; border-radius:8px; padding:6px 8px; margin-top:3px;">${escapeHtml(d.clean)}</div></div>` : '') +
+                warn.map(w => `<div style="color:#92400e; margin-top:6px;">⚠ ${escapeHtml(w)} - delete the old one with ✕ above if the new rule replaces it.</div>`).join('') +
+                (d.advice ? `<div style="margin-top:6px; color:#475569;">${escapeHtml(d.advice)}</div>` : '') +
+                `<div style="display:flex; gap:8px; margin-top:8px;">` +
+                (!same ? `<button type="button" class="btn btn-primary btn-sm" id="rules-use-clean">Save suggested wording</button>` : '') +
+                `<button type="button" class="btn btn-secondary btn-sm" id="rules-use-mine">${same ? 'Save anyway' : 'Save as I typed'}</button>` +
+                `<button type="button" class="btn btn-secondary btn-sm" id="rules-check-cancel">Cancel</button></div>`;
+            box.style.display = '';
+            if (!same) $('rules-use-clean').addEventListener('click', () => save(d.clean));
+            $('rules-use-mine').addEventListener('click', () => save(text));
+            $('rules-check-cancel').addEventListener('click', () => { box.style.display = 'none'; });
         };
         $('rules-add').addEventListener('click', add);
         $('rules-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
@@ -5484,6 +5513,7 @@ async function openRules(candId, kind) {
     $('rules-title').textContent = `📌 Rules for ${rulesName(candId)}`;
     $('rules-kind').value = kind || 'email';
     $('rules-msg').textContent = '';
+    $('rules-check').style.display = 'none';
     await rulesLoad(candId);
     rulesRender();
     $('modal-rules').style.display = 'flex';
@@ -5934,6 +5964,7 @@ function emailBox(prefix, ctx) {
                 </div>
                 <div id="${prefix}-email-status" style="font-size:0.82rem; color:#1e3a8a; margin-bottom:6px;"></div>
                 <div id="${prefix}-email-checklist" style="display:none; font-size:0.8rem; line-height:1.6; padding:8px 10px; border-radius:8px; background:#f8fafc; border:1px solid #e2e8f0; margin-bottom:8px;"></div>
+                <div id="${prefix}-email-thinking" style="display:none; font-size:0.8rem; line-height:1.6; padding:8px 10px; border-radius:8px; background:#eef2ff; border:1px solid #c7d2fe; color:#1e1b4b; margin-bottom:8px;"></div>
                 <div style="display:grid; grid-template-columns: 1fr 1.4fr; gap:8px; margin-bottom:8px;">
                     <div><label style="font-size:0.75rem; font-weight:700; color:#475569;">To</label><input id="${prefix}-email-to" class="form-control" style="font-size:0.85rem;" placeholder="recruiter@company.com"></div>
                     <div><label style="font-size:0.75rem; font-weight:700; color:#475569;">Subject</label><input id="${prefix}-email-subject" class="form-control" style="font-size:0.85rem; font-weight:600;"></div>
@@ -6003,7 +6034,7 @@ function emailBox(prefix, ctx) {
     box.generate = async () => {
         render();
         $(`${prefix}-email-box`).style.display = '';
-        $(`${prefix}-email-status`).innerHTML = '<b>Writing the email</b> from the job description and the resume that will be attached...';
+        $(`${prefix}-email-status`).innerHTML = '<b>Thinking, writing and checking the email</b> - the job description, the resume that will be attached and the consultant\'s rules (about 15 seconds)...';
         $(`btn-${prefix}-email-rewrite`).disabled = true;
         const seq = ++box.seq;
         try {
@@ -6021,6 +6052,12 @@ function emailBox(prefix, ctx) {
             $(`${prefix}-email-checklist`).style.display = items.length ? '' : 'none';
             $(`${prefix}-email-status`).innerHTML = 'Check and edit the email - the draft gets exactly this email and the resume shown as attached.'
                 + (d.fallback ? ' <span style="color:#b45309;">(Standard email used - the AI could not write one that only uses facts from the resume.)</span>' : '');
+            // what the AI thought about: the plan / check notes, and rules that repeat or contradict each other
+            const notes = (d.notes || []).map(n => '• ' + escapeHtml(n));
+            const clash = (d.rule_conflicts || []).map(n => '⚠ ' + escapeHtml(n) + ' - open 📌 Rules to clean them up');
+            const think = $(`${prefix}-email-thinking`);
+            think.innerHTML = notes.length || clash.length ? `<b>🧠 What the AI did</b><br>${[...notes, ...clash].join('<br>')}` : '';
+            think.style.display = think.innerHTML ? '' : 'none';
             $(`${prefix}-email-note`).textContent = '';
             box.showChat();
         } catch (err) {

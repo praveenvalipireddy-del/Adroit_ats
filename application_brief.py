@@ -55,10 +55,32 @@ Structure (plain text, no markdown, no asterisks):
   hands-on and practical.
 - If FACTS.us_based is false, never mention C2C, W2, H1B, green card or US work authorization.
 - A short closing ("My resume is attached...") and the signature lines from FACTS (name, title, phone, email).
-CONSULTANT RULES (when given) are the recruiter's standing instructions for this consultant's emails: follow
-them - they win over the structure above where they differ - but never invent a fact for them; leave
+CONSULTANT RULES (when given) are the recruiter's standing instructions for this consultant's emails: carry
+out what each rule MEANS - they win over the structure above where they differ - written in your own natural
+words (never paste a rule's text, except words inside quotation marks); never invent a fact for them; leave
 "[please fill: ...]" instead.
+PLAN (when given) is your own plan for this email - follow it.
 Return ONLY JSON: {"body": "...", "answered": ["each question you answered"], "needs_input": ["each [please ...] you left"]}"""
+
+PLAN_SYSTEM = """Before writing a job application email for an IT consultant, THINK and make a plan. Read the JOB
+DESCRIPTION, the RESUME that will be attached, FACTS and CONSULTANT RULES.
+- What does this job really need? (the 3-5 things that decide who gets a call)
+- Which of those does the RESUME prove, and with which real project / employer? Never claim what it doesn't show.
+- What does EACH consultant rule mean in practice for this email? (a rule is a rough note of intent, not text to paste;
+  words in quotation marks are exact wording). Do any rules repeat or conflict? (the later rule wins)
+- The 2-3 points this email should make, in order, and the tone.
+Return ONLY JSON: {"needs": [""], "proof": [{"need": "", "evidence": "project / employer from the resume"}],
+"rules": [{"rule": "", "how_applied": ""}], "rule_conflicts": [""], "points": [""], "tone": "", "gaps": ["needs the resume doesn't show"]}"""
+
+REVIEW_SYSTEM = """You are a senior IT recruiter checking an application email before it goes to a client. Read the
+JOB DESCRIPTION, RESUME, FACTS, CONSULTANT RULES and the DRAFT. Fix, in place:
+- grammar, spelling and awkward phrasing; anything that reads like pasted notes or template text;
+- consultant rules applied in spirit (and never pasted word for word, except quoted text);
+- relevance: the opening and the fit lines must speak to THIS job's main needs, using the resume's real projects;
+- length: short and easy to read (about 120-200 words before the signature, unless the job asks questions).
+Keep every fact as it is - add NO new fact, number, skill, rate, years or contact detail. Keep the greeting,
+every [please ...] placeholder, the closing and the signature lines.
+Return ONLY JSON: {"body": "the corrected email", "notes": ["2-4 short notes for the recruiter on what this email does and why, e.g. 'Opened with where we found the job (rule 2)'"]}"""
 
 
 def _ai(system: str, prompt: str):
@@ -123,7 +145,8 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
     f.pop("job_description", None)
     skills = skills or []
     if not resume_bot.ai_configured() or not resume_text.strip():
-        return {"body": _fallback(cand, job, b, reply, tailored, skills), "needs_input": [], "answered": [], "model": "", "fallback": True}
+        return {"body": _fallback(cand, job, b, reply, tailored, skills), "needs_input": [], "answered": [], "model": "", "fallback": True,
+                "notes": [], "rule_conflicts": []}
     opening = ("This email ANSWERS the vendor's requirement email - open by thanking them for sharing it."
                if reply else "This is a new application email.")
     import consultant_rules
@@ -132,9 +155,21 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
               f"{'The attached resume was tailored to this job - say the resume is updated for this role.' if tailored else ''}\n\n"
               f"FACTS:\n{json.dumps(f, indent=1, default=str)}\n\nBRIEF:\n{json.dumps({k: v for k, v in b.items() if k != 'model'}, indent=1)}\n\n"
               f"JOB DESCRIPTION:\n{(jd_text or '')[:6000]}\n\nRESUME:\n{resume_text[:12000]}\n")
+    # 1. think: what the job needs, what the resume proves, what each rule means
+    plan = {}
+    try:
+        plan, _ = _ai(PLAN_SYSTEM, prompt)
+    except Exception:
+        plan = {}
+    if plan:
+        prompt += f"\nPLAN:\n{json.dumps(plan, indent=1, default=str)[:4000]}\n"
+    allowed_contacts = resume_text + "\n" + (b.get("apply_to_email") or "") + "\n" + (job.get("recruiter_email") or "")
+    check_facts = lambda text: (outreach_ai.guard(f, allowed_contacts, FILL_RE.sub("", text), rules)  # noqa: E731
+                                + guard_metrics(text, resume_text + "\n" + rules, f))
     problems: List[str] = []
     model = ""
     for _ in range(2):
+        # 2. write from the plan
         try:
             data, model = _ai(WRITE_SYSTEM, prompt + (f"\nYOUR LAST DRAFT WAS REJECTED because it added {'; '.join(problems)}. Fix that.\n" if problems else ""))
         except Exception:
@@ -142,14 +177,24 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
         body = str(data.get("body") or "").strip()
         if not body:
             break
-        allowed_contacts = resume_text + "\n" + (b.get("apply_to_email") or "") + "\n" + (job.get("recruiter_email") or "")
-        problems = outreach_ai.guard(f, allowed_contacts, FILL_RE.sub("", body), rules) + guard_metrics(body, resume_text + "\n" + rules, f)
+        problems = check_facts(body)
         if not problems:
+            # 3. check like a senior recruiter: grammar, rules in spirit, relevance, length - facts unchanged
+            notes = []
+            try:
+                rv, _ = _ai(REVIEW_SYSTEM, prompt + f"\nDRAFT:\n{body}\n")
+                better = str(rv.get("body") or "").strip()
+                if better and not check_facts(better) and len(FILL_RE.findall(better)) >= len(FILL_RE.findall(body)):
+                    body = better                       # the review may only polish - a new fact keeps the first draft
+                notes = [str(x).strip() for x in (rv.get("notes") or []) if str(x).strip()][:4]
+            except Exception:
+                pass
             needs = [m.group(0) for m in FILL_RE.finditer(body)]
-            return {"body": body, "needs_input": needs, "answered": [str(x) for x in data.get("answered") or []], "model": model, "fallback": False}
+            return {"body": body, "needs_input": needs, "answered": [str(x) for x in data.get("answered") or []], "model": model,
+                    "fallback": False, "notes": notes, "rule_conflicts": [str(x) for x in (plan.get("rule_conflicts") or []) if str(x).strip()][:3]}
     body = _fallback(cand, job, b, reply, tailored, skills)
     return {"body": body, "needs_input": [m.group(0) for m in FILL_RE.finditer(body)], "answered": [], "model": model, "fallback": True,
-            "rejected": problems}
+            "rejected": problems, "notes": [], "rule_conflicts": []}
 
 
 def checklist(b: Dict, to: str, subject: str, body: str, cand: Dict) -> List[Dict]:
@@ -212,4 +257,5 @@ def build(cand: Dict, job: Dict, jd_text: str, version_id: Optional[int] = None,
     to = b.get("apply_to_email") or default_to or (job.get("recruiter_email") or "")
     subject = b.get("required_subject") or default_subject or gmail_multi_manager.build_subject(cand, job)
     return {"to": to, "subject": subject, "body": w["body"], "needs_input": w["needs_input"], "brief": b,
-            "checklist": checklist(b, to, subject, w["body"], cand), "fallback": w["fallback"], "tailored": tailored}
+            "checklist": checklist(b, to, subject, w["body"], cand), "fallback": w["fallback"], "tailored": tailored,
+            "notes": w.get("notes") or [], "rule_conflicts": w.get("rule_conflicts") or []}

@@ -1541,7 +1541,23 @@ def api_application_preview():
                                 resume_text=str(data.get("resume_text") or "")[:20000],
                                 tailored=None if data.get("tailored") is None else bool(data.get("tailored")))
     return jsonify({"to": b["to"], "subject": b["subject"], "body": b["body"], "checklist": b["checklist"],
-                    "needs_input": b["needs_input"], "fallback": b["fallback"]})
+                    "needs_input": b["needs_input"], "fallback": b["fallback"], "notes": b.get("notes") or [],
+                    "rule_conflicts": b.get("rule_conflicts") or []})
+
+
+@app.route("/api/consultants/<int:cid>/rules/check", methods=["POST"])
+def api_consultant_rule_check(cid):
+    """Before a rule is saved: a clean wording to approve + duplicates / conflicts with the saved rules (no save)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if not _tracker_candidate_ids(user, cid):
+        return jsonify({"error": "Consultant not found"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(consultant_rules.check(cid, str(data.get("kind") or ""), str(data.get("text") or "")))
+    except consultant_rules.RuleError as ex:
+        return jsonify({"error": str(ex)}), 400
 
 
 def _draft_extras(user, cand, job, to_email, version_id=None):

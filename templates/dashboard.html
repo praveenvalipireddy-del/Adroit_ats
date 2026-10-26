@@ -1344,6 +1344,7 @@
                     <button type="button" class="btn btn-primary btn-sm" id="rules-add">Add</button>
                 </div>
                 <div id="rules-msg" style="font-size:0.8rem; color:#b91c1c; margin-top:6px;"></div>
+                <div id="rules-check" style="display:none; margin-top:10px; border:1px solid #c7d2fe; background:#eef2ff; border-radius:10px; padding:10px 12px; font-size:0.83rem; color:#1e1b4b;"></div>
             </div>
         </div>
     </div>
@@ -1553,7 +1554,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.94.0"></script>
+    <script src="/static/js/app.js?v=5.95.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

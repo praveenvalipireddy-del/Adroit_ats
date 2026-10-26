@@ -128,9 +128,17 @@ conn.close()
 captured.clear()
 r = client.post("/api/outreach/auto-vendor-drafts", json={"candidate_id": cid, "job_ids": [J1, J2, J3, J4] + EXTRA}).get_json()
 made = [c["job_id"] for c in r["created"]]
-check(J1 not in made and r["skipped"]["already_drafted"] == 1, f"J1 already drafted by 1-click -> skipped: {r['skipped']}")
+# the 1-click drafts above saved their recruiters to Asha's vendors (vendors.capture): poster@vendor-one joins Vendor One,
+# and the J4 recruiter makes "Unknown Test Co" a known vendor - so J4 is now skipped as already drafted
+conn = models.get_db_connection()
+cur = conn.cursor()
+cur.execute("SELECT LOWER(email), company_name, source FROM vendor_contacts WHERE owner_user_id = ? AND source = 'auto' ORDER BY email", (ASHA["id"],))
+auto = [tuple(x) for x in cur.fetchall()]
+conn.close()
+check(auto == [("poster@vendor-one.example", "Vendor One Test Inc", "auto"), ("x@unknown.example", "Unknown Test Co", "auto")], f"drafted recruiters saved as vendors: {auto}")
+check(J1 not in made and J4 not in made and r["skipped"]["already_drafted"] == 2, f"J1 + J4 already drafted by 1-click -> skipped: {r['skipped']}")
 check(J3 not in made and r["skipped"]["experience"] == 1, "8+ years job skipped for a 4-year consultant")
-check(J4 not in made and r["skipped"]["not_vendor"] == 1, "unknown company skipped")
+check(r["skipped"]["not_vendor"] == 0, "every company is a known vendor now")
 check(made[0] == J2 and len(made) == 10 and r["skipped"]["daily_limit"] == 3, f"10 per day: {len(made)} made, skipped {r['skipped']}")
 check(r["remaining_today"] == 0, "nothing left today")
 j2 = next(c for c in r["created"] if c["job_id"] == J2)
@@ -138,7 +146,7 @@ check(j2["to"] == "nina.v2@gmail.com" and j2["bcc"] == 1, f"J2: To = first vendo
 check(captured[0]["To"] == "nina.v2@gmail.com" and captured[0]["Bcc"] == "om.v2@gmail.com", "J2 draft headers")
 check(not (models.get_job_by_id(J2).get("recruiter_email") or ""), "the job's recruiter email is not overwritten with the vendor contact")
 extra = next(c for c in r["created"] if c["job_id"] == EXTRA[0])
-check(extra["to"] == "kiran@vendor-one.example" and extra["bcc"] == 2, f"extra: To first contact, BCC other 2: {extra}")
+check(extra["to"] == "kiran@vendor-one.example" and extra["bcc"] == 3, f"extra: To first contact, BCC the other 3 (incl. the saved poster): {extra}")
 check(len(captured) == 10, f"10 drafts appended: {len(captured)}")
 
 # again today: nothing new (limit + no repeats)

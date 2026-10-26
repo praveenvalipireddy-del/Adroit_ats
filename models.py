@@ -549,6 +549,13 @@ def init_db():
         last_emailed_at TIMESTAMP,
         last_emailed_note TEXT,
         region TEXT DEFAULT 'USA',
+        linkedin_url TEXT,
+        found_via TEXT,
+        last_job_title TEXT,
+        last_job_url TEXT,
+        last_seen_at TIMESTAMP,
+        req_count INTEGER DEFAULT 0,
+        company_guess INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
@@ -636,6 +643,11 @@ def init_db():
         vendors.backfill_regions(conn)  # existing vendor contacts -> USA / India list, once (phone / email / recruiter's team)
     except Exception as ex:
         print("[WARN] vendor region backfill:", ex)
+    try:
+        import vendors
+        vendors.fix_domain_company_names(conn)   # 'pyramid.com' as a company -> the real name from a job (only touches those rows)
+    except Exception as ex:
+        print("[WARN] vendor company names:", ex)
     try:
         cursor.execute("CREATE INDEX IF NOT EXISTS ix_profile_education_norm ON profile_education (institution_norm)")
         conn.commit()
@@ -760,6 +772,15 @@ def migrate_db(conn):
             cursor.execute("ALTER TABLE vendor_contacts ADD COLUMN region TEXT")
         except Exception:
             pass
+    # ... and what a requirement told us about the contact (vendors.capture): where they were found, their last job
+    vc_cols = get_existing_cols("vendor_contacts")
+    for col, decl in (("linkedin_url", "TEXT"), ("found_via", "TEXT"), ("last_job_title", "TEXT"), ("last_job_url", "TEXT"),
+                      ("last_seen_at", "TIMESTAMP"), ("req_count", "INTEGER DEFAULT 0"), ("company_guess", "INTEGER DEFAULT 0")):
+        if vc_cols and col not in vc_cols:
+            try:
+                cursor.execute(f"ALTER TABLE vendor_contacts ADD COLUMN {col} {decl}")
+            except Exception:
+                pass
 
     # Candidate table columns
     c_cols = get_existing_cols("candidates")

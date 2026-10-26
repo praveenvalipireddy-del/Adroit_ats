@@ -865,6 +865,23 @@ def api_jobs_search():
         "is_24h_only": is_24h_only
     })
 
+def _capture_vendor(user, job, email="", cand=None, vendor_company="", client=""):
+    """Save / enrich the vendor recruiter of a job in the user's own vendor list (vendors.capture_from_job).
+    The list follows the consultant's team when there is one, else the job's market. Never fails a request."""
+    if not user or not job:
+        return None
+    try:
+        region = regions.candidate_region(cand) if cand else ("India" if (job.get("country") or "").lower() == "india" else "USA")
+        conn = models.get_db_connection()
+        try:
+            return vendors.capture_from_job(conn, user["id"], region, job, email=email, vendor_company=vendor_company, client=client)
+        finally:
+            conn.close()
+    except Exception as ex:
+        logger.warning(f"Vendor capture failed for job {job.get('id')}: {ex}")
+        return None
+
+
 def _us_sources_for(source: str):
     """The US portals a Jobs-tab pick means (None = "All US portals" = the free ones, Dice + LinkedIn)."""
     s = (source or "").strip().lower()
@@ -1019,8 +1036,10 @@ def api_update_job_email():
         job_id,
         f"Saved recruiter email '{email}' for Job #{job_id}"
     )
+    vendor = _capture_vendor(user, models.get_job_by_id(int(job_id)), email) if email else None
 
     return jsonify({
+        "vendor": vendor,
         "success": True, 
         "job_id": job_id, 
         "recruiter_email": email,
@@ -1282,6 +1301,7 @@ def api_paste_and_draft():
         finally:
             conn.close()
     result["job_id"] = job_id
+    result["vendor"] = _capture_vendor(user, models.get_job_by_id(job_id), recruiter_email, cand=models.get_candidate_by_id(int(candidate_id)))
     if (data.get("custom_body") or "").strip():
         email_memory.remember_final(int(candidate_id), job_id, user["id"], job_title, data["custom_body"], pasted=True)
     return jsonify(result)
@@ -1351,6 +1371,8 @@ def api_create_outreach_draft():
         return jsonify(result), 400
     if custom_body:
         email_memory.remember_final(int(candidate_id), int(job_id), user["id"], (job or {}).get("title") or "", custom_body)
+    result["vendor"] = _capture_vendor(user, job, (custom_to_email or (job or {}).get("recruiter_email") or "").strip(),
+                                       cand=models.get_candidate_by_id(int(candidate_id)))
     if req_row:
         conn = models.get_db_connection()
         try:

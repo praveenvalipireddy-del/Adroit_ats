@@ -121,7 +121,7 @@ try:
         page = browser.new_page(viewport={"width": 1500, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, MAHESH_EMAIL, MAHESH_PW)
-        check("app.js?v=5.95.0" in page.content(), "cache-buster not bumped to 5.95.0")
+        check("app.js?v=5.96.0" in page.content(), "cache-buster not bumped to 5.96.0")
         check(page.is_visible("#view-region-switch") and not page.locator("#team-badge").count(), "the Both recruiter has the team switcher")
         page.click("a.nav-item[data-tab=candidates]")
         page.wait_for_selector("#consultants-table-body tr", timeout=10000)

@@ -1038,10 +1038,19 @@ async function saveRecruiterEmail(jobId, email) {
         const data = await res.json();
         if (data.success) {
             showToast('Recruiter email saved!', 'success', 2000);
+            vendorSavedToast(data.vendor);
         }
     } catch (err) {
         console.error('Error updating email:', err);
     }
+}
+
+// A vendor recruiter saved to the Vendors list from a requirement (vendors.capture) - said once, after the main message.
+function vendorSavedToast(v) {
+    if (!v || !['created', 'updated'].includes(v.status)) return;
+    const who = [v.name, v.company ? `(${v.company}${v.company_guess ? ' - please check the company name' : ''})` : ''].filter(Boolean).join(' ');
+    setTimeout(() => showToast(v.status === 'created' ? `🤝 Saved ${who} to your ${v.region} vendors` : `🤝 Updated ${who} in your ${v.region} vendors`,
+        'info', 5000), 2600);
 }
 
 async function createJobDraft(jobId, candId, customToEmail = '', btnElement = null, optimizedResumeId = null, custom = {}) {
@@ -1075,6 +1084,7 @@ async function createJobDraft(jobId, candId, customToEmail = '', btnElement = nu
             const bccNote = (data.bcc && data.bcc.length) ? ` BCC: ${data.bcc.length} vendor contact${data.bcc.length === 1 ? '' : 's'}.` : '';
             const attNote = data.resume_filename ? ` Attached: ${data.resume_filename}.` : '';
             showToast(`✉️ Gmail Draft Created for ${data.candidate_name}! To: ${data.to_email || data.recruiter_email || 'Recruiter'}.${attNote}${bccNote}`, 'success', 7000);
+            vendorSavedToast(data.vendor);
             if (!data.resume_attached) {
                 showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
             }
@@ -1929,6 +1939,7 @@ function initModals() {
 
                 const data = await res.json();
                 if (data.success) {
+                    vendorSavedToast(data.vendor);
                     // Never claim the resume was attached unless it really was - resume_attached
                     // reflects whether a real file was actually found and attached.
                     const bccNote = (data.bcc && data.bcc.length) ? ` BCC: ${data.bcc.length} vendor contact${data.bcc.length === 1 ? '' : 's'}.` : '';
@@ -3653,6 +3664,7 @@ async function submitCopilotDraftToGmail() {
         const data = await res.json();
         if (data.success) {
             showToast(`✉️ Personalized Gmail Draft successfully saved for ${data.candidate_name}!`, 'success', 6000);
+            vendorSavedToast(data.vendor);
             if (!data.resume_attached) {
                 showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
             }
@@ -4777,10 +4789,18 @@ function renderVendors() {
         return;
     }
     const statuses = ['active', 'unsubscribed', 'bounced'];
-    body.innerHTML = vendorsState.contacts.map(c => `
+    const onlyAuto = document.getElementById('vendors-auto')?.checked;
+    const list = onlyAuto ? vendorsState.contacts.filter(c => c.source === 'auto') : vendorsState.contacts;
+    if (!list.length) {
+        body.innerHTML = `<tr><td colspan="9" style="text-align:center; color:#64748b; padding:24px;">No contacts added automatically yet - they appear when you enter a recruiter's email on a job, create a draft, or a requirement arrives in Gmail.</td></tr>`;
+        return;
+    }
+    const fmtDate = (s) => (s || '').slice(0, 10);
+    body.innerHTML = list.map(c => `
         <tr data-id="${c.id}">
-            <td style="color:#0f172a; font-weight:600;">${escapeHtml(c.company_name)}</td>
-            <td style="color:#0f172a;">${escapeHtml(c.contact_name || '')}${c.title ? `<div style="font-size:0.75rem; color:#64748b;">${escapeHtml(c.title)}</div>` : ''}</td>
+            <td style="color:#0f172a; font-weight:600;">${escapeHtml(c.company_name)}${c.company_guess ? ' <span class="vendor-guess" title="Taken from the email address - click Edit to set the real company name" style="font-size:0.7rem; font-weight:700; color:#92400e; background:#fef3c7; border-radius:999px; padding:0 6px;">check name</span>' : ''}
+                ${c.found_via || c.last_job_title ? `<div class="vendor-found" style="font-size:0.74rem; font-weight:400; color:#64748b; margin-top:2px;">${c.found_via ? 'Found via ' + escapeHtml(c.found_via) : ''}${c.last_job_title ? ` &middot; last: ${c.last_job_url ? `<a href="${escapeHtml(c.last_job_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(c.last_job_title)} ↗</a>` : escapeHtml(c.last_job_title)}` : ''}${c.last_seen_at ? ` (${escapeHtml(fmtDate(c.last_seen_at))})` : ''}${(c.req_count || 0) > 1 ? ` &middot; ${c.req_count} requirements` : ''}</div>` : ''}</td>
+            <td style="color:#0f172a;">${escapeHtml(c.contact_name || '')}${c.linkedin_url ? ` <a href="${escapeHtml(c.linkedin_url)}" target="_blank" rel="noopener noreferrer" title="LinkedIn profile">in ↗</a>` : ''}${c.title ? `<div style="font-size:0.75rem; color:#64748b;">${escapeHtml(c.title)}</div>` : ''}</td>
             <td style="color:#0f172a;">${escapeHtml(c.email)}${c.region_hint ? `<div class="vendor-region-hint" style="font-size:0.75rem; color:#92400e; margin-top:2px;">Looks like an ${escapeHtml(c.region_hint)} contact &middot; <a href="#" onclick="vendorsMoveRegion(${c.id}, '${c.region_hint}'); return false;">Move to ${escapeHtml(c.region_hint)}</a></div>` : ''}</td>
             <td style="color:#0f172a; white-space:nowrap;">${escapeHtml(c.phone || '')}</td>
             <td class="vendor-notes" title="${escapeHtml(c.notes || '')}" style="color:#475569; font-size:0.8rem; max-width:170px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(c.notes || '')}</td>
@@ -4795,6 +4815,8 @@ function renderVendors() {
             </td>
         </tr>`).join('');
 }
+
+document.addEventListener('change', (e) => { if (e.target && e.target.id === 'vendors-auto') renderVendors(); });
 
 function vendorsOpenForm(id) {
     const c = id ? vendorsState.contacts.find(x => x.id === id) : null;

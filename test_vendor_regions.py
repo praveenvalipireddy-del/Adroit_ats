@@ -162,12 +162,14 @@ r = client.post("/api/outreach/paste-and-draft", json={"candidate_id": in_cid, "
 check(r.status_code == 200 and r.get_json().get("success"), f"India draft: {r.get_json()}")
 bcc = sorted(a.strip() for a in (email.message_from_bytes(captured[-1])["Bcc"] or "").split(",") if a.strip())
 check(bcc == ["both@globex.example", "in1@globex.example"], f"India draft BCCs only India vendors, even if US ones are sent: {bcc}")
+check(r.get_json().get("vendor", {}).get("status") == "created" and r.get_json()["vendor"]["region"] == "India",
+      f"the requirement's recruiter is saved to the India list: {r.get_json().get('vendor')}")
 
 jobs = [{"title": "A", "company": "Globex Test", "recruiter_email": "x@globex.example", "country": "India"},
         {"title": "B", "company": "Globex Test", "recruiter_email": "x@globex.example", "country": "United States"},
         {"title": "C", "company": "Nobody Test", "recruiter_email": "x@nobody.example", "country": "India"}]
 app_module._tag_known_vendors(jobs, ADMIN)
-check(jobs[0].get("vendor", {}).get("count") == 3 and jobs[1].get("vendor", {}).get("count") == 4 and "vendor" not in jobs[2],
+check(jobs[0].get("vendor", {}).get("count") == 4 and jobs[1].get("vendor", {}).get("count") == 4 and "vendor" not in jobs[2],
       f"job tag counts its own region's list: {[j.get('vendor') for j in jobs]}")
 
 # Postgres rows (models.DbRow) iterate their column names - the counts must read rows by position
@@ -208,14 +210,14 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.95.0" in page.content(), "cache-buster not bumped to 5.95.0")
+        check("app.js?v=5.96.0" in page.content(), "cache-buster not bumped to 5.96.0")
         page.click("a.nav-item[data-tab=vendors]")
         page.wait_for_function("document.getElementById('vendors-count').innerText.includes('USA list')", timeout=10000)
-        check(page.inner_text("#vendors-tab-usa") == "USA vendors (4)" and page.inner_text("#vendors-tab-india") == "India vendors (3)",
+        check(page.inner_text("#vendors-tab-usa") == "USA vendors (4)" and page.inner_text("#vendors-tab-india") == "India vendors (4)",
               f"tab counts: {page.inner_text('#vendors-tab-usa')!r} / {page.inner_text('#vendors-tab-india')!r}")
         check("Move to India" in page.inner_text("#vendors-body"), "hint shown on the Indian-phone contact")
         page.click("#vendors-tab-india")
-        page.wait_for_function("document.getElementById('vendors-count').innerText.startsWith('India list: 3')", timeout=10000)
+        page.wait_for_function("document.getElementById('vendors-count').innerText.startsWith('India list: 4')", timeout=10000)
         check("in1@globex.example" in page.inner_text("#vendors-body") and "us1@globex.example" not in page.inner_text("#vendors-body"),
               "India tab shows the India list only")
         check("region=India" in page.get_attribute("#vendors-export", "href"), "Excel link follows the open list")
@@ -224,11 +226,11 @@ try:
         page.fill("#vf-company", "Initech Test")
         page.fill("#vf-email", "ui-add@initech.example")
         page.click("#vf-save")
-        page.wait_for_function("document.getElementById('vendors-count').innerText.startsWith('India list: 4')", timeout=10000)
+        page.wait_for_function("document.getElementById('vendors-count').innerText.startsWith('India list: 5')", timeout=10000)
         page.click("#vendors-tab-usa")
         page.wait_for_function("document.getElementById('vendors-count').innerText.startsWith('USA list')", timeout=10000)
         page.click("#vendors-body .vendor-region-hint a")
-        page.wait_for_function("document.getElementById('vendors-tab-india').innerText === 'India vendors (5)'", timeout=10000)
+        page.wait_for_function("document.getElementById('vendors-tab-india').innerText === 'India vendors (6)'", timeout=10000)
         page.screenshot(path=shot)
         browser.close()
 finally:

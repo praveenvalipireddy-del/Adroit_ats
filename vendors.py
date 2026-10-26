@@ -375,6 +375,7 @@ def update_contact(conn, contact_id: int, user: Dict, data: Dict) -> Dict:
         if not fields["company_name"]:
             raise VendorError("Company can't be empty.")
         fields["company_norm"] = normalize_company(fields["company_name"])
+        fields["company_guess"] = 0              # the recruiter set the company: no longer a guess
     if "status" in data:
         if data["status"] not in STATUSES:
             raise VendorError("Unknown status.")
@@ -555,3 +556,179 @@ def template_xlsx() -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------- automatic capture from job requirements
+# A vendor recruiter's email entered on a job, used for a draft, or read from a Gmail requirement is saved to the
+# recruiter's own vendor list automatically - with the company name and everything the posting tells us. Job-board
+# relay addresses (Dice private email, Indeed, Naukri ...) and personal addresses are never saved.
+BOARD_DOMAINS = ("dice.com", "indeed.com", "indeedemail.com", "naukri.com", "naukrigulf.com", "linkedin.com", "foundit.in",
+                 "monster.com", "ziprecruiter.com", "glassdoor.com", "shine.com", "timesjobs.com", "apna.co", "internshala.com")
+_PLACEHOLDER_COMPANIES = {"", "employer", "(see post)", "direct client", "confidential", "unknown", "n/a", "na"}
+
+
+def _is_board(email: str) -> bool:
+    d = email_domain(email)
+    return any(d == b or d.endswith("." + b) for b in BOARD_DOMAINS)
+
+
+def _domain_label(email: str) -> str:
+    """'priya@pyramidci.com' -> 'pyramidci' (the part that names the company)."""
+    d = company_domain(email)
+    parts = [p for p in d.split(".") if p]
+    if len(parts) >= 3 and parts[-2] in ("co", "com", "net", "org", "ac") and len(parts[-1]) == 2:
+        return parts[-3]               # tcs.co.in -> tcs
+    return parts[-2] if len(parts) >= 2 else (parts[0] if parts else "")
+
+
+def company_matches_email(company: str, email: str) -> bool:
+    """Does this company name belong to this email's domain? ('Pyramid Consulting' / pyramidci.com -> yes,
+    'Bank of America' / pyramidci.com -> no)."""
+    label = re.sub(r"[^a-z0-9]", "", _domain_label(email))
+    words = [w for w in normalize_company(company).split() if w not in ("and", "of", "technologies", "technology", "solutions",
+                                                                          "consulting", "services", "systems", "group", "global",
+                                                                          "it", "software", "staffing", "infotech")]
+    compact = re.sub(r"[^a-z0-9]", "", normalize_company(company))
+    if not label or not compact:
+        return False
+    if label in compact or compact in label:
+        return True
+    initials = "".join(w[0] for w in normalize_company(company).split() if w)
+    if len(initials) >= 2 and label.startswith(initials):
+        return True                   # 'Tata Consultancy Services' / tcs.com
+    return any(len(w) >= 4 and (w in label or label.startswith(w[:5])) for w in words)
+
+
+def pretty_domain(email: str) -> str:
+    label = _domain_label(email)
+    return label[:1].upper() + label[1:] if label else ""
+
+
+def resolve_company(email: str, vendor_company: str = "", posting_company: str = "", client: str = "") -> Tuple[str, bool, str]:
+    """(company name, is a guess, client). The vendor company the AI read wins; then the posting's company when it
+    belongs to the email's domain (otherwise that company is the end client); else a readable domain, as a guess."""
+    vendor_company = (vendor_company or "").strip()
+    posting = (posting_company or "").strip()
+    client = (client or "").strip()
+    if posting.lower() in _PLACEHOLDER_COMPANIES:
+        posting = ""
+    if vendor_company and vendor_company.lower() not in _PLACEHOLDER_COMPANIES:
+        if posting and not client and normalize_company(posting) != normalize_company(vendor_company):
+            client = posting
+        return vendor_company[:200], False, client
+    if posting and company_matches_email(posting, email):
+        return posting[:200], False, client
+    if posting and not client:
+        client = posting
+    return pretty_domain(email), True, client
+
+
+def _find(cur, owner_id: int, region: str, email: str):
+    cur.execute("SELECT * FROM vendor_contacts WHERE owner_user_id = ? AND region = ? AND LOWER(email) = ?", (owner_id, region, email))
+    r = cur.fetchone()
+    return dict(r) if r else None
+
+
+def capture(conn, owner_id: int, region: str, email: str, *, vendor_company: str = "", posting_company: str = "", client: str = "",
+            name: str = "", phone: str = "", title: str = "", linkedin_url: str = "", job_title: str = "", job_url: str = "",
+            found_via: str = "") -> Dict:
+    """Save / enrich one vendor contact from a requirement. Returns {status: created | updated | unchanged | skipped,
+    id, company, company_guess, name, region, reason}. Never overwrites what the recruiter typed: only empty fields
+    are filled, and a guessed company name is replaced by a real one."""
+    region = norm_region(region)
+    email = (email or "").strip().lower()
+    out = {"status": "skipped", "id": None, "company": "", "company_guess": False, "name": name or "", "region": region, "reason": ""}
+    if not owner_id or not email or not _EMAIL_RE.match(email):
+        out["reason"] = "no valid email"
+        return out
+    if not company_domain(email):
+        out["reason"] = "personal email address (gmail, yahoo ...) - add it by hand if it's a vendor"
+        return out
+    if _is_board(email):
+        out["reason"] = "a job board's relay address, not the recruiter's own"
+        return out
+    company, guess, client = resolve_company(email, vendor_company, posting_company, client)
+    job_url = job_url if re.match(r"^https?://", job_url or "", re.I) else ""
+    cur = conn.cursor()
+    row = _find(cur, owner_id, region, email)
+    client_note = f"Client: {client}" if client else ""
+    if not row:
+        cur.execute("""INSERT INTO vendor_contacts (owner_user_id, company_name, company_norm, email, email_domain, contact_name, phone,
+                       title, notes, status, source, region, linkedin_url, found_via, last_job_title, last_job_url, last_seen_at, req_count,
+                       company_guess) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'auto', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1, ?)""",
+                    (owner_id, company, normalize_company(company), email, company_domain(email), (name or "")[:200], (phone or "")[:60],
+                     (title or "")[:200], client_note, region, (linkedin_url or "")[:300], (found_via or "")[:120], (job_title or "")[:200],
+                     job_url[:500], 1 if guess else 0))
+        conn.commit()
+        row = _find(cur, owner_id, region, email) or {}
+        out.update(status="created", id=row.get("id"), company=company, company_guess=guess)
+        return out
+    fields = {}
+    for col, val in (("contact_name", name), ("phone", phone), ("title", title), ("linkedin_url", linkedin_url)):
+        if val and not (row.get(col) or "").strip():
+            fields[col] = val.strip()[:300]
+    if row.get("company_guess") and not guess and company:
+        fields["company_name"], fields["company_norm"], fields["company_guess"] = company, normalize_company(company), 0
+    notes = row.get("notes") or ""
+    if client_note and client.lower() not in notes.lower() and len(notes) < 250:
+        fields["notes"] = (notes + ("; " if notes else "") + client_note)[:300]
+    if found_via and not row.get("found_via"):
+        fields["found_via"] = found_via[:120]
+    new_job = bool(job_title or job_url) and (job_url or job_title) != (row.get("last_job_url") or row.get("last_job_title") or "")
+    if new_job:
+        fields.update(last_job_title=(job_title or "")[:200], last_job_url=job_url[:500], req_count=(row.get("req_count") or 0) + 1)
+        if found_via:
+            fields["found_via"] = found_via[:120]
+    if fields:
+        cur.execute(f"UPDATE vendor_contacts SET {', '.join(k + ' = ?' for k in fields)}, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    list(fields.values()) + [row["id"]])
+        conn.commit()
+    out.update(status="updated" if fields else "unchanged", id=row["id"], company=fields.get("company_name") or row.get("company_name"),
+               company_guess=bool(fields.get("company_guess", row.get("company_guess"))), name=row.get("contact_name") or name or "")
+    return out
+
+
+def capture_from_job(conn, owner_id: int, region: str, job: Dict, email: str = "", vendor_company: str = "", client: str = "") -> Dict:
+    """capture() with everything a saved job knows: company, recruiter name / phone, title, link, where it was found;
+    a recruiter's LinkedIn post adds their headline and profile link (stored in the job's description)."""
+    desc = job.get("description") or ""
+    title, linkedin = "", ""
+    if (job.get("source") or "") == "Recruiter Post":
+        m = re.search(r"^Recruiter post by .+? \((.+)\)\s*$", desc, re.M)
+        title = m.group(1) if m else ""
+        m = re.search(r"^Profile:\s*(https?://\S+)", desc, re.M)
+        linkedin = m.group(1) if m else ""
+        # a post has no company field: "Talent Acquisition at CloudHire" names it - when it belongs to the email
+        m = re.search(r"\b(?:at|@)\s+([A-Z][\w&.\- ]{1,60}?)(?:\s*[|,(]|$)", title)
+        email_ = email or job.get("recruiter_email") or ""
+        if m and not vendor_company and company_matches_email(m.group(1), email_):
+            vendor_company = m.group(1).strip()
+    via = (job.get("source") or "").replace(" (Live 24h)", "").replace(" (Live)", "").strip()
+    via = {"Email requirement": "Gmail requirement", "Recruiter Post": "LinkedIn recruiter post"}.get(via, via)
+    return capture(conn, owner_id, region, email or job.get("recruiter_email") or "", vendor_company=vendor_company,
+                   posting_company=job.get("company") or "", client=client, name=job.get("recruiter_name") or "",
+                   phone=job.get("recruiter_phone") or "", title=title, linkedin_url=linkedin, job_title=job.get("title") or "",
+                   job_url=job.get("url") or "", found_via=(via + " job") if via and "job" not in via.lower() and "requirement" not in via.lower()
+                   and "post" not in via.lower() else via)
+
+
+def fix_domain_company_names(conn) -> int:
+    """Once: contacts saved with only a domain as the company ('pyramid.com', from the old Paste window) get the real
+    name from a job with the same recruiter email - when that job's company belongs to the email - else a readable
+    domain marked as a guess. Returns how many were changed."""
+    cur = conn.cursor()
+    cur.execute("SELECT id, email, company_name FROM vendor_contacts")
+    changed = 0
+    for r in cur.fetchall():
+        cid, email, company = r[0], (r[1] or "").lower(), (r[2] or "").strip()
+        if not company or "." not in company or company.lower() != company_domain(email):
+            continue
+        cur.execute("SELECT company FROM jobs WHERE LOWER(recruiter_email) = ? AND company IS NOT NULL ORDER BY id DESC LIMIT 5", (email,))
+        names = [x[0] for x in cur.fetchall() if x[0] and company_matches_email(x[0], email)]
+        new, guess = (names[0], 0) if names else (pretty_domain(email), 1)
+        if new and new != company:
+            cur.execute("UPDATE vendor_contacts SET company_name = ?, company_norm = ?, company_guess = ? WHERE id = ?",
+                        (new, normalize_company(new), guess, cid))
+            changed += 1
+    conn.commit()
+    return changed

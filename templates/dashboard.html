@@ -783,6 +783,7 @@
                     <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
                         <input type="search" id="vendors-search" class="form-control" placeholder="Search company, name or email" style="max-width:300px;">
                         <select id="vendors-owner" class="form-control" style="max-width:220px; display:none;"><option value="">All recruiters</option></select>
+                        <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; margin:0; text-transform:none; font-weight:500;" title="Contacts saved from job requirements (a recruiter's email on a job, a draft, a Gmail requirement)"><input type="checkbox" id="vendors-auto"> Added automatically</label>
                         <span style="flex:1"></span>
                         <a class="btn btn-secondary btn-sm" id="vendors-template" href="/api/vendors/template">Download template</a>
                         <label class="btn btn-primary btn-sm" style="margin:0; cursor:pointer;">Upload Excel / CSV
@@ -1554,7 +1555,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.95.0"></script>
+    <script src="/static/js/app.js?v=5.96.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

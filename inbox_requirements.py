@@ -311,6 +311,14 @@ def _handle(conn, rid: int, cand: Dict, p: Dict, full_text: str, user_id: Option
         "url": f"email:{cand['id']}:{p['message_id']}", "country": cand.get("country") or "United States",
         "matched_skills": ", ".join(data.get("skills") or [])[:500], "match_score": match}, match_title_company=False)
     job_id = job["id"] if isinstance(job, dict) else job
+    if cand.get("assigned_user_id"):     # the vendor goes into the consultant's recruiter's own list
+        try:
+            import regions
+            import vendors
+            vendors.capture_from_job(conn, cand["assigned_user_id"], regions.candidate_region(cand), models.get_job_by_id(job_id) or {},
+                                     email=data["recruiter_email"], vendor_company=data.get("vendor_company") or "", client=data.get("client") or "")
+        except Exception as ex:
+            logger.warning(f"Vendor capture failed for requirement {rid}: {ex}")
     version_id, attachment = None, (name, original)
     tailored = resume_versions.decode_docx(res.get("docx_base64") or "") if res.get("optimized") else None
     if tailored:

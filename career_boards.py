@@ -410,11 +410,14 @@ def _upsert_job(conn, job: Dict, ats: str, now: datetime) -> bool:
     return True
 
 
-def sync_board(conn, board: Dict, now: Optional[datetime] = None) -> Dict:
+def sync_board(conn, board: Dict, now: Optional[datetime] = None, fetched: Optional[List[Dict]] = None, fetch_error: Optional[Exception] = None) -> Dict:
+    """Read one board (or save what was already read for it - sync_all reads several at once) and record the result."""
     now = now or datetime.now(timezone.utc)
     cur = conn.cursor()
     try:
-        jobs = fetch_board(board["ats"], board["slug"], board.get("company") or "", now=now)
+        if fetch_error is not None:
+            raise fetch_error
+        jobs = fetched if fetched is not None else fetch_board(board["ats"], board["slug"], board.get("company") or "", now=now)
         new = sum(1 for j in jobs if _upsert_job(conn, j, board["ats"], now))
         cur.execute("UPDATE career_boards SET last_checked_at = ?, last_job_count = ?, last_new = ?, last_error = '' WHERE id = ?",
                     (now.strftime("%Y-%m-%d %H:%M:%S"), len(jobs), new, board["id"]))
@@ -433,8 +436,13 @@ def sync_board(conn, board: Dict, now: Optional[datetime] = None) -> Dict:
         return {"company": board.get("company"), "jobs": 0, "new": 0, "error": str(ex)[:200]}
 
 
+PARALLEL_BOARDS = 6
+
+
 def sync_all(conn, time_budget_s: float = 1500) -> Dict:
-    """Read every active board (oldest-checked first) until the time budget is used."""
+    """Read every active board (oldest-checked first), PARALLEL_BOARDS at a time; each board's jobs are saved
+    as soon as it has been read, so a restart part-way keeps what was done (and the next run starts with the rest)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     started = time.monotonic()
     try:
         discover(conn)
@@ -444,12 +452,56 @@ def sync_all(conn, time_budget_s: float = 1500) -> Dict:
     cur.execute("SELECT * FROM career_boards WHERE active = 1 ORDER BY COALESCE(last_checked_at, '') ASC, id ASC")
     boards = [dict(r) for r in cur.fetchall()]
     totals = {"boards": 0, "jobs": 0, "new": 0, "errors": 0}
-    for b in boards:
-        if time.monotonic() - started > time_budget_s:
-            break
-        r = sync_board(conn, b)
-        totals["boards"] += 1
-        totals["jobs"] += r["jobs"]
-        totals["new"] += r["new"]
-        totals["errors"] += 1 if r.get("error") else 0
+    now = datetime.now(timezone.utc)
+
+    def read(b):
+        try:
+            return b, fetch_board(b["ats"], b["slug"], b.get("company") or "", now=now), None
+        except Exception as ex:
+            return b, None, ex
+
+    pool = ThreadPoolExecutor(PARALLEL_BOARDS)
+    try:
+        futures = [pool.submit(read, b) for b in boards]
+        for fut in as_completed(futures):
+            b, jobs, err = fut.result()
+            r = sync_board(conn, b, now=now, fetched=jobs, fetch_error=err)
+            totals["boards"] += 1
+            totals["jobs"] += r["jobs"]
+            totals["new"] += r["new"]
+            totals["errors"] += 1 if r.get("error") else 0
+            if time.monotonic() - started > time_budget_s:
+                break
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     return totals
+
+
+LOCK_KEY = "career_sync_started"
+
+
+def claim_sync(conn, minutes: int = 40) -> bool:
+    """One sync at a time across the server's workers: True if this one may run (no other started in the last `minutes`)."""
+    cur = conn.cursor()
+    now = datetime.now(timezone.utc)
+    cur.execute("SELECT meta_value FROM app_meta WHERE meta_key = ?", (LOCK_KEY,))
+    row = cur.fetchone()
+    if row and row[0]:
+        try:
+            if now - datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc) < timedelta(minutes=minutes):
+                return False
+        except ValueError:
+            pass
+    stamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    if row:
+        cur.execute("UPDATE app_meta SET meta_value = ? WHERE meta_key = ?", (stamp, LOCK_KEY))
+    else:
+        cur.execute("INSERT INTO app_meta (meta_key, meta_value) VALUES (?, ?)", (LOCK_KEY, stamp))
+    conn.commit()
+    return True
+
+
+def release_sync(conn):
+    cur = conn.cursor()
+    cur.execute("UPDATE app_meta SET meta_value = '' WHERE meta_key = ?", (LOCK_KEY,))
+    conn.commit()

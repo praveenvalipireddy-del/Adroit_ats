@@ -2288,8 +2288,18 @@ def _run_board_sync(time_budget_s=1500):
     try:
         conn = models.get_db_connection()
         try:
-            _board_sync["last"] = career_boards.sync_all(conn, time_budget_s=time_budget_s)
-            logger.info(f"Company career sites: {_board_sync['last']}")
+            # the server runs several workers: only one reads the career sites at a time
+            try:
+                claimed = career_boards.claim_sync(conn)
+            except Exception:
+                claimed = False             # another worker claimed it at the same moment
+            if not claimed:
+                return
+            try:
+                _board_sync["last"] = career_boards.sync_all(conn, time_budget_s=time_budget_s)
+                logger.info(f"Company career sites: {_board_sync['last']}")
+            finally:
+                career_boards.release_sync(conn)
         finally:
             conn.close()
     except Exception as ex:
@@ -2299,7 +2309,7 @@ def _run_board_sync(time_budget_s=1500):
 
 
 def _board_sync_loop(hours: float):
-    time.sleep(120)
+    time.sleep(120 + random.uniform(0, 90))       # workers start together: spread them so one claims the sync first
     while True:
         _run_board_sync()
         time.sleep(hours * 3600)

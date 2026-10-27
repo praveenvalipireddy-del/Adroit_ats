@@ -1575,11 +1575,12 @@ def _parse_db_timestamp(value):
 
 
 def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None,
-             my_experience=None, include_unstated=True, type_filter=None, max_age_hours=None):
+             my_experience=None, include_unstated=True, type_filter=None, max_age_hours=None, roles=None):
     """my_experience: the consultant's years - hides jobs that need clearly more (see job_experience).
     Every returned job carries "experience": {min, max, source, level, label}."""
     import job_experience
     import job_types
+    import roles_catalog
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -1637,6 +1638,10 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
         if location and location != "All" and location.lower() != "united states":
             if location.lower() not in loc:
                 continue
+
+        # 2b. Role picker: the title is one of the picked roles (roles_catalog, whole words)
+        if roles and not roles_catalog.matches(j.get("title") or "", roles):
+            continue
 
         # Experience and job type come after the cheap filters above: reading them from the text of every
         # job (thousands, with the company career sites) made each search take seconds.

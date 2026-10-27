@@ -222,6 +222,10 @@
                                 <input type="text" id="filter-query" placeholder="Search 24h jobs (e.g. AI, Java, DevOps, Data, Cloud...)" value="">
                             </div>
                             <div class="filter-group">
+                                <label>Roles</label>
+                                <div id="jobs-roles"></div>
+                            </div>
+                            <div class="filter-group">
                                 <label id="filter-location-label">US Location</label>
                                 <input type="text" id="filter-location" placeholder="United States, Dallas TX, Remote..." value="United States">
                             </div>
@@ -1553,7 +1557,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.4"></script>
+    <script src="/static/js/app.js?v=5.99.5"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

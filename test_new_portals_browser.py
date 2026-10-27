@@ -212,7 +212,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.4" in page.content(), "cache-buster not bumped to 5.99.4")
+        check("app.js?v=5.99.5" in page.content(), "cache-buster not bumped to 5.99.5")
         page.click("a.nav-item[data-tab=jobs]")
         opts = page.eval_on_selector("#filter-source", "s => [...s.options].map(o => o.value)")
         check("Indeed" in opts and "Recruiter Post" in opts, f"US portals: {opts}")

@@ -828,6 +828,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
                 type_filter: document.getElementById('filter-job-type')?.value || '',
                 no_scrape: !opts.allowScrape,       // India: only a click on Search Jobs may start a paid scrape
                 posted_within_hours: (parseInt(document.getElementById('filter-posted')?.value) || 24) > 24 ? parseInt(document.getElementById('filter-posted').value) : null,
+                roles: jobsUi.roles,
                 my_experience: jobsMyExperience(),
                 include_unstated: document.getElementById('filter-exp-unstated')?.checked !== false
             })
@@ -7026,11 +7027,12 @@ const CONS_JOB_SOURCES = [['All', 'All portals'], ['Company site', '🏢 Company
 async function consPaneJobs(c, body) {
     const country = consMarket(c) === 'India' ? 'India' : 'United States';
     consUi.jf = consUi.jf || {};
-    const f = consUi.jf[c.id] = consUi.jf[c.id] || { query: consCoreTitle(c.title), location: '', posted: '24', type: '', source: 'All', work: '' };
+    const f = consUi.jf[c.id] = consUi.jf[c.id] || { query: consCoreTitle(c.title), location: '', posted: '24', type: '', source: 'All', work: '', roles: [] };
     const sel = (id, opts, val) => `<select id="${id}" class="form-control">${opts.map(([v, l]) => `<option value="${v}" ${String(val) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
     body.innerHTML = `
         <div class="cons-filter">
             <div class="cf-q"><label>Role / skills</label><input type="text" id="cons-jf-query" class="form-control" value="${escapeHtml(f.query)}" placeholder="e.g. Data Analyst, Python, Power BI"></div>
+            <div><label>Roles</label><div id="cons-jf-roles"></div></div>
             <div><label>Location</label><input type="text" id="cons-jf-loc" class="form-control" value="${escapeHtml(f.location)}" placeholder="${country === 'India' ? 'Hyderabad, Remote…' : 'Dallas, Remote…'}"></div>
             <div><label>Posted within</label>${sel('cons-jf-posted', [['24', 'Last 24 hours'], ['72', 'Last 3 days'], ['168', 'Last week'], ['336', 'Last 2 weeks']], f.posted)}</div>
             <div><label>Work model</label>${sel('cons-jf-work', [['', 'Any'], ['remote', 'Remote'], ['hybrid', 'Hybrid'], ['onsite', 'On-site']], f.work)}</div>
@@ -7054,14 +7056,20 @@ async function consPaneJobs(c, body) {
     ['cons-jf-query', 'cons-jf-loc'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') go(); }));
     ['cons-jf-posted', 'cons-jf-type', 'cons-jf-source', 'cons-jf-work'].forEach(id => document.getElementById(id).addEventListener('change', go));
     document.getElementById('cons-jobs-more').addEventListener('click', () => browseJobsForCandidate(c.id, f.query || c.title || '', c.country || 'United States'));
+    rolePicker(document.getElementById('cons-jf-roles'), {
+        get: () => f.roles,
+        set: v => { f.roles = v; if (v.length && f.query === consCoreTitle(c.title)) f.query = ''; },   // picked roles replace the title keyword
+        countsBody: () => ({ country, location: f.location, source: f.source, type_filter: f.type, posted_within_hours: parseInt(f.posted) || 24 }),
+        onChange: () => { const q = f.query; read(); f.query = document.getElementById('cons-jf-query').value.trim() === consCoreTitle(c.title) && f.roles.length ? q : f.query; consPaneJobs(c, body); },
+    });
 
-    const key = `${c.id}|${f.query}|${f.location}|${f.posted}|${f.type}|${f.source}`;
+    const key = `${c.id}|${f.query}|${f.location}|${f.posted}|${f.type}|${f.source}|${f.roles.join(',')}`;
     let jobs = consUi.jobs[key];
     if (!jobs) {
         try {
             const res = await fetch('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: f.query, location: f.location || country, source: f.source, country, is_24h_only: true, live_scrape: false,
-                    no_scrape: true, type_filter: f.type, posted_within_hours: parseInt(f.posted) > 24 ? parseInt(f.posted) : null,
+                    no_scrape: true, type_filter: f.type, posted_within_hours: parseInt(f.posted) > 24 ? parseInt(f.posted) : null, roles: f.roles,
                     my_experience: c.experience_years || null, include_unstated: true }) });
             const d = await res.json().catch(() => ({}));
             jobs = Array.isArray(d) ? d : (d.jobs || d.results || []);
@@ -7231,7 +7239,7 @@ function consPaneProfile(c, body) {
 // Optimize resume / Apply; right panel with the consultant and the company career sites we read.
 // The table view stays one click away.
 // =========================================================================
-const jobsUi = { view: 'cards', boards: null, open: new Set() };
+const jobsUi = { view: 'cards', boards: null, open: new Set(), roles: [] };
 try { jobsUi.view = localStorage.getItem('jobsView') === 'table' ? 'table' : 'cards'; } catch (e) { /* storage blocked */ }
 
 function setJobsView(view) {
@@ -7434,6 +7442,18 @@ async function renderJobsSide() {
     setJobsView(jobsUi.view);
     document.getElementById('filter-posted')?.addEventListener('change', () => searchJobs(false));
     document.getElementById('filter-work-model')?.addEventListener('change', () => searchJobs(false));
+    rolePicker(document.getElementById('jobs-roles'), {
+        get: () => jobsUi.roles,
+        set: v => { jobsUi.roles = v; },
+        countsBody: () => ({
+            country: document.getElementById('filter-country')?.value || 'United States',
+            location: document.getElementById('filter-location')?.value?.trim() || '',
+            source: document.getElementById('filter-source')?.value || 'All',
+            type_filter: document.getElementById('filter-job-type')?.value || '',
+            posted_within_hours: parseInt(document.getElementById('filter-posted')?.value) || 24,
+        }),
+        onChange: () => searchJobs(false),
+    });
     // company career sites are mostly full-time: picking them shows all job types
     document.getElementById('filter-source')?.addEventListener('change', e => {
         if (e.target.value === 'Company site') {
@@ -7444,6 +7464,110 @@ async function renderJobsSide() {
         }
     }, true);       // capture: runs before the listener that searches
 })();
+
+// =========================================================================
+// Role picker (like NextRaise): search roles, picked roles as chips, categories with real job counts.
+// opts: { get(): [labels], set(labels), countsBody(): filters for /api/jobs/role-counts, onChange() }
+// =========================================================================
+const rolePickerCache = {};
+
+function rolePicker(host, opts) {
+    if (!host) return;
+    let draft = [...opts.get()];
+    let open = false;
+    const label = () => {
+        const s = opts.get();
+        return s.length === 0 ? 'All roles' : s.length === 1 ? s[0] : `${s[0]} +${s.length - 1}`;
+    };
+    host.classList.add('rp');
+    host.innerHTML = `<button type="button" class="rp-btn form-control" title="Pick one or more roles">${escapeHtml(label())} <span class="rp-caret">▾</span></button>
+        <div class="rp-panel" hidden>
+            <input type="text" class="form-control rp-search" placeholder="Search roles…">
+            <div class="rp-chips"></div>
+            <div class="rp-cats"><div class="cons-muted" style="padding:10px;">Counting jobs…</div></div>
+            <div class="rp-foot"><button type="button" class="btn btn-secondary btn-sm rp-clear">Clear</button>
+                <button type="button" class="btn btn-primary btn-sm rp-done">Show jobs</button></div>
+        </div>`;
+    const btn = host.querySelector('.rp-btn'), panel = host.querySelector('.rp-panel');
+    const chips = () => {
+        host.querySelector('.rp-chips').innerHTML = draft.map(r => `<span class="rp-chip">${escapeHtml(r)} <button type="button" data-r="${escapeHtml(r)}" title="Remove">×</button></span>`).join('');
+        host.querySelectorAll('.rp-chip button').forEach(b => b.addEventListener('click', () => {
+            draft = draft.filter(x => x !== b.dataset.r);
+            host.querySelectorAll('.rp-role input').forEach(i => { i.checked = draft.includes(i.value); });
+            chips();
+        }));
+    };
+    const renderCats = (data) => {
+        const q = host.querySelector('.rp-search').value.trim().toLowerCase();
+        const cats = (data.categories || []).map(c => {
+            const roles = c.roles.filter(r => !q || r.label.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
+            if (!roles.length) return '';
+            const expanded = q || roles.some(r => draft.includes(r.label));
+            const picked = roles.filter(r => draft.includes(r.label)).length;
+            return `<div class="rp-cat"><button type="button" class="rp-cat-h">${escapeHtml(c.name)}${picked ? ` <i>${picked}</i>` : ''}<span>${c.count}</span><b>${expanded ? '▾' : '▸'}</b></button>
+                <div class="rp-roles" ${expanded ? '' : 'hidden'}>${roles.map(r => `<label class="rp-role"><input type="checkbox" value="${escapeHtml(r.label)}" ${draft.includes(r.label) ? 'checked' : ''}>
+                    <span>${escapeHtml(r.label)}</span><em>${r.count}</em></label>`).join('')}</div></div>`;
+        }).join('');
+        const box = host.querySelector('.rp-cats');
+        box.innerHTML = cats || '<div class="cons-muted" style="padding:10px;">No role matches that search.</div>';
+        box.querySelectorAll('.rp-cat-h').forEach(h => h.addEventListener('click', () => {
+            const list = h.nextElementSibling;
+            list.hidden = !list.hidden;
+            h.querySelector('b').textContent = list.hidden ? '▸' : '▾';
+        }));
+        box.querySelectorAll('.rp-role input').forEach(i => i.addEventListener('change', () => {
+            draft = i.checked ? [...new Set([...draft, i.value])] : draft.filter(x => x !== i.value);
+            chips();
+        }));
+    };
+    const load = async () => {
+        const body = opts.countsBody();
+        const key = JSON.stringify(body);
+        if (!rolePickerCache[key]) {
+            try {
+                const res = await fetch('/api/jobs/role-counts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                rolePickerCache[key] = res.ok ? await res.json() : { categories: [] };
+            } catch (e) { rolePickerCache[key] = { categories: [] }; }
+        }
+        if (open) renderCats(rolePickerCache[key]);
+        host._rpData = rolePickerCache[key];
+    };
+    const close = (apply) => {
+        if (!open) return;
+        open = false;
+        panel.hidden = true;
+        document.removeEventListener('mousedown', outside, true);
+        const changed = JSON.stringify([...draft].sort()) !== JSON.stringify([...opts.get()].sort());
+        if (apply && changed) {
+            opts.set([...draft]);
+            btn.firstChild.textContent = label() + ' ';
+            opts.onChange();
+        } else {
+            draft = [...opts.get()];
+        }
+    };
+    const outside = (e) => { if (!host.contains(e.target)) close(true); };
+    btn.addEventListener('click', () => {
+        if (open) { close(true); return; }
+        open = true;
+        draft = [...opts.get()];
+        panel.hidden = false;
+        chips();
+        host.querySelector('.rp-search').value = '';
+        host.querySelector('.rp-cats').innerHTML = '<div class="cons-muted" style="padding:10px;">Counting jobs…</div>';
+        document.addEventListener('mousedown', outside, true);
+        load();
+        host.querySelector('.rp-search').focus();
+    });
+    host.querySelector('.rp-search').addEventListener('input', () => { if (host._rpData) renderCats(host._rpData); });
+    host.querySelector('.rp-clear').addEventListener('click', () => {
+        draft = [];
+        chips();
+        if (host._rpData) renderCats(host._rpData);
+    });
+    host.querySelector('.rp-done').addEventListener('click', () => close(true));
+    host.addEventListener('keydown', e => { if (e.key === 'Escape') close(false); });
+}
 
 // The Word-resume preview libraries (170 KB) load the first time a resume preview opens, not with every page.
 let docxPreviewLoading = null;

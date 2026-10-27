@@ -50,6 +50,7 @@ import job_types
 import autofill
 import career_boards
 import apollo_api
+import roles_catalog
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -764,6 +765,7 @@ def api_jobs_search():
     max_age_hours = _int_or_none(data.get("posted_within_hours"))
     max_age_hours = max(1, min(max_age_hours, 24 * 31)) if max_age_hours else None
     company_sites = (source or "").lower().startswith("company site")
+    roles = [r for r in (data.get("roles") or []) if isinstance(r, str) and r in roles_catalog.ROLES][:20]
     if country.lower() == "india":
         # "India" as the location means the whole market (the country filter covers it) - Naukri writes
         # "Bengaluru", not "Bengaluru, India".
@@ -788,7 +790,8 @@ def api_jobs_search():
         my_experience=my_experience,
         include_unstated=include_unstated,
         type_filter=type_filter,
-        max_age_hours=max_age_hours
+        max_age_hours=max_age_hours,
+        roles=roles
     )
 
     # If 0 results or live_scrape requested, trigger a live scrape of the selected market. This no
@@ -804,7 +807,7 @@ def api_jobs_search():
     paid = country.lower() == "india" or any(s in us_job_scrapers.US_SOURCES and s not in us_job_scrapers.US_FREE_SOURCES for s in us_picked or [])
     no_scrape = (bool(data.get("no_scrape")) and paid) or company_sites     # company sites: read by the career-board sync, never a portal scrape
     if (len(results) == 0 and not no_scrape) or (live_scrape and not company_sites):
-        scrape_query = query or "Software Engineer"
+        scrape_query = query or (roles[0].split(" / ")[0] if roles else "") or "Software Engineer"
         try:
             if country.lower() == "india":
                 picked = [p for p in india_job_scrapers.SOURCES if source and source != "All" and p.lower() in source.lower()]
@@ -835,7 +838,8 @@ def api_jobs_search():
                 my_experience=my_experience,
                 include_unstated=include_unstated,
                 type_filter=type_filter,
-                max_age_hours=max_age_hours
+                max_age_hours=max_age_hours,
+                roles=roles
             )
             if not results and scrape_res.get("jobs"):
                 # never show another portal's jobs as if they came from the one that was picked
@@ -2368,6 +2372,26 @@ def api_career_board_update(board_id):
     finally:
         conn.close()
     return jsonify({"success": True})
+
+
+@app.route("/api/jobs/role-counts", methods=["POST"])
+def api_job_role_counts():
+    """The role picker's categories and roles with how many jobs each has, for the same market / date / source /
+    type / location filters as the search (no keyword, no role, no experience filter)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    country = _job_country_for(user, (data.get("country") or "United States").strip())
+    location = (data.get("location") or "").strip()
+    if country.lower() == "india" and location.lower() in ("india", "all india", "anywhere in india"):
+        location = ""
+    source = data.get("source") or "All"
+    max_age = _int_or_none(data.get("posted_within_hours"))
+    jobs = models.get_jobs(location=location if location and location.lower() != "united states" else None,
+                           source=source if source != "All" else None, is_24h_only=True, country=country,
+                           type_filter=job_types.canonical(data.get("type_filter")), max_age_hours=max(1, min(max_age, 24 * 31)) if max_age else None)
+    return jsonify(roles_catalog.counts(jobs))
 
 
 # ---------------------------------------------------------------------------------------------

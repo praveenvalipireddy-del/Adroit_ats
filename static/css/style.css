@@ -1237,8 +1237,34 @@ body {
 .sa-p-act { text-align: right; max-width: 55%; }
 .sa-email { color: #15803d; font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; }
 
+/* Role picker */
+.rp { position: relative; min-width: 170px; }
+.rp-btn { text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #fff; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.rp-caret { color: #64748b; font-size: 0.75rem; }
+.rp-panel { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; width: 360px; max-width: 92vw; background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; box-shadow: 0 12px 32px rgba(15, 23, 42, .16); padding: 10px; }
+.rp-panel[hidden] { display: none; }
+.rp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.rp-chip { background: #eff6ff; color: #1d4ed8; border-radius: 999px; padding: 3px 4px 3px 10px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 2px; }
+.rp-chip button { border: 0; background: none; color: #1d4ed8; cursor: pointer; font-size: 0.95rem; line-height: 1; padding: 0 4px; }
+.rp-cats { max-height: 320px; overflow: auto; border-top: 1px solid #f1f5f9; }
+.rp-cat-h { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 9px 4px; cursor: pointer;
+    font-size: 0.74rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #334155; text-align: left; }
+.rp-cat-h:hover { background: #f8fafc; }
+.rp-cat-h span { margin-left: auto; color: #94a3b8; font-weight: 600; }
+.rp-cat-h i { font-style: normal; background: #2563eb; color: #fff; border-radius: 999px; padding: 0 6px; font-size: 0.68rem; }
+.rp-cat-h b { color: #94a3b8; width: 12px; }
+.rp-roles[hidden] { display: none; }
+.rp-role { display: flex; align-items: center; gap: 8px; padding: 6px 4px 6px 14px; font-size: 0.85rem; color: #0f172a; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 400; margin: 0; }
+.rp-role:hover { background: #f8fafc; }
+.rp-role em { margin-left: auto; font-style: normal; color: #94a3b8; font-size: 0.78rem; }
+.rp-foot { display: flex; justify-content: space-between; border-top: 1px solid #f1f5f9; padding-top: 8px; margin-top: 4px; }
+/* inside a filter bar, its label / input styles must not reach the picker's list */
+.rp label.rp-role { display: flex; font-size: 0.85rem; font-weight: 400; color: #0f172a; text-transform: none; letter-spacing: 0; margin: 0; }
+.rp .rp-role input[type="checkbox"] { width: 15px; height: 15px; padding: 0; margin: 0; flex: none; box-shadow: none; accent-color: #2563eb; }
+
 /* Consultant page: Matched jobs search bar */
-.cons-filter { display: grid; grid-template-columns: 2fr 1.3fr 1fr 0.9fr 1fr 1.2fr auto; gap: 10px; align-items: end; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.cons-filter { display: grid; grid-template-columns: 1.6fr 1.3fr 1.1fr 1fr 0.9fr 1fr 1.2fr auto; gap: 10px; align-items: end; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
 .cons-filter label { display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
 .cons-filter .form-control { height: 38px; }
 .cons-filter .cf-go .btn { height: 38px; white-space: nowrap; }

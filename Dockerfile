@@ -25,5 +25,8 @@ COPY . .
 # Expose port
 EXPOSE 5000
 
-# Run with production Gunicorn server
-CMD ["gunicorn", "app:app", "--workers=3", "--bind=0.0.0.0:5000", "--timeout=240"]
+# Run with production Gunicorn server: ONE copy of the app with 4 threads. Three copies each loaded the AI / Word /
+# PDF / email libraries and ran their own background jobs - more than the 512 MB instance holds (Render restarted
+# the service for exceeding its memory limit). Threads let a slow request (AI email, resume tailoring) run while
+# the other three keep serving pages.
+CMD ["gunicorn", "app:app", "--worker-class=gthread", "--workers=1", "--threads=4", "--bind=0.0.0.0:5000", "--timeout=240"]

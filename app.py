@@ -49,6 +49,7 @@ import job_description_fetch
 import job_types
 import autofill
 import career_boards
+import apollo_api
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
 logging.basicConfig(level=logging.INFO)
@@ -2386,6 +2387,62 @@ def api_career_board_update(board_id):
     finally:
         conn.close()
     return jsonify({"success": True})
+
+
+# ---------------------------------------------------------------------------------------------
+# Super Apply: the hiring team at the job's company (apollo_api.py). Search is free; each email reveal is
+# 1 Apollo credit and only a VERIFIED email is used.
+# ---------------------------------------------------------------------------------------------
+@app.route("/api/super-apply/check", methods=["POST"])
+def api_super_apply_check():
+    """Is Apollo connected and does the plan allow the API? One free people search (no credits)."""
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+    if not apollo_api.configured():
+        return jsonify({"ok": False, "error": "Apollo isn't connected: add APOLLO_API_KEY in Render > Environment."})
+    try:
+        apollo_api.http_post("/mixed_people/api_search", {"person_titles": ["recruiter"], "q_keywords": "Apollo", "page": 1, "per_page": 1})
+    except apollo_api.ApolloError as ex:
+        return jsonify({"ok": False, "error": str(ex)})
+    return jsonify({"ok": True, "message": "Apollo is connected - searching the hiring team is free; each email costs 1 credit."})
+
+
+@app.route("/api/super-apply/search", methods=["POST"])
+def api_super_apply_search():
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    job = models.get_job_by_id(_int_or_none((request.get_json(silent=True) or {}).get("job_id")) or 0)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    try:
+        people = apollo_api.search_hiring_team(job.get("company") or "", job.get("country") or "")
+    except apollo_api.ApolloError as ex:
+        return jsonify({"error": str(ex)}), 400
+    return jsonify({"people": people, "company": job.get("company") or "", "job_title": job.get("title") or ""})
+
+
+@app.route("/api/super-apply/reveal", methods=["POST"])
+def api_super_apply_reveal():
+    """1 Apollo credit: the person's verified work email. Saved on the job (recruiter email) when the job has none."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    job = models.get_job_by_id(_int_or_none(data.get("job_id")) or 0)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    try:
+        res = apollo_api.reveal(str(data.get("person_id") or ""))
+    except apollo_api.ApolloError as ex:
+        return jsonify({"error": str(ex)}), 400
+    if res.get("matched"):
+        models.log_activity(user["id"], user.get("name") or "", "Apollo email reveal (1 credit)", "Job", job["id"],
+                            f"{res.get('name')} at {job.get('company')}: {'verified email' if res['verified'] else 'no verified email'}")
+    if res.get("verified") and not (job.get("recruiter_email") or "").strip():
+        models.update_job_recruiter_info(job["id"], email=res["email"], name=res.get("name") or "")
+        res["saved_on_job"] = True
+    return jsonify(res)
 
 
 @app.route("/api/jobs/<int:job_id>/save", methods=["POST"])

@@ -1223,6 +1223,22 @@
         </div>
     </div>
 
+    <!-- MODAL: SUPER APPLY (hiring team via Apollo) -->
+    <div class="modal-backdrop" id="modal-super-apply" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3>⭐ Super Apply</h3>
+                <button class="modal-close" id="btn-close-super-apply">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="sa-job" class="sa-job"></div>
+                <p class="sa-how">Find the recruiters and HR at this company (free), get a <b>verified</b> work email (<b>1 Apollo credit</b> per person), then send the consultant's resume straight to them as a Gmail draft you review.</p>
+                <div id="sa-status" class="sa-status"></div>
+                <div id="sa-people"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: CHROME AUTOFILL EXTENSION -->
     <div class="modal-backdrop" id="modal-extension" style="display: none;">
         <div class="modal-dialog modal-sm">
@@ -1631,7 +1647,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.99.1"></script>
+    <script src="/static/js/app.js?v=5.99.2"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

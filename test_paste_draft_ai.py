@@ -181,7 +181,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.1" in page.content(), "cache-buster not bumped to 5.99.1")
+        check("app.js?v=5.99.2" in page.content(), "cache-buster not bumped to 5.99.2")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openPasteDraftModal({cid})")
         page.fill("#pd-title", "My Own Title")

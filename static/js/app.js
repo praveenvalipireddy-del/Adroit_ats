@@ -7178,6 +7178,7 @@ async function consPaneJobs(c, body) {
                     <button type="button" class="btn btn-secondary btn-sm cons-job-save" title="Add to ${escapeHtml(c.name)}'s Applications as Saved">🔖 Save</button>
                     <button type="button" class="btn btn-sm cons-job-tailor" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;">⚡ Tailor resume</button>
                     ${j.recruiter_email ? `<button type="button" class="btn btn-primary btn-sm cons-job-draft">✉️ Email recruiter</button>` : ''}
+                    <button type="button" class="btn btn-sm cons-job-super sa-btn" title="Find the hiring team at this company (Apollo) and email them the resume">⭐ Super Apply</button>
                     ${j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the form">Apply on site ↗</a>` : ''}
                 </div>
             </div>
@@ -7187,6 +7188,7 @@ async function consPaneJobs(c, body) {
     }).join('');
     const jobOf = el => jobs.find(x => x.id === parseInt(el.closest('.cons-job').dataset.id));
     list.querySelectorAll('.cons-job-draft').forEach(btn => btn.addEventListener('click', () => createJobDraft(jobOf(btn).id, c.id, '', btn)));
+    list.querySelectorAll('.cons-job-super').forEach(btn => btn.addEventListener('click', () => openSuperApply(jobOf(btn), c.id)));
     list.querySelectorAll('.cons-job-tailor').forEach(btn => btn.addEventListener('click', () => {
         const j = jobOf(btn);
         if (!(state.jobs || []).some(x => x.id === j.id)) state.jobs = [...(state.jobs || []), j];     // the optimizer looks the job up in state.jobs
@@ -7379,6 +7381,7 @@ function renderJobCards(jobs) {
                     <button type="button" class="btn btn-secondary btn-sm jc-save" title="Add to the consultant's Applications as Saved">🔖 Save</button>
                     <button type="button" class="btn btn-sm jc-optimize" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;" title="Tailor the consultant's resume to this job">⚡ Tailor resume</button>
                     ${j.recruiter_email ? '<button type="button" class="btn btn-primary btn-sm jc-draft">✉️ Email recruiter</button>' : ''}
+                    <button type="button" class="btn btn-sm jc-super sa-btn" title="Find the hiring team at this company (Apollo) and email them the resume">⭐ Super Apply</button>
                     ${j.url ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the application">Apply ↗</a>` : ''}
                 </div>
                 <div class="jc-details" ${open ? '' : 'hidden'}>
@@ -7422,6 +7425,10 @@ function renderJobCards(jobs) {
         const j = jobOf(b);
         const typed = b.closest('.job-card').querySelector('.jc-email')?.value.trim();
         createJobDraft(j.id, cid, typed || j.recruiter_email || '', b);
+    }));
+    box.querySelectorAll('.jc-super').forEach(b => b.addEventListener('click', () => {
+        const cid = needCand(); if (!cid) return;
+        openSuperApply(jobOf(b), cid);
     }));
     box.querySelectorAll('.jc-email').forEach(inp => inp.addEventListener('change', () => {
         const j = jobOf(inp);
@@ -7516,4 +7523,82 @@ async function renderJobsSide() {
             if (p && p.value === '24') p.value = '168';
         }
     }, true);       // capture: runs before the listener that searches
+})();
+
+// =========================================================================
+// Super Apply: the hiring team at the job's company (Apollo). Searching is free; each email is 1 credit and
+// only a VERIFIED email is used; the email itself is the normal draft (plan -> write -> check, resume attached).
+// =========================================================================
+const superApply = { job: null, candId: null };
+
+async function openSuperApply(job, candId) {
+    if (!job) return;
+    if (!candId) { showToast('Pick the consultant first.', 'warning'); return; }
+    superApply.job = job;
+    superApply.candId = candId;
+    const cand = (state.consultants || []).find(c => c.id === candId);
+    const $ = id => document.getElementById(id);
+    $('sa-job').innerHTML = `<b>${escapeHtml(job.title || '')}</b> · ${escapeHtml(job.company || '')}${job.location ? ' · ' + escapeHtml(job.location) : ''}
+        <div class="cons-muted">For ${escapeHtml(cand ? cand.name : 'the consultant')}</div>`;
+    $('sa-people').innerHTML = '';
+    $('sa-status').innerHTML = '<span class="cons-muted">Looking up the hiring team at ' + escapeHtml(job.company || 'this company') + ' (free)…</span>';
+    $('modal-super-apply').style.display = 'flex';
+    try {
+        const res = await fetch('/api/super-apply/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: job.id }) });
+        const d = await res.json().catch(() => ({}));
+        if (superApply.job !== job) return;
+        if (!res.ok) { $('sa-status').innerHTML = `<span class="sa-err">${escapeHtml(d.error || 'Apollo search failed.')}</span>`; return; }
+        if (!(d.people || []).length) {
+            $('sa-status').innerHTML = `<span class="cons-muted">Apollo found no recruiters or HR at <b>${escapeHtml(d.company)}</b> in this country. No credits used.</span>`;
+            return;
+        }
+        $('sa-status').innerHTML = `<span class="cons-muted">${d.people.length} people at ${escapeHtml(d.company)} - recruiters first. Pick 1-2 and get their email.</span>`;
+        $('sa-people').innerHTML = d.people.map(p => `
+            <div class="sa-person" data-id="${escapeHtml(p.id)}">
+                <div class="sa-p-main"><b>${escapeHtml(p.name)}</b><span>${escapeHtml(p.title)}${p.location ? ' · ' + escapeHtml(p.location) : ''}</span>
+                    ${p.linkedin_url ? `<a href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener">LinkedIn ↗</a>` : ''}</div>
+                <div class="sa-p-act">
+                    ${p.has_email === false ? '<span class="cons-muted" title="Apollo has no email for this person">no email in Apollo</span>'
+                        : '<button type="button" class="btn btn-secondary btn-sm sa-reveal">Get verified email · 1 credit</button>'}
+                </div>
+            </div>`).join('');
+        $('sa-people').querySelectorAll('.sa-reveal').forEach(btn => btn.addEventListener('click', () => superApplyReveal(btn)));
+    } catch (e) {
+        $('sa-status').innerHTML = '<span class="sa-err">Could not reach Job Hunt. Try again.</span>';
+    }
+}
+
+async function superApplyReveal(btn) {
+    const row = btn.closest('.sa-person');
+    const name = row.querySelector('b').textContent;
+    if (!confirm(`Get ${name}'s email from Apollo?\n\nThis uses 1 Apollo credit (none if Apollo can't match the person). Only a verified email is used.`)) return;
+    btn.disabled = true;
+    btn.textContent = 'Getting email…';
+    const job = superApply.job;
+    try {
+        const res = await fetch('/api/super-apply/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_id: job.id, person_id: row.dataset.id }) });
+        const d = await res.json().catch(() => ({}));
+        const act = row.querySelector('.sa-p-act');
+        if (!res.ok) { act.innerHTML = `<span class="sa-err">${escapeHtml(d.error || 'Apollo error')}</span>`; return; }
+        if (!d.verified) { act.innerHTML = `<span class="sa-warn">${escapeHtml(d.note || 'No verified email.')}</span>`; return; }
+        if (d.saved_on_job) job.recruiter_email = d.email;
+        if (d.name) row.querySelector('b').textContent = d.name;          // the full name, unmasked by the match
+        act.innerHTML = `<div class="sa-email">✓ ${escapeHtml(d.email)}</div>
+            <button type="button" class="btn btn-primary btn-sm sa-draft">✉️ Create Gmail draft with resume</button>`;
+        act.querySelector('.sa-draft').addEventListener('click', e => {
+            if (!(state.jobs || []).some(x => x.id === job.id)) state.jobs = [...(state.jobs || []), job];
+            createJobDraft(job.id, superApply.candId, d.email, e.currentTarget);
+        });
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Get verified email · 1 credit';
+    }
+}
+
+(function initSuperApply() {
+    document.getElementById('btn-close-super-apply')?.addEventListener('click', () => {
+        document.getElementById('modal-super-apply').style.display = 'none';
+        superApply.job = null;
+    });
 })();

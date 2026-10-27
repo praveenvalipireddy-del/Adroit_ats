@@ -140,7 +140,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.1" in page.content(), "cache-buster not bumped to 5.99.1")
+        check("app.js?v=5.99.2" in page.content(), "cache-buster not bumped to 5.99.2")
         page.click("a.nav-item[data-tab=jobs]")
         check(page.input_value("#filter-job-type") == "Contract", "US default: Contract")
         page.fill("#filter-query", "Typetest")

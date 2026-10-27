@@ -842,7 +842,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
         });
 
         const data = await res.json();
-        state.jobs = Array.isArray(data) ? data : (data.jobs || data.results || []);
+        state.jobs = filterWorkModel(Array.isArray(data) ? data : (data.jobs || data.results || []), document.getElementById('filter-work-model')?.value || '');
 
         if (countLabel) {
             countLabel.innerText = `Showing ${state.jobs.length} Fresh ${country} Requisitions`;
@@ -7076,37 +7076,93 @@ function consSkillMatch(c, job) {
     const text = `${job.title || ''} ${job.description || ''} ${job.full_description || ''}`.toLowerCase();
     if (!skills.length || !text.trim()) return null;
     const hit = skills.filter(s => new RegExp(`(^|[^a-z0-9])${s.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(text));
-    return { pct: Math.round(100 * hit.length / skills.length), hit };
+    return { pct: Math.round(100 * hit.length / skills.length), hit, total: skills.length };
 }
+
+// Work model as the posting states it (location, title, first part of the description): remote / hybrid / onsite.
+function jobWorkModels(j) {
+    const t = `${j.location || ''} ${j.title || ''} ${(j.description || '').slice(0, 2000)}`.toLowerCase();
+    const out = new Set();
+    if (/\bremote\b|work from home|\bwfh\b|work-from-home/.test(t)) out.add('remote');
+    if (/\bhybrid\b/.test(t)) out.add('hybrid');
+    if (/\bon-?site\b|\bin[- ]office\b|\bonsite\b|work from office|\bwfo\b/.test(t)) out.add('onsite');
+    return out;
+}
+
+function filterWorkModel(jobs, model) {
+    return model ? (jobs || []).filter(j => jobWorkModels(j).has(model)) : (jobs || []);
+}
+
+// The ring's word: with only a few listed skills, "2 of 2 skills" (100% of two words is not a strong match).
+function consRingWord(m) {
+    if (!m || !m.pct) return '';
+    if (m.total < 4) return `${m.hit.length} OF ${m.total} SKILLS`;
+    return m.pct >= 60 ? 'STRONG' : m.pct >= 35 ? 'GOOD' : 'STRETCH';
+}
+
+const CONS_JOB_SOURCES = [['All', 'All portals'], ['Company site', '🏢 Company career sites'], ['LinkedIn', 'LinkedIn'], ['Indeed', 'Indeed'],
+    ['Dice', 'Dice (US)'], ['Naukri', 'Naukri (India)'], ['Recruiter Post', 'LinkedIn recruiter posts'], ['Email', 'Requirement emails']];
 
 async function consPaneJobs(c, body) {
     const country = consMarket(c) === 'India' ? 'India' : 'United States';
-    const query = consCoreTitle(c.title);
-    body.innerHTML = `<div class="cons-pane-bar"><span>Last 24h · ${escapeHtml(country)} · "${escapeHtml(query || 'all roles')}"</span>
-        <button type="button" class="btn btn-secondary btn-sm" id="cons-jobs-more">More filters &amp; live search in Jobs →</button></div>
-        <div id="cons-jobs-list" class="cons-loading">Finding today's jobs for ${escapeHtml(c.name)}…</div>`;
-    document.getElementById('cons-jobs-more').addEventListener('click', () => browseJobsForCandidate(c.id, c.title || '', c.country || 'United States'));
-    let jobs = consUi.jobs[c.id];
+    consUi.jf = consUi.jf || {};
+    const f = consUi.jf[c.id] = consUi.jf[c.id] || { query: consCoreTitle(c.title), location: '', posted: '24', type: '', source: 'All', work: '' };
+    const sel = (id, opts, val) => `<select id="${id}" class="form-control">${opts.map(([v, l]) => `<option value="${v}" ${String(val) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    body.innerHTML = `
+        <div class="cons-filter">
+            <div class="cf-q"><label>Role / skills</label><input type="text" id="cons-jf-query" class="form-control" value="${escapeHtml(f.query)}" placeholder="e.g. Data Analyst, Python, Power BI"></div>
+            <div><label>Location</label><input type="text" id="cons-jf-loc" class="form-control" value="${escapeHtml(f.location)}" placeholder="${country === 'India' ? 'Hyderabad, Remote…' : 'Dallas, Remote…'}"></div>
+            <div><label>Posted within</label>${sel('cons-jf-posted', [['24', 'Last 24 hours'], ['72', 'Last 3 days'], ['168', 'Last week'], ['336', 'Last 2 weeks']], f.posted)}</div>
+            <div><label>Work model</label>${sel('cons-jf-work', [['', 'Any'], ['remote', 'Remote'], ['hybrid', 'Hybrid'], ['onsite', 'On-site']], f.work)}</div>
+            <div><label>Job type</label>${sel('cons-jf-type', [['', 'All types'], ['Contract', 'Contract'], ['Full-time', 'Full-time'], ['Part-time', 'Part-time']], f.type)}</div>
+            <div><label>Source</label>${sel('cons-jf-source', CONS_JOB_SOURCES, f.source)}</div>
+            <div class="cf-go"><button type="button" class="btn btn-primary" id="cons-jf-go">🔍 Search</button></div>
+        </div>
+        <div class="cons-pane-bar"><span id="cons-jobs-count">${escapeHtml(country)} jobs for ${escapeHtml(c.name)}</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="cons-jobs-more" title="The full Jobs page: live portal scrapes, experience filter">Live portal search in Jobs →</button></div>
+        <div id="cons-jobs-list" class="cons-loading">Finding jobs for ${escapeHtml(c.name)}…</div>`;
+    const read = () => {
+        f.query = document.getElementById('cons-jf-query').value.trim();
+        f.location = document.getElementById('cons-jf-loc').value.trim();
+        f.posted = document.getElementById('cons-jf-posted').value;
+        f.type = document.getElementById('cons-jf-type').value;
+        f.source = document.getElementById('cons-jf-source').value;
+        f.work = document.getElementById('cons-jf-work').value;
+    };
+    const go = () => { read(); consPaneJobs(c, body); };
+    document.getElementById('cons-jf-go').addEventListener('click', go);
+    ['cons-jf-query', 'cons-jf-loc'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') go(); }));
+    ['cons-jf-posted', 'cons-jf-type', 'cons-jf-source', 'cons-jf-work'].forEach(id => document.getElementById(id).addEventListener('change', go));
+    document.getElementById('cons-jobs-more').addEventListener('click', () => browseJobsForCandidate(c.id, f.query || c.title || '', c.country || 'United States'));
+
+    const key = `${c.id}|${f.query}|${f.location}|${f.posted}|${f.type}|${f.source}`;
+    let jobs = consUi.jobs[key];
     if (!jobs) {
         try {
             const res = await fetch('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, location: country, source: 'All', country, contract_only: true, is_24h_only: true, live_scrape: false,
-                    no_scrape: true, my_experience: c.experience_years || null, include_unstated: true }) });
+                body: JSON.stringify({ query: f.query, location: f.location || country, source: f.source, country, is_24h_only: true, live_scrape: false,
+                    no_scrape: true, type_filter: f.type, posted_within_hours: parseInt(f.posted) > 24 ? parseInt(f.posted) : null,
+                    my_experience: c.experience_years || null, include_unstated: true }) });
             const d = await res.json().catch(() => ({}));
             jobs = Array.isArray(d) ? d : (d.jobs || d.results || []);
-            consUi.jobs[c.id] = jobs;
+            consUi.jobs[key] = jobs;
         } catch (e) { jobs = null; }
     }
-    if (consUi.openId !== c.id || consUi.pane !== 'jobs') return;
+    if (consUi.openId !== c.id || consUi.pane !== 'jobs' || !document.getElementById('cons-jobs-list')) return;
+    if (jobs) jobs = filterWorkModel(jobs, f.work);
     const list = document.getElementById('cons-jobs-list');
     list.classList.remove('cons-loading');
     if (!jobs) { list.innerHTML = '<div class="cons-empty">Could not load jobs. Try again.</div>'; return; }
-    if (!jobs.length) { list.innerHTML = `<div class="cons-empty">No jobs from the last 24 hours match "${escapeHtml(query)}" yet. Use <b>More filters &amp; live search</b> to search the portals.</div>`; return; }
-    const scored = jobs.map(j => ({ j, m: consSkillMatch(c, j) })).sort((a, b) => ((b.m || {}).pct || 0) - ((a.m || {}).pct || 0)).slice(0, 40);
+    document.getElementById('cons-jobs-count').textContent = `${jobs.length} job${jobs.length === 1 ? '' : 's'} · ${country} · best skills match first`;
+    if (!jobs.length) {
+        list.innerHTML = `<div class="cons-empty">No jobs match these filters. Try <b>Posted within: Last week</b>, fewer words in Role / skills, or <b>Live portal search in Jobs</b>.</div>`;
+        return;
+    }
+    const scored = jobs.map(j => ({ j, m: consSkillMatch(c, j) })).sort((a, b) => ((b.m || {}).pct || 0) - ((a.m || {}).pct || 0)).slice(0, 60);
     list.innerHTML = scored.map(({ j, m }) => {
         const pct = m ? m.pct : null;
-        const col = pct == null ? '#94a3b8' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706';
-        const word = pct == null ? '' : pct >= 60 ? 'STRONG' : pct >= 35 ? 'GOOD' : 'STRETCH';
+        const col = pct == null ? '#94a3b8' : (m.total < 4 ? '#2563eb' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706');
+        const word = consRingWord(m);
         return `
         <div class="cons-job" data-id="${j.id}">
             <div class="cons-job-main">
@@ -7119,17 +7175,29 @@ async function consPaneJobs(c, body) {
                     ${m && m.hit.length ? `<span class="cons-tag green" title="Consultant skills in this job">✓ ${escapeHtml(m.hit.slice(0, 4).join(', '))}</span>` : ''}
                 </div>
                 <div class="cons-job-acts">
+                    <button type="button" class="btn btn-secondary btn-sm cons-job-save" title="Add to ${escapeHtml(c.name)}'s Applications as Saved">🔖 Save</button>
+                    <button type="button" class="btn btn-sm cons-job-tailor" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;">⚡ Tailor resume</button>
                     ${j.recruiter_email ? `<button type="button" class="btn btn-primary btn-sm cons-job-draft">✉️ Email recruiter</button>` : ''}
-                    ${j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the form">⚡ Apply on site ↗</a>` : ''}
+                    ${j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the form">Apply on site ↗</a>` : ''}
                 </div>
             </div>
             ${!pct ? `<div class="cons-ring none" title="None of the consultant's listed skills appear in this posting's text">skills not mentioned</div>`
-                : `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of the consultant's skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`}
+                : `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of the consultant's ${m.total} listed skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`}
         </div>`;
     }).join('');
-    list.querySelectorAll('.cons-job-draft').forEach(btn => btn.addEventListener('click', () => {
-        const jobId = parseInt(btn.closest('.cons-job').dataset.id);
-        createJobDraft(jobId, c.id, '', btn);
+    const jobOf = el => jobs.find(x => x.id === parseInt(el.closest('.cons-job').dataset.id));
+    list.querySelectorAll('.cons-job-draft').forEach(btn => btn.addEventListener('click', () => createJobDraft(jobOf(btn).id, c.id, '', btn)));
+    list.querySelectorAll('.cons-job-tailor').forEach(btn => btn.addEventListener('click', () => {
+        const j = jobOf(btn);
+        if (!(state.jobs || []).some(x => x.id === j.id)) state.jobs = [...(state.jobs || []), j];     // the optimizer looks the job up in state.jobs
+        jobOptimizeOpen(j.id, c.id, null);
+    }));
+    list.querySelectorAll('.cons-job-save').forEach(btn => btn.addEventListener('click', async () => {
+        const res = await fetch(`/api/jobs/${jobOf(btn).id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: c.id }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
+        btn.textContent = '✓ Saved';
+        btn.disabled = true;
     }));
 }
 
@@ -7286,8 +7354,8 @@ function renderJobCards(jobs) {
     const scored = list.slice(0, 200).map(j => ({ j, m: c ? consSkillMatch(c, j) : null }));
     box.innerHTML = scored.map(({ j, m }) => {
         const pct = m ? m.pct : null;
-        const col = !pct ? '#94a3b8' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706';
-        const word = !pct ? '' : pct >= 60 ? 'STRONG' : pct >= 35 ? 'GOOD' : 'STRETCH';
+        const col = !pct ? '#94a3b8' : (m.total < 4 ? '#2563eb' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706');
+        const word = consRingWord(m);
         const company = (j.source || '').toLowerCase().startsWith('company site');
         const open = jobsUi.open.has(j.id);
         const salary = j.salary && !/^Rate on Discussion/i.test(j.salary) ? j.salary : '';
@@ -7438,6 +7506,7 @@ async function renderJobsSide() {
     document.querySelectorAll('.jobs-view-btn').forEach(b => b.addEventListener('click', () => setJobsView(b.dataset.view)));
     setJobsView(jobsUi.view);
     document.getElementById('filter-posted')?.addEventListener('change', () => searchJobs(false));
+    document.getElementById('filter-work-model')?.addEventListener('change', () => searchJobs(false));
     // company career sites are mostly full-time: picking them shows all job types
     document.getElementById('filter-source')?.addEventListener('change', e => {
         if (e.target.value === 'Company site') {

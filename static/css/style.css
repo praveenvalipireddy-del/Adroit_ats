@@ -1224,6 +1224,14 @@ body {
 @media (max-width: 900px) { .cons-two { grid-template-columns: 1fr; } .cons-ring { width: 60px; } }
 .cons-ring.none { font-size: 0.68rem; color: #94a3b8; padding-top: 18px; }
 
+/* Consultant page: Matched jobs search bar */
+.cons-filter { display: grid; grid-template-columns: 2fr 1.3fr 1fr 0.9fr 1fr 1.2fr auto; gap: 10px; align-items: end; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.cons-filter label { display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.cons-filter .form-control { height: 38px; }
+.cons-filter .cf-go .btn { height: 38px; white-space: nowrap; }
+.cons-ring small { max-width: 74px; line-height: 1.2; }
+@media (max-width: 1000px) { .cons-filter { grid-template-columns: 1fr 1fr; } .cons-filter .cf-q { grid-column: 1 / -1; } }
+
 /* Jobs as cards + right panel (consultant, company career sites) */
 .jobs-view-bar { display: flex; justify-content: space-between; align-items: center; margin: 14px 0 12px; gap: 10px; }
 .jobs-cards-count { color: #64748b; font-size: 0.85rem; }

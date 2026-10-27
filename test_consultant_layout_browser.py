@@ -103,7 +103,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.0" in page.content(), "cache-buster not bumped to 5.99.0")
+        check("app.js?v=5.99.1" in page.content(), "cache-buster not bumped to 5.99.1")
         page.click("a.nav-item[data-tab=candidates]")
         page.wait_for_selector(f".cons-card[data-id='{K}']")
         page.wait_for_function(f"document.querySelector(\".cons-card[data-id='{K}']\").innerText.includes('Replies waiting') && "
@@ -138,8 +138,31 @@ try:
         check("Data Analyst - Power BI (Layout Fixture)" in jobs and "Email recruiter" in jobs and "Apply on site" in jobs, f"matched jobs: {jobs[:300]!r}")
         first = page.locator(".cons-job").first
         check("Power BI (Layout Fixture)" in first.inner_text() and "67%" in first.inner_text(), f"best skills match first: {first.inner_text()[:200]!r}")
+        check("2 OF 3 SKILLS" in first.inner_text(), f"few listed skills -> '2 of 3 skills', not STRONG: {first.inner_text()[-60:]!r}")
         shots["jobs"] = os.path.join(tmp_dir, "ws_jobs.png")
         page.screenshot(path=shots["jobs"])
+        # the search bar on the consultant's page
+        check(page.input_value("#cons-jf-query") == "Data Analyst", "role prefilled from the consultant's title")
+        page.fill("#cons-jf-query", "Reporting")
+        page.click("#cons-jf-go")
+        page.wait_for_function("document.getElementById('cons-jobs-list') && document.getElementById('cons-jobs-list').innerText.includes('Reporting Analyst (Layout Fixture)')",
+                               timeout=15000)
+        check("Power BI (Layout Fixture)" not in page.inner_text("#cons-jobs-list"), "search narrows the list")
+        page.select_option("#cons-jf-source", "Dice")
+        page.wait_for_function("document.getElementById('cons-jobs-count').innerText.includes('job')", timeout=15000)
+        check(page.input_value("#cons-jf-query") == "Reporting", "filters kept after a change")
+        page.select_option("#cons-jf-source", "Company site")
+        page.wait_for_function("document.getElementById('cons-jobs-list').innerText.includes('No jobs match')", timeout=15000)
+        page.select_option("#cons-jf-source", "All")
+        page.fill("#cons-jf-query", "Data Analyst")
+        page.press("#cons-jf-query", "Enter")
+        page.wait_for_function("document.getElementById('cons-jobs-list').innerText.includes('Power BI (Layout Fixture)')", timeout=15000)
+        page.fill("#cons-jf-query", "Analyst")
+        page.select_option("#cons-jf-work", "remote")
+        page.wait_for_function("document.getElementById('cons-jobs-list').innerText.includes('Reporting Analyst (Layout Fixture)') && "
+                               "!document.getElementById('cons-jobs-list').innerText.includes('Power BI (Layout Fixture)')", timeout=15000)
+        check(page.input_value("#cons-jf-work") == "remote", "work model: only the remote job (Dallas job stays out)")
+        page.select_option("#cons-jf-work", "")
 
         page.click(".cons-tab[data-pane=apps]")
         page.wait_for_selector(".cons-bc")

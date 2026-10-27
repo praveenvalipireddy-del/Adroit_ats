@@ -338,6 +338,15 @@
                                 </select>
                             </div>
                             <div class="filter-group">
+                                <label>Work model</label>
+                                <select id="filter-work-model" title="Remote / hybrid / on-site, as the posting says">
+                                    <option value="">Any</option>
+                                    <option value="remote">Remote</option>
+                                    <option value="hybrid">Hybrid</option>
+                                    <option value="onsite">On-site</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
                                 <label>Job type</label>
                                 <select id="filter-job-type" title="Full-time, contract or part-time - each portal is asked for that type">
                                     <option value="">All types</option>
@@ -1622,7 +1631,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.99.0"></script>
+    <script src="/static/js/app.js?v=5.99.1"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

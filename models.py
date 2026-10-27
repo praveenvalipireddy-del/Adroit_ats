@@ -1583,7 +1583,13 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    raw_jobs = cursor.execute("SELECT * FROM jobs ORDER BY id DESC").fetchall()
+    # Every column except full_description: company-site jobs store whole postings there (17 MB for ~2,800 jobs),
+    # and reading it on every search made the Jobs list slow. The list says whether one exists; the Resume
+    # Optimizer reads it from /api/jobs/<id>/full-description.
+    cursor.execute("SELECT * FROM jobs WHERE 1 = 0")
+    cols = [d[0] for d in cursor.description if d[0] != "full_description"]
+    raw_jobs = cursor.execute(f"SELECT {', '.join(cols)}, CASE WHEN full_description IS NULL OR full_description = '' THEN 0 ELSE 1 END "
+                              f"AS has_full_description FROM jobs ORDER BY id DESC").fetchall()
     jobs_list = [dict(j) for j in raw_jobs]
     conn.close()
 
@@ -1600,16 +1606,6 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
         src = (j.get("source") or "").lower()
         jtype = (j.get("job_type") or "").lower()
         skills = (j.get("matched_skills") or "").lower()
-
-        j["experience"] = job_experience.classify(j)
-        if not job_experience.fits(j["experience"], my_experience, include_unstated):
-            continue
-        # Job type (Full-time / Contract / Part-time): a specific type shows only jobs that state it.
-        # The recruiter's own requirements (pasted / from email) that don't state one always show.
-        j["type_label"] = job_types.classify(j)
-        own = (j.get("source") or "").lower().startswith(("manual", "email"))
-        if type_filter and j["type_label"] != type_filter and not (own and not j["type_label"]):
-            continue
 
         # 0. Country / market filter - jobs scraped without an explicit country (older rows,
         # before this field existed) default to United States, matching what those scrapers
@@ -1642,6 +1638,18 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
             if location.lower() not in loc:
                 continue
 
+        # Experience and job type come after the cheap filters above: reading them from the text of every
+        # job (thousands, with the company career sites) made each search take seconds.
+        j["experience"] = job_experience.classify(j)
+        if not job_experience.fits(j["experience"], my_experience, include_unstated):
+            continue
+        # Job type (Full-time / Contract / Part-time): a specific type shows only jobs that state it.
+        # The recruiter's own requirements (pasted / from email) that don't state one always show.
+        j["type_label"] = job_types.classify(j)
+        own = (j.get("source") or "").lower().startswith(("manual", "email"))
+        if type_filter and j["type_label"] != type_filter and not (own and not j["type_label"]):
+            continue
+
         # 3. Contract filter (company career-site jobs are mostly full-time: they are kept and labelled
         # with their type - pick "Contract" in the type filter to hide them)
         if contract_only and not src.startswith("company site"):
@@ -1652,20 +1660,26 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
         if q_lower:
             relevance = 0
 
+            # Whole words only: "ai" used to match "Domain" / "Trainee" / "Chennai", so a search for
+            # "AI Automation Engineer" listed "UI Designer - Automotive Domain" and "Payroll Industrial Trainee".
+            # A word also matches its plural / -ing form (engineer ~ engineering).
+            def has_word(term, text):
+                return re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?:s|es|ing)?(?![a-z0-9])", text) is not None
+
             # Tier 1: Exact phrase match in title (e.g. "data analyst" in "Senior Data Analyst") -> +100
-            if q_lower in title:
+            if has_word(q_lower, title):
                 relevance += 100
-            
+
             # Tier 2: All search words in title (e.g. "Clinical Data Business Analyst") -> +60
-            elif len(q_terms) > 1 and all(term in title for term in q_terms):
+            elif len(q_terms) > 1 and all(has_word(term, title) for term in q_terms):
                 relevance += 60
-            
+
             # Tier 3: Core role keyword in title (excluding generic terms) -> +25
-            elif any(term in title for term in q_terms if term not in ["engineer", "developer", "specialist", "consultant", "lead", "senior", "junior"]):
+            elif any(has_word(term, title) for term in q_terms if term not in ["engineer", "developer", "specialist", "consultant", "lead", "senior", "junior"]):
                 relevance += 25
 
             # Tier 4: Matched skills contains query -> +15
-            if q_lower in skills or any(term in skills for term in q_terms if len(term) > 2):
+            if has_word(q_lower, skills) or any(has_word(term, skills) for term in q_terms if len(term) > 2):
                 relevance += 15
 
             # If title has zero relation to query (e.g. "Cyber Security Engineer" when searching "data analyst"), exclude it

@@ -74,14 +74,15 @@ def _http_json(url: str, body: Optional[dict] = None):
 http_json: Callable = _http_json
 
 
-def _parallel(urls: List[str], workers: int = 4) -> List[Optional[dict]]:
-    """GET each url (a few at a time, one retry); None where one still failed - one bad posting doesn't lose the rest."""
+def _parallel(urls: List[str], parse: Callable, workers: int = 3) -> list:
+    """GET each url (a few at a time, one retry) and keep only parse(answer) - the small piece we need, so a board's
+    hundreds of full posting documents are never held in memory together. None where one still failed."""
     from concurrent.futures import ThreadPoolExecutor
 
     def one(u):
         for attempt in (1, 2):
             try:
-                return http_json(u)
+                return parse(http_json(u))
             except Exception as ex:
                 if attempt == 2:
                     logger.info(f"Career board detail skipped ({u[:80]}): {ex}")
@@ -258,13 +259,16 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
             offset += 100
             if len(page) < 100:
                 break
-        details = _parallel([f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{j.get('id')}" for j, _, _ in picked[:PER_BOARD_CAP]])
-        for (j, posted, code), det in zip(picked, details):
-            if det is None:
+        picked = [(j, posted, code) for j, posted, code in picked[:PER_BOARD_CAP]]
+
+        def sr_body(det):
+            secs = ((det.get("jobAd") or {}).get("sections") or {})
+            return "\n".join(f"{(s or {}).get('title') or ''}\n{_text((s or {}).get('text'))}" for s in secs.values())[:20000]
+        bodies = _parallel([f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{j.get('id')}" for j, _, _ in picked], sr_body)
+        for (j, posted, code), body in zip(picked, bodies):
+            if body is None:
                 continue
             loc = j.get("location") or {}
-            secs = ((det.get("jobAd") or {}).get("sections") or {})
-            body = "\n".join(f"{(s or {}).get('title') or ''}\n{_text((s or {}).get('text'))}" for s in secs.values())
             keep(j.get("name"), ", ".join(x for x in (loc.get("city"), loc.get("region"), loc.get("country")) if x),
                  f"https://jobs.smartrecruiters.com/{slug}/{j.get('id')}", posted, ((j.get("typeOfEmployment") or {}).get("label") or ""),
                  body, code)
@@ -278,22 +282,32 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
             fresh = 0
             for j in page:
                 posted = _workday_posted(j.get("postedOn"), now)
-                if posted is None or posted >= cutoff:
-                    picked.append((j, posted))
-                    fresh += 1
+                if posted is not None and posted < cutoff:
+                    continue
+                fresh += 1
+                lt = j.get("locationsText") or ""
+                # a single named place outside the US / India: its details are never fetched
+                if lt and not re.search(r"\d+\s+locations", lt, re.I) and country_of(lt) is None:
+                    continue
+                picked.append(({"title": j.get("title"), "externalPath": j.get("externalPath"), "locationsText": lt}, posted))
             stale_pages = stale_pages + 1 if not fresh else 0
             offset += 20
             if len(page) < 20 or stale_pages >= 3:
                 break
-        details = _parallel([f"{base}/wday/cxs/{tenant}/{site}{j.get('externalPath')}" for j, _ in picked])
-        for (j, posted), det in zip(picked, details):
-            if det is None:
-                continue
+
+        def wd_info(det):
             info = det.get("jobPostingInfo") or {}
-            locs = "; ".join([info.get("location") or j.get("locationsText") or ""] + (info.get("additionalLocations") or []))
             code = ((info.get("country") or {}).get("alpha2Code") or "") if isinstance(info.get("country"), dict) else ""
-            keep(info.get("title") or j.get("title"), locs, info.get("externalUrl") or f"{base}/{site}{j.get('externalPath')}",
-                 _iso(info.get("startDate")) or posted, info.get("timeType") or "", _text(info.get("jobDescription")), code)
+            return {"title": info.get("title"), "location": info.get("location"), "more": info.get("additionalLocations") or [],
+                    "url": info.get("externalUrl"), "start": info.get("startDate"), "time": info.get("timeType") or "",
+                    "text": _text(info.get("jobDescription"))[:20000], "code": code}
+        details = _parallel([f"{base}/wday/cxs/{tenant}/{site}{j['externalPath']}" for j, _ in picked], wd_info)
+        for (j, posted), info in zip(picked, details):
+            if info is None:
+                continue
+            locs = "; ".join([info["location"] or j["locationsText"] or ""] + info["more"])
+            keep(info["title"] or j["title"], locs, info["url"] or f"{base}/{site}{j['externalPath']}",
+                 _iso(info["start"]) or posted, info["time"], info["text"], info["code"])
     elif ats == "workable":
         d = http_json(f"https://apply.workable.com/api/v3/accounts/{slug}/jobs", {"query": "", "location": [], "department": [], "worktype": [], "remote": []})
         for j in d.get("results", []):
@@ -436,18 +450,35 @@ def sync_board(conn, board: Dict, now: Optional[datetime] = None, fetched: Optio
         return {"company": board.get("company"), "jobs": 0, "new": 0, "error": str(ex)[:200]}
 
 
-PARALLEL_BOARDS = 6
+PARALLEL_BOARDS = 3          # the server has 512 MB: three companies' postings in memory at a time
+KEEP_DAYS = 30               # company-site jobs older than this are removed (unless an application uses them)
+
+
+def prune_old(conn, now: Optional[datetime] = None) -> int:
+    """Remove company-site jobs posted more than KEEP_DAYS ago that no application points to (keeps the table small)."""
+    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.cursor()
+    cur.execute("""DELETE FROM jobs WHERE source LIKE 'Company site%' AND scraped_at < ?
+                   AND id NOT IN (SELECT job_id FROM applications)""", (cutoff,))
+    n = cur.rowcount or 0
+    conn.commit()
+    return n
 
 
 def sync_all(conn, time_budget_s: float = 1500) -> Dict:
     """Read every active board (oldest-checked first), PARALLEL_BOARDS at a time; each board's jobs are saved
     as soon as it has been read, so a restart part-way keeps what was done (and the next run starts with the rest)."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import gc
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
     started = time.monotonic()
     try:
         discover(conn)
     except Exception as ex:
         logger.warning(f"Career board discovery failed: {ex}")
+    try:
+        prune_old(conn)
+    except Exception as ex:
+        logger.warning(f"Old company-site jobs not pruned: {ex}")
     cur = conn.cursor()
     cur.execute("SELECT * FROM career_boards WHERE active = 1 ORDER BY COALESCE(last_checked_at, '') ASC, id ASC")
     boards = [dict(r) for r in cur.fetchall()]
@@ -460,18 +491,27 @@ def sync_all(conn, time_budget_s: float = 1500) -> Dict:
         except Exception as ex:
             return b, None, ex
 
+    # A rolling window of PARALLEL_BOARDS companies: a finished company is saved and dropped before the next
+    # one starts, so at most three companies' postings are ever in memory.
     pool = ThreadPoolExecutor(PARALLEL_BOARDS)
+    queue = list(boards)
+    pending = set()
     try:
-        futures = [pool.submit(read, b) for b in boards]
-        for fut in as_completed(futures):
-            b, jobs, err = fut.result()
-            r = sync_board(conn, b, now=now, fetched=jobs, fetch_error=err)
-            totals["boards"] += 1
-            totals["jobs"] += r["jobs"]
-            totals["new"] += r["new"]
-            totals["errors"] += 1 if r.get("error") else 0
-            if time.monotonic() - started > time_budget_s:
+        while queue or pending:
+            while queue and len(pending) < PARALLEL_BOARDS and time.monotonic() - started <= time_budget_s:
+                pending.add(pool.submit(read, queue.pop(0)))
+            if not pending:
                 break
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in done:
+                b, jobs, err = fut.result()
+                r = sync_board(conn, b, now=now, fetched=jobs, fetch_error=err)
+                totals["boards"] += 1
+                totals["jobs"] += r["jobs"]
+                totals["new"] += r["new"]
+                totals["errors"] += 1 if r.get("error") else 0
+            del done, fut, jobs
+            gc.collect()            # free those companies' postings before the next ones
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
     return totals

@@ -1,0 +1,300 @@
+// Job Hunt Autofill - side panel. Talks to the Job Hunt server with the connection key and drives filler.js in the page.
+const $ = (id) => document.getElementById(id);
+const st = { server: '', key: '', user: null, consultants: [], cid: null, profile: null, job: null, tabId: null, lastFill: null };
+
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const show = (view) => ['connect', 'main', 'settings'].forEach((v) => { $('view-' + v).hidden = v !== view; });
+
+async function store(obj) { await chrome.storage.local.set(obj); }
+
+async function api(path, opts = {}) {
+  const res = await fetch(st.server + path, {
+    method: opts.method || 'GET',
+    headers: { Authorization: 'Bearer ' + st.key, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { const e = new Error(data.error || 'Not connected'); e.auth = true; throw e; }
+  if (!res.ok) throw new Error(data.error || `Job Hunt error ${res.status}`);
+  return data;
+}
+
+// ------------------------------------------------------------- connect
+async function connect(server, key) {
+  st.server = (server || '').trim().replace(/\/+$/, '');
+  st.key = (key || '').trim();
+  const me = await api('/api/ext/me');
+  st.user = me.user;
+  st.consultants = me.consultants || [];
+  await store({ server: st.server, key: st.key });
+  return me;
+}
+
+async function start() {
+  const saved = await chrome.storage.local.get(['server', 'key', 'cid']);
+  $('in-server').value = saved.server || (typeof JH_DEFAULT_SERVER !== 'undefined' ? JH_DEFAULT_SERVER : '');
+  if (!saved.key) { show('connect'); return; }
+  try {
+    await connect(saved.server, saved.key);
+  } catch (e) {
+    show('connect');
+    $('connect-msg').textContent = e.auth ? 'Your connection key has expired. Copy a new one from Job Hunt.' : `Couldn't reach Job Hunt: ${e.message}`;
+    return;
+  }
+  st.cid = st.consultants.some((c) => c.id === saved.cid) ? saved.cid : (st.consultants[0] || {}).id || null;
+  renderMain();
+  readPage();
+}
+
+$('btn-connect').addEventListener('click', async () => {
+  const btn = $('btn-connect');
+  btn.disabled = true;
+  $('connect-msg').textContent = '';
+  try {
+    await connect($('in-server').value, $('in-key').value);
+    st.cid = (st.consultants[0] || {}).id || null;
+    renderMain();
+    readPage();
+  } catch (e) {
+    $('connect-msg').textContent = e.auth ? 'That key is not valid. Copy it again from Job Hunt.' : `Couldn't reach Job Hunt: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ------------------------------------------------------------- main view
+function renderMain() {
+  show('main');
+  const sel = $('sel-consultant');
+  if (!st.consultants.length) {
+    sel.innerHTML = '<option value="">No consultants yet - add one in Job Hunt</option>';
+    $('btn-autofill').disabled = true;
+  } else {
+    sel.innerHTML = st.consultants.map((c) => `<option value="${c.id}" ${c.id === st.cid ? 'selected' : ''}>${esc(c.name)}${c.title ? ' - ' + esc(c.title) : ''}</option>`).join('');
+  }
+  loadProfile();
+}
+
+$('sel-consultant').addEventListener('change', async (e) => {
+  st.cid = parseInt(e.target.value, 10) || null;
+  await store({ cid: st.cid });
+  $('match-box').hidden = true;
+  $('result-box').hidden = true;
+  $('applied-card').hidden = true;
+  loadProfile();
+});
+
+async function loadProfile() {
+  st.profile = null;
+  $('info-box').innerHTML = '';
+  if (!st.cid) return;
+  try {
+    const d = await api(`/api/ext/consultants/${st.cid}`);
+    st.profile = d;
+    const p = d.profile;
+    $('resume-name').textContent = p.resume_filename || 'No resume on file - upload one in Job Hunt';
+    const rows = [['Name', p.full_name], ['Email', p.email], ['Phone', p.phone], ['LinkedIn', p.linkedin_url], ['Location', p.location],
+      ['Work authorization', p.visa_status], ['Authorized to work', p.work_authorized], ['Needs sponsorship', p.needs_sponsorship],
+      ['Experience', p.years_experience ? p.years_experience + ' years' : ''], ['Rate / salary', p.expected_salary], ['Notice period', p.notice_period],
+      ['Relocate', p.willing_to_relocate], ['Degree', [p.highest_degree, p.field_of_study].filter(Boolean).join(', ')], ['University', p.university]];
+    $('info-box').innerHTML = rows.map(([k, v]) => `<div class="kv"><span>${k}</span><b>${esc(v || '—')}</b></div>`).join('') +
+      (d.missing && d.missing.length ? `<p class="warn">Not filled in Job Hunt yet: ${esc(d.missing.join(', '))}. Those questions will be left for you.</p>` : '') +
+      `<button class="btn wide" id="btn-edit-info">Edit in Job Hunt ↗</button>`;
+    $('btn-edit-info').addEventListener('click', () => chrome.tabs.create({ url: d.edit_url }));
+  } catch (e) {
+    if (e.auth) return start();
+    $('info-box').innerHTML = `<p class="warn">${esc(e.message)}</p>`;
+  }
+}
+
+for (const [row, box] of [['row-info', 'info-box'], ['row-resume', 'resume-box']]) {
+  $(row).addEventListener('click', () => { $(box).hidden = !$(box).hidden; $(row).classList.toggle('open', !$(box).hidden); });
+}
+
+// ------------------------------------------------------------- the page
+async function targetTab() {
+  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (active && /^https?:/.test(active.url || '')) return active;
+  // the panel opened as a normal tab (or a non-web page is active): use the most recent web page tab
+  const tabs = (await chrome.tabs.query({ lastFocusedWindow: true })).filter((t) => /^https?:/.test(t.url || ''));
+  tabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+  return tabs[0] || null;
+}
+
+async function inject(tabId, allFrames) {
+  await chrome.scripting.executeScript({ target: { tabId, allFrames }, files: ['filler.js'] });
+}
+
+async function readPage() {
+  const tab = await targetTab();
+  if (!tab) { renderJob(null, 'Open a job page'); return; }
+  const prev = st.job;
+  try {
+    await inject(tab.id, false);
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.JH.readJob() });
+    let job = r && r.result;
+    // an application form page (e.g. Lever /apply) shows less of the job: keep what we read on the job page
+    if (prev && st.tabId === tab.id && job && (job.description || '').length < 300 && new URL(prev.url).host === new URL(job.url).host) {
+      job = { ...prev, url: job.url };
+    }
+    st.tabId = tab.id;
+    st.job = job;
+    renderJob(job);
+  } catch (e) {
+    st.job = null;
+    renderJob(null, 'Job Hunt can\'t read this page');
+  }
+}
+
+function renderJob(job, emptyText) {
+  $('btn-save').classList.remove('on');
+  if (!job || !job.title) {
+    $('job-logo').textContent = '?';
+    $('job-company').textContent = emptyText || 'Open a job page';
+    $('job-title').textContent = '';
+    $('job-chips').innerHTML = '';
+    return;
+  }
+  const initials = (job.company || job.title).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  $('job-logo').textContent = initials || '?';
+  $('job-company').textContent = job.company || '';
+  $('job-title').textContent = job.title;
+  let host = '';
+  try { host = new URL(job.url).hostname.replace(/^www\./, ''); } catch (e) { /* ignore */ }
+  $('job-chips').innerHTML = [job.location, host].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+}
+
+chrome.tabs.onActivated.addListener(() => { $('result-box').hidden = true; $('applied-card').hidden = true; $('match-box').hidden = true; readPage(); });
+chrome.tabs.onUpdated.addListener((tabId, info) => { if (info.status === 'complete') readPage(); });
+
+// ------------------------------------------------------------- match / save
+$('btn-match').addEventListener('click', async () => {
+  const box = $('match-box');
+  box.hidden = false;
+  if (!st.job || !st.cid) { box.innerHTML = '<p class="warn">Open a job page and pick a consultant.</p>'; return; }
+  box.innerHTML = '<p class="hint">Checking the match…</p>';
+  try {
+    const m = await api('/api/ext/match', { method: 'POST', body: { candidate_id: st.cid, job: st.job } });
+    if (m.score == null) { box.innerHTML = `<p class="warn">${esc(m.note)}</p>`; return; }
+    const col = m.score >= 75 ? 'var(--green)' : m.score >= 50 ? 'var(--blue)' : 'var(--amber)';
+    const word = m.score >= 75 ? 'STRONG MATCH' : m.score >= 50 ? 'GOOD MATCH' : 'STRETCH';
+    box.innerHTML = `<div class="match"><div class="ring" style="background:conic-gradient(${col} ${m.score}%, #e5e7eb 0)"><span>${m.score}%</span></div>
+      <div><b style="color:${col};font-size:12px">${word}</b><div class="hint" style="text-align:left;margin:2px 0">${esc(m.note || '')}</div></div></div>
+      ${m.matched && m.matched.length ? `<div class="tags">${m.matched.map((t) => `<span class="tag ok">✓ ${esc(t)}</span>`).join('')}</div>` : ''}
+      ${m.missing && m.missing.length ? `<div class="tags">${m.missing.map((t) => `<span class="tag no">✗ ${esc(t)}</span>`).join('')}</div>` : ''}`;
+  } catch (e) {
+    box.innerHTML = `<p class="warn">${esc(e.message)}</p>`;
+  }
+});
+
+$('btn-save').addEventListener('click', async () => {
+  if (!st.job || !st.cid) return;
+  try {
+    await api('/api/ext/save-job', { method: 'POST', body: { candidate_id: st.cid, job: st.job } });
+    $('btn-save').classList.add('on');
+    $('btn-save').title = 'Saved to Job Hunt';
+    flash('Saved to the consultant\'s Applications.');
+  } catch (e) { flash(e.message, true); }
+});
+
+function flash(text, bad) {
+  const h = $('autofill-hint');
+  h.textContent = text;
+  h.style.color = bad ? 'var(--red)' : 'var(--green)';
+  setTimeout(() => { h.textContent = 'Reads this page and fills the application form. You check it and click Submit.'; h.style.color = ''; }, 4000);
+}
+
+// ------------------------------------------------------------- autofill
+$('btn-autofill').addEventListener('click', autofill);
+
+async function autofill() {
+  const btn = $('btn-autofill');
+  const box = $('result-box');
+  if (!st.cid) return;
+  const tab = await targetTab();
+  if (!tab) { flash('Open the application form first.', true); return; }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>Filling…';
+  box.hidden = true;
+  try {
+    if (!st.profile) await loadProfile();
+    let resume = null;
+    if ($('chk-resume').checked && st.profile && st.profile.profile.resume_filename) {
+      try { resume = await api(`/api/ext/consultants/${st.cid}/resume`); } catch (e) { resume = null; }
+    }
+    await inject(tab.id, true);
+    const frames = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: (p, r) => window.JH && window.JH.fill(p, r), args: [st.profile.profile, resume] });
+    const res = { filled: [], questions: [], needsYou: [], resumeAttached: false, fieldsSeen: 0 };
+    for (const f of frames) {
+      const r = f.result;
+      if (!r) continue;
+      res.filled.push(...r.filled); res.questions.push(...r.questions); res.needsYou.push(...r.needsYou);
+      res.resumeAttached = res.resumeAttached || r.resumeAttached; res.fieldsSeen += r.fieldsSeen;
+    }
+    if (!res.fieldsSeen) {
+      box.hidden = false;
+      box.innerHTML = '<p class="warn">No application form on this page yet. Click the site\'s <b>Apply</b> button, then Autofill again.</p>';
+      return;
+    }
+    let ai = { filled: [], left: res.questions.map((q) => q.id) };
+    if (res.questions.length) {
+      btn.innerHTML = '<span class="spin"></span>Answering questions…';
+      try {
+        const d = await api('/api/ext/answers', { method: 'POST', body: { candidate_id: st.cid, job: st.job || {}, questions: res.questions } });
+        const out = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: (a) => window.JH && window.JH.fillAnswers(a), args: [d.answers || {}] });
+        const done = new Set(out.flatMap((o) => (o.result ? o.result.filled : [])));
+        ai = { filled: [...done], left: res.questions.filter((q) => !done.has(q.id)).map((q) => q.id) };
+      } catch (e) {
+        res.aiError = e.message;
+      }
+    }
+    const requiredLeft = res.questions.filter((q) => q.required && ai.left.includes(q.id));
+    await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: (ids) => window.JH && window.JH.markUnanswered(ids), args: [requiredLeft.map((q) => q.id)] });
+    st.lastFill = res;
+    const lines = [
+      [`var(--green)`, `${res.filled.length} field${res.filled.length === 1 ? '' : 's'} filled from ${esc(st.profile.profile.full_name)}'s profile`],
+      resume ? [res.resumeAttached ? 'var(--green)' : 'var(--red)', res.resumeAttached ? `Resume attached (${esc(resume.filename)})` : 'Resume not attached - upload it yourself'] : null,
+      ai.filled.length ? ['var(--amber)', `${ai.filled.length} answer${ai.filled.length === 1 ? '' : 's'} written by AI - please check them`] : null,
+      res.aiError ? ['var(--red)', `AI answers unavailable: ${esc(res.aiError)}`] : null,
+      requiredLeft.length || res.needsYou.length ? ['var(--red)', `Needs you: ${esc([...requiredLeft.map((q) => q.label), ...res.needsYou].slice(0, 6).join(' · '))}`] : null,
+    ].filter(Boolean);
+    box.hidden = false;
+    box.innerHTML = lines.map(([c, t]) => `<div class="res-line"><span class="dot" style="background:${c}"></span><span>${t}</span></div>`).join('') +
+      '<p class="hint" style="text-align:left;margin:8px 0 0">Check the form, then click the site\'s Submit button yourself.</p>';
+    $('applied-card').hidden = false;
+  } catch (e) {
+    box.hidden = false;
+    box.innerHTML = `<p class="warn">${esc(e.auth ? 'Not connected - open Settings and connect again.' : e.message)}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Autofill';
+  }
+}
+
+// ------------------------------------------------------------- did you apply?
+$('btn-applied').addEventListener('click', async () => {
+  if (!st.job || !st.cid) return;
+  try {
+    await api('/api/ext/applied', { method: 'POST', body: { candidate_id: st.cid, job: st.job } });
+    $('applied-card').innerHTML = '<b style="color:var(--green)">✓ Marked as Applied in Job Hunt</b>';
+  } catch (e) { flash(e.message, true); }
+});
+$('btn-not-yet').addEventListener('click', () => { $('applied-card').hidden = true; });
+
+// ------------------------------------------------------------- settings
+$('btn-settings').addEventListener('click', () => {
+  if (!st.key) return;
+  $('set-server').textContent = st.server;
+  $('set-user').textContent = (st.user && st.user.name) || '';
+  show('settings');
+});
+$('btn-back').addEventListener('click', () => show('main'));
+$('btn-open-jh').addEventListener('click', () => chrome.tabs.create({ url: st.server + '/dashboard' }));
+$('btn-disconnect').addEventListener('click', async () => {
+  await chrome.storage.local.remove(['key', 'cid']);
+  st.key = '';
+  $('in-key').value = '';
+  show('connect');
+});
+
+start();

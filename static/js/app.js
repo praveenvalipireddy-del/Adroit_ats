@@ -46,6 +46,7 @@ function initNavigation() {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             const tabId = item.getAttribute('data-tab');
+            if (!tabId) return;          // e.g. "Autofill extension" opens a modal, not a tab
             switchTab(tabId);
         });
     });
@@ -457,6 +458,61 @@ function syncVisaOptionsForCountry(currentValue = '') {
     visaSelect.innerHTML = html;
 }
 
+// Autofill answers for the Chrome extension (same keys as autofill.AUTOFILL_FIELDS on the server)
+const AF_FIELDS = [
+    ['linkedin_url', 'LinkedIn profile URL', 'text', 'https://www.linkedin.com/in/...'],
+    ['portfolio_url', 'GitHub / portfolio / website', 'text', ''],
+    ['address_line', 'Street address', 'text', ''],
+    ['city', 'City', 'text', ''],
+    ['state', 'State / province', 'text', 'e.g. TX'],
+    ['postal_code', 'ZIP / postal code', 'text', ''],
+    ['current_company', 'Current / last employer', 'text', ''],
+    ['work_authorized', "Authorized to work in the job's country?", 'yesno', ''],
+    ['needs_sponsorship', 'Will need visa sponsorship?', 'yesno', ''],
+    ['willing_to_relocate', 'Willing to relocate?', 'yesno', ''],
+    ['notice_period', 'Notice period / earliest start', 'text', 'e.g. 2 weeks / Immediate'],
+    ['expected_salary', 'Expected salary / rate (if not the target rate)', 'text', ''],
+    ['highest_degree', 'Highest degree', 'text', "e.g. Master's"],
+    ['field_of_study', 'Field of study', 'text', 'e.g. Computer Science'],
+    ['university', 'University / college', 'text', ''],
+    ['graduation_year', 'Graduation year', 'text', 'e.g. 2018'],
+    ['how_heard', 'How did you hear about us?', 'text', 'e.g. LinkedIn'],
+    ['gender', 'Gender (voluntary)', 'text', 'blank = Decline to self-identify'],
+    ['race', 'Race / ethnicity (voluntary)', 'text', 'blank = Decline to self-identify'],
+    ['veteran', 'Veteran status (voluntary)', 'text', 'blank = Decline to self-identify'],
+    ['disability', 'Disability status (voluntary)', 'text', 'blank = Decline to self-identify'],
+    ['notes_for_ai', 'Anything else the AI may use for questions (facts only)', 'area', 'e.g. Open to contract and C2C; prefers remote; AWS certified (2023)'],
+];
+
+function renderAutofillFields(answers) {
+    const box = document.getElementById('af-fields');
+    if (!box) return;
+    let a = answers || {};
+    if (typeof a === 'string') { try { a = JSON.parse(a || '{}'); } catch (e) { a = {}; } }
+    box.innerHTML = AF_FIELDS.map(([key, label, kind, ph]) => {
+        const v = escapeHtml(a[key] || '');
+        let input;
+        if (kind === 'yesno') {
+            input = `<select class="form-control" data-af="${key}"><option value="">-- not set --</option>` +
+                ['Yes', 'No'].map(o => `<option ${a[key] === o ? 'selected' : ''}>${o}</option>`).join('') + '</select>';
+        } else if (kind === 'area') {
+            input = `<textarea class="form-control" rows="2" data-af="${key}" placeholder="${escapeHtml(ph)}">${v}</textarea>`;
+        } else {
+            input = `<input type="text" class="form-control" data-af="${key}" value="${v}" placeholder="${escapeHtml(ph)}">`;
+        }
+        return `<div class="${kind === 'area' ? 'af-wide' : ''}"><label>${escapeHtml(label)}</label>${input}</div>`;
+    }).join('');
+}
+
+function readAutofillFields() {
+    const out = {};
+    document.querySelectorAll('#af-fields [data-af]').forEach(el => {
+        const v = (el.value || '').trim();
+        if (v) out[el.getAttribute('data-af')] = v;
+    });
+    return out;
+}
+
 function openConsultantModal(cand = null) {
     const modal = document.getElementById('modal-consultant');
     const form = document.getElementById('form-consultant');
@@ -479,10 +535,12 @@ function openConsultantModal(cand = null) {
         document.getElementById('c-country').value = cand.country || 'United States';
         syncVisaOptionsForCountry(cand.visa_status || '');
         document.getElementById('c-summary').value = cand.resume_summary || cand.summary || '';
+        renderAutofillFields(cand.autofill_answers);
     } else {
         if (title) title.innerText = 'Add New US Bench Consultant';
         if (editIdInput) editIdInput.value = '';
         syncVisaOptionsForCountry('');
+        renderAutofillFields({});
     }
 
     if (modal) modal.style.display = 'flex';
@@ -1726,7 +1784,8 @@ function initModals() {
                         location: document.getElementById('c-location').value.trim(),
                         country: document.getElementById('c-country').value.trim(),
                         // the server field is resume_summary ("summary" was silently ignored)
-                        resume_summary: document.getElementById('c-summary').value.trim()
+                        resume_summary: document.getElementById('c-summary').value.trim(),
+                        autofill_answers: readAutofillFields()
                     };
 
                     const res = await fetch(`/api/consultants/${editId}`, {
@@ -1758,6 +1817,14 @@ function initModals() {
                         body: formData
                     });
                     const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Could not create the consultant.');
+                    const answers = readAutofillFields();
+                    if (data.candidate_id && Object.keys(answers).length) {
+                        await fetch(`/api/consultants/${data.candidate_id}`, {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ autofill_answers: answers })
+                        });
+                    }
                     showToast('New US Bench Consultant created!', 'success');
                 }
 
@@ -6781,3 +6848,35 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     applyTeamLock();
 });
+
+
+// =========================================================================
+// Chrome Autofill extension: download + connection key
+// =========================================================================
+(function initExtensionModal() {
+    const nav = document.getElementById('nav-extension');
+    const modal = document.getElementById('modal-extension');
+    if (!nav || !modal) return;
+    nav.addEventListener('click', (e) => { e.preventDefault(); modal.style.display = 'flex'; });
+    document.getElementById('btn-close-extension')?.addEventListener('click', () => { modal.style.display = 'none'; });
+    document.getElementById('btn-ext-key')?.addEventListener('click', async () => {
+        const msg = document.getElementById('ext-key-msg');
+        try {
+            const res = await fetch('/api/extension/key', { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Could not create a key.');
+            msg.innerHTML = 'Paste this key into the extension:<textarea class="form-control" rows="3" readonly id="ext-key-text" style="margin-top:6px;"></textarea>';
+            const box = document.getElementById('ext-key-text');
+            box.value = data.key;
+            box.select();
+            try {
+                await navigator.clipboard.writeText(data.key);
+                msg.insertAdjacentText('afterbegin', 'Copied. ');
+            } catch (e) { /* clipboard blocked - the key is shown to copy by hand */ }
+            msg.style.color = 'var(--text-muted)';
+        } catch (err) {
+            msg.textContent = err.message;
+            msg.style.color = 'var(--danger, #ef4444)';
+        }
+    });
+})();

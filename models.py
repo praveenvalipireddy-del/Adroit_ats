@@ -793,7 +793,9 @@ def migrate_db(conn):
         "gmail_token_path": "TEXT",
         "gmail_app_password": "TEXT",
         "assigned_user_id": "INTEGER DEFAULT 1",
-        "country": "TEXT DEFAULT 'United States'"
+        "country": "TEXT DEFAULT 'United States'",
+        # The Chrome extension's "Autofill answers" (autofill.AUTOFILL_FIELDS) as JSON
+        "autofill_answers": "TEXT"
     }
     for col, c_type in candidate_new_cols.items():
         if col.lower() not in c_cols:
@@ -1214,6 +1216,15 @@ def get_user_by_id(user_id):
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+def get_user_password_hash(user_id):
+    """The stored password hash ('' if none) - the extension key is tied to it, so a password change revokes the key."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT password_hash FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return (row["password_hash"] or "") if row else ""
 
 def update_user_password(user_id, new_password):
     conn = get_db_connection()

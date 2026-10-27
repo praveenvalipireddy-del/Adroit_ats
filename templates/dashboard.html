@@ -127,6 +127,10 @@
                     <span>Reporting</span>
                     <span class="nav-badge draft-badge" id="sidebar-draft-count">DRAFTS</span>
                 </a>
+                <a href="#" class="nav-item" id="nav-extension" title="Chrome extension that fills job application forms">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3V4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v3H8a2 2 0 0 0-2 2v3H4a2 2 0 0 0 0 4h2v3a2 2 0 0 0 2 2h3v-2a2 2 0 0 1 4 0v2h3a2 2 0 0 0 2-2v-3h-2a2 2 0 0 1 0-4h2V9a2 2 0 0 0-2-2z"></path></svg>
+                    <span>Autofill extension</span>
+                </a>
                 {% if 'Admin' in user.role %}
                 <a href="#settings" class="nav-item" data-tab="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -1151,6 +1155,11 @@
                             <input type="text" id="c-location" name="location" class="form-control" required placeholder="e.g. Dallas, TX (Hybrid/Remote), or Hyderabad, India">
                         </div>
                     </div>
+                    <details class="form-group af-section" id="af-section">
+                        <summary style="cursor:pointer;font-weight:600;">Autofill answers <span style="font-weight:400;color:var(--text-muted);">(for the Chrome extension - fill once)</span></summary>
+                        <small class="form-hint">Used to fill job application forms. Leave anything you don't know empty - that question is left for you, never guessed.</small>
+                        <div id="af-fields" class="af-grid"></div>
+                    </details>
                     <div class="form-group">
                         <label>Upload Consultant Resume (.docx / .pdf)</label>
                         <input type="file" id="c-resume-file" name="resume_file" accept=".docx,.pdf" class="form-control">
@@ -1166,6 +1175,28 @@
                     <button type="submit" class="btn btn-primary" id="btn-save-consultant">Save Consultant</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- MODAL: CHROME AUTOFILL EXTENSION -->
+    <div class="modal-backdrop" id="modal-extension" style="display: none;">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-header">
+                <h3>Job Hunt Autofill (Chrome)</h3>
+                <button class="modal-close" id="btn-close-extension">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:0.85rem;color:var(--text-muted);margin:0 0 12px;">Fills job application forms (Greenhouse, Lever, Keka, Workday ...) with a consultant's details and resume. You check the form and click Submit yourself. Free.</p>
+                <ol style="font-size:0.82rem;line-height:1.75;padding-left:18px;margin:0 0 14px;">
+                    <li><a href="/extension/jobhunt-autofill.zip" id="ext-download" style="color:#60a5fa;">Download the extension</a> and unzip it.</li>
+                    <li>In Chrome open <b>chrome://extensions</b>, turn on <b>Developer mode</b> (top right), click <b>Load unpacked</b> and pick the <b>jobhunt-autofill</b> folder.</li>
+                    <li>Click the puzzle icon in Chrome and pin <b>Job Hunt Autofill</b>.</li>
+                    <li>Click it, paste the connection key below, and click Connect.</li>
+                </ol>
+                <button type="button" class="btn btn-primary" id="btn-ext-key" style="width:100%;">Copy connection key</button>
+                <p id="ext-key-msg" style="font-size:0.78rem;color:var(--text-muted);margin:8px 0 0;">The key works for 90 days and stops working if you change your password. Don't share it.</p>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin:12px 0 0;">Fill each consultant's <b>Autofill answers</b> once (Edit profile) so visa, sponsorship and notice-period questions get answered.</p>
+            </div>
         </div>
     </div>
 
@@ -1555,7 +1586,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.96.0"></script>
+    <script src="/static/js/app.js?v=5.97.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

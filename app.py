@@ -47,6 +47,7 @@ from datetime import datetime, timedelta, timezone, date as date_cls
 from flask.json.provider import DefaultJSONProvider
 import job_description_fetch
 import job_types
+import autofill
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
 logging.basicConfig(level=logging.INFO)
@@ -531,6 +532,8 @@ def api_consultant_detail(candidate_id):
         for key in ["name", "email", "phone", "title", "primary_skills", "experience_years", "target_rate", "visa_status", "status", "location", "country", "resume_summary"]:
             if key in data:
                 update_fields[key] = data[key]
+        if "autofill_answers" in data:     # the Chrome extension's answers (autofill.AUTOFILL_FIELDS)
+            update_fields["autofill_answers"] = json.dumps(autofill.clean_answers(data.get("autofill_answers") or {}))
         if "country" in update_fields:
             team_problem = _team_country_problem(user, update_fields["country"])
             if team_problem:
@@ -2329,6 +2332,231 @@ def api_consultant_resume_docx(candidate_id):
     if not found or not found[0].lower().endswith(".docx"):
         return jsonify({"docx_base64": "", "filename": found[0] if found else ""})
     return jsonify({"docx_base64": base64.b64encode(found[1]).decode("ascii"), "filename": found[0]})
+
+
+# ---------------------------------------------------------------------------------------------
+# Job Hunt Autofill (Chrome extension in chrome_extension/; server logic in autofill.py)
+# The extension sends "Authorization: Bearer <connection key>" - it can't use the login cookie.
+# ---------------------------------------------------------------------------------------------
+EXTENSION_DIR = os.path.join(BASE_DIR, "chrome_extension")
+
+
+def _ext_user():
+    """The Job Hunt user a connection key belongs to, or None (bad / expired / password changed)."""
+    auth = request.headers.get("Authorization") or ""
+    key = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    data = autofill.read_key(app.secret_key, key) if key else None
+    if not data:
+        return None
+    user = models.get_user_by_id(data["u"])
+    if not user or not autofill.key_matches_password(data, models.get_user_password_hash(user["id"])):
+        return None
+    return user
+
+
+def _ext_consultant(user, cid):
+    if not can_access_candidate(user, cid):
+        return None
+    return models.get_candidate_by_id(int(cid))
+
+
+@app.route("/api/extension/key", methods=["POST"])
+def api_extension_key():
+    """A connection key for the Chrome extension (shown once in Job Hunt, pasted into the extension)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    key = autofill.make_key(app.secret_key, user["id"], models.get_user_password_hash(user["id"]))
+    return jsonify({"key": key, "server": request.host_url.rstrip("/"), "valid_days": autofill.KEY_MAX_AGE // 86400})
+
+
+@app.route("/extension/jobhunt-autofill.zip", methods=["GET"])
+def extension_zip():
+    """The extension folder as a zip (unzip, then Chrome > Extensions > Load unpacked). config.js points it at this server."""
+    if not current_user():
+        return redirect(url_for("login"))
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _dirs, files in os.walk(EXTENSION_DIR):
+            for name in files:
+                full = os.path.join(root, name)
+                rel = os.path.relpath(full, EXTENSION_DIR).replace(os.sep, "/")
+                if rel == "config.js":
+                    continue
+                z.write(full, "jobhunt-autofill/" + rel)
+        z.writestr("jobhunt-autofill/config.js", f"const JH_DEFAULT_SERVER = {json.dumps(request.host_url.rstrip('/'))};\n")
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True, download_name="jobhunt-autofill.zip")
+
+
+@app.route("/api/ext/me", methods=["GET"])
+def api_ext_me():
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "The connection key is not valid any more. Copy a new one from Job Hunt (Autofill extension)."}), 401
+    is_admin = "Admin" in (user.get("role") or "")
+    rows = models.get_candidates(user_id=None if is_admin else user["id"], is_admin=is_admin)
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT candidate_id FROM resume_files")
+        with_file = {r[0] for r in cur.fetchall()}
+    finally:
+        conn.close()
+    out = []
+    for c in rows:
+        if not can_access_candidate(user, c["id"]):
+            continue
+        out.append({"id": c["id"], "name": c.get("name") or "", "title": c.get("title") or "", "country": c.get("country") or "",
+                    "has_resume": c["id"] in with_file or bool(c.get("resume_filename")), "answers_filled": len(autofill.load_answers(c))})
+    return jsonify({"user": {"id": user["id"], "name": user.get("name") or ""}, "consultants": out})
+
+
+@app.route("/api/ext/consultants/<int:cid>", methods=["GET"])
+def api_ext_consultant(cid):
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    cand = _ext_consultant(user, cid)
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    found = models.find_resume_file(cand)
+    return jsonify({"id": cid, "profile": autofill.profile(cand, found[0] if found else ""),
+                    "missing": [autofill.AUTOFILL_FIELDS[k][0] for k in ("linkedin_url", "work_authorized", "needs_sponsorship", "notice_period")
+                                if k not in autofill.load_answers(cand)],
+                    "edit_url": request.host_url.rstrip("/") + "/dashboard#candidates"})
+
+
+@app.route("/api/ext/consultants/<int:cid>/resume", methods=["GET"])
+def api_ext_resume(cid):
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    cand = _ext_consultant(user, cid)
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    found = models.find_resume_file(cand)
+    if not found:
+        return jsonify({"error": f"No resume is on file for {cand.get('name')}. Upload one in Job Hunt."}), 404
+    name, data = found
+    mime = ("application/pdf" if name.lower().endswith(".pdf") else
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if name.lower().endswith(".docx") else "application/octet-stream")
+    return jsonify({"filename": name, "mime": mime, "base64": base64.b64encode(data).decode("ascii")})
+
+
+def _ext_ai(system, prompt, max_tokens):
+    client, types = resume_bot._gemini_client() if resume_bot.gemini_configured() else (None, None)
+    raw, _, _model = resume_bot._generate(client, types, system, prompt, want_json=True, max_tokens=max_tokens)
+    return raw
+
+
+@app.route("/api/ext/match", methods=["POST"])
+def api_ext_match():
+    """Match score for the job on the page: AI (Gemini, free tier) when available, else the free keyword check."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    data = request.get_json(silent=True) or {}
+    cand = _ext_consultant(user, data.get("candidate_id"))
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    _ensure_resume_text(cand)
+    job = autofill.clean_job(data.get("job"))
+    if len(job["description"]) < 80:
+        return jsonify({"error": "Couldn't read the job description on this page."}), 400
+    result = None
+    if (cand.get("resume_text") or "").strip():
+        try:
+            result = autofill.parse_match(_ext_ai(autofill.MATCH_SYSTEM, autofill.match_prompt(cand, job), 1200))
+        except Exception as ex:
+            logger.warning(f"Extension match: AI unavailable ({resume_bot._explain_gemini_error(ex)}) - keyword check used")
+    return jsonify(result or autofill.keyword_match(cand, job))
+
+
+@app.route("/api/ext/answers", methods=["POST"])
+def api_ext_answers():
+    """AI answers for the questions on the form that aren't standard fields. Unsupported -> left empty."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    data = request.get_json(silent=True) or {}
+    cand = _ext_consultant(user, data.get("candidate_id"))
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    questions = autofill.clean_questions(data.get("questions"))
+    if not questions:
+        return jsonify({"answers": {}})
+    _ensure_resume_text(cand)
+    job = autofill.clean_job(data.get("job"))
+    try:
+        raw = _ext_ai(autofill.ANSWER_SYSTEM, autofill.answer_prompt(cand, job, questions), 3000)
+    except Exception as ex:
+        return jsonify({"error": f"AI answers unavailable: {resume_bot._explain_gemini_error(ex)}", "answers": {}}), 502
+    return jsonify({"answers": autofill.parse_answers(raw, questions)})
+
+
+def _ext_save_job(cand, job):
+    jid = models.save_or_update_scraped_job({
+        "title": job["title"] or "(untitled job)", "company": job["company"] or "(company not shown)", "location": job["location"],
+        "url": job["url"], "source": autofill.source_for(job["url"]), "description": job["description"][:1500],
+        "country": (cand or {}).get("country") or "United States"})
+    jid = jid["id"] if isinstance(jid, dict) else jid
+    if job["description"]:
+        conn = models.get_db_connection()
+        try:
+            conn.cursor().execute("UPDATE jobs SET full_description = ? WHERE id = ?", (job["description"], jid))
+            conn.commit()
+        finally:
+            conn.close()
+    return jid
+
+
+@app.route("/api/ext/save-job", methods=["POST"])
+def api_ext_save_job():
+    """'Save' in the panel: the job goes into Job Hunt, and into the consultant's Applications as Saved."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    data = request.get_json(silent=True) or {}
+    cand = _ext_consultant(user, data.get("candidate_id"))
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    job = autofill.clean_job(data.get("job"))
+    if not job["title"] or not job["url"]:
+        return jsonify({"error": "Couldn't read the job title / link on this page."}), 400
+    jid = _ext_save_job(cand, job)
+    conn = models.get_db_connection()
+    try:
+        app_id = application_tracker.upsert(conn, jid, cand["id"], user["id"], stage="Saved")
+    finally:
+        conn.close()
+    return jsonify({"success": True, "job_id": jid, "application_id": app_id})
+
+
+@app.route("/api/ext/applied", methods=["POST"])
+def api_ext_applied():
+    """'Yes, I applied' in the panel: Applications -> Applied (in portal)."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    data = request.get_json(silent=True) or {}
+    cand = _ext_consultant(user, data.get("candidate_id"))
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    job = autofill.clean_job(data.get("job"))
+    if not job["title"] or not job["url"]:
+        return jsonify({"error": "Couldn't read the job title / link on this page."}), 400
+    jid = _ext_save_job(cand, job)
+    conn = models.get_db_connection()
+    try:
+        app_id = application_tracker.upsert(conn, jid, cand["id"], user["id"], stage="Applied", apply_method="portal",
+                                            client_company=job["company"] or None)
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user.get("name") or "", "Applied (extension)", "Candidate", cand["id"],
+                        f"{cand.get('name')} applied to {job['title']} at {job['company']} via the Autofill extension")
+    return jsonify({"success": True, "job_id": jid, "application_id": app_id})
 
 
 @app.route("/api/resume-editor/edit", methods=["POST"])

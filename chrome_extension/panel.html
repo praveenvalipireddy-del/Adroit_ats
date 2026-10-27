@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Job Hunt Autofill</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="top">
+    <img src="icons/icon32.png" alt="" width="24" height="24">
+    <b>Job Hunt</b>
+    <span class="grow"></span>
+    <button class="icon" id="btn-settings" title="Settings">⚙</button>
+  </header>
+
+  <!-- not connected -->
+  <section id="view-connect" class="view" hidden>
+    <div class="card">
+      <h2>Connect to Job Hunt</h2>
+      <ol class="steps">
+        <li>Open Job Hunt and click <b>Autofill extension</b> in the left menu.</li>
+        <li>Click <b>Copy connection key</b>.</li>
+        <li>Paste it below.</li>
+      </ol>
+      <label class="lbl" for="in-server">Job Hunt address</label>
+      <input id="in-server" class="in" placeholder="https://jobhunt.stepss.in">
+      <label class="lbl" for="in-key">Connection key</label>
+      <textarea id="in-key" class="in" rows="3" placeholder="Paste the key here"></textarea>
+      <button id="btn-connect" class="btn primary wide">Connect</button>
+      <p id="connect-msg" class="msg"></p>
+    </div>
+  </section>
+
+  <!-- connected -->
+  <section id="view-main" class="view" hidden>
+    <div class="who">
+      <label for="sel-consultant">Applying for</label>
+      <select id="sel-consultant"></select>
+    </div>
+
+    <div class="card" id="job-card">
+      <div class="job-head">
+        <div class="logo" id="job-logo">?</div>
+        <div class="grow">
+          <div class="company" id="job-company">Open a job page</div>
+          <div class="title" id="job-title"></div>
+        </div>
+        <button class="icon" id="btn-save" title="Save this job to Job Hunt">🔖</button>
+      </div>
+      <div class="chips" id="job-chips"></div>
+      <button class="link-btn" id="btn-match">◔ Match score ↗</button>
+      <div id="match-box" hidden></div>
+    </div>
+
+    <button id="btn-autofill" class="btn primary big">Autofill</button>
+    <p class="hint" id="autofill-hint">Reads this page and fills the application form. You check it and click Submit.</p>
+    <div id="result-box" hidden></div>
+
+    <div class="card" id="applied-card" hidden>
+      <b>Did you apply?</b>
+      <p class="hint">Tell Job Hunt so the consultant's Applications stay accurate.</p>
+      <div class="row">
+        <button class="btn primary" id="btn-applied">Yes, I applied</button>
+        <button class="btn" id="btn-not-yet">Not yet</button>
+      </div>
+    </div>
+
+    <div class="rowlink" id="row-info">
+      <span class="ico">🗂</span>
+      <div class="grow"><b>Your Autofill Information</b><small>Personal details, work authorization &amp; preferences</small></div>
+      <span class="chev">›</span>
+    </div>
+    <div class="drawer" id="info-box" hidden></div>
+
+    <div class="rowlink" id="row-resume">
+      <span class="ico">📄</span>
+      <div class="grow"><b>Resume</b><small id="resume-name">The consultant's resume on file</small></div>
+      <span class="chev">›</span>
+    </div>
+    <div class="drawer" id="resume-box" hidden>
+      <label class="check"><input type="checkbox" id="chk-resume" checked> Attach this resume when filling</label>
+    </div>
+
+    <p class="foot">Job Hunt never clicks Submit. Green = filled from the profile · Amber = AI answer, please check · Red = needs you.</p>
+  </section>
+
+  <!-- settings -->
+  <section id="view-settings" class="view" hidden>
+    <div class="card">
+      <h2>Settings</h2>
+      <p class="hint">Connected to <b id="set-server"></b> as <b id="set-user"></b>.</p>
+      <button id="btn-open-jh" class="btn wide">Open Job Hunt ↗</button>
+      <button id="btn-disconnect" class="btn wide danger">Disconnect</button>
+      <button id="btn-back" class="btn wide">← Back</button>
+    </div>
+  </section>
+
+  <script src="config.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

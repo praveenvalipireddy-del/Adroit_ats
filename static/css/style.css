@@ -1131,3 +1131,9 @@ body {
 .status-offer { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
 .status-sourcing { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
 .status-rejected { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+/* Consultant form: Autofill answers for the Chrome extension */
+.af-section { border: 1px solid var(--border-color, rgba(255,255,255,0.1)); border-radius: 10px; padding: 10px 12px; }
+.af-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 10px; }
+.af-grid .af-wide { grid-column: 1 / -1; }
+.af-grid label { font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px; }

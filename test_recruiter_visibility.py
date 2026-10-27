@@ -160,6 +160,7 @@ try:
         nav = page.inner_text("nav")
         check("Admin & Settings" not in nav, f"recruiter sidebar shows Admin & Settings: {nav!r}")
         page.click("a.nav-item[data-tab=candidates]")
+        page.click("#cons-view-table")       # the table view (cards are the default)
         page.wait_for_timeout(1500)
         pane = page.inner_text("#tab-consultants")
         check("PramodOwnTest" in pane, "recruiter's own consultant missing from Consultants tab")

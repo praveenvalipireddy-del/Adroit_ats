@@ -106,11 +106,12 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.97.0" in page.content(), "cache-buster not bumped to 5.97.0")
+        check("app.js?v=5.98.0" in page.content(), "cache-buster not bumped to 5.98.0")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
 
         # Browse Jobs for the 4-year consultant
         page.click("a.nav-item[data-tab=candidates]")
+        page.click("#cons-view-table")       # the table view (cards are the default)
         page.locator(f"button[onclick^='browseJobsForCandidate({cid},']").first.click()
         page.wait_for_selector(".auto-drafted-tag", timeout=20000)
         toasts = page.inner_text(".toast-container")
@@ -132,6 +133,7 @@ try:
         # Browse again: nothing new
         page.evaluate("document.querySelectorAll('.toast').forEach(t => t.remove())")
         page.click("a.nav-item[data-tab=candidates]")
+        page.click("#cons-view-table")       # the table view (cards are the default)
         page.locator(f"button[onclick^='browseJobsForCandidate({cid},']").first.click()
         page.wait_for_function(f"document.querySelector(\"#jobs-table-body tr[data-job-id='{J_FIT}']\")", timeout=20000)
         page.wait_for_timeout(2500)

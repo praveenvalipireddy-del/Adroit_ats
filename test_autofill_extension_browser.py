@@ -203,6 +203,10 @@ try:
         panel = ctx.new_page()
         panel.on("pageerror", lambda e: js_errors.append("panel: " + str(e)))
         panel.goto(f"chrome-extension://{ext_id}/panel.html")
+        for _ in range(50):
+            if panel.input_value("#in-server"):
+                break
+            panel.wait_for_timeout(100)
         check(panel.input_value("#in-server") == BASE, f"server prefilled from the zip: {panel.input_value('#in-server')}")
         panel.fill("#in-key", "not-a-key")
         panel.click("#btn-connect")
@@ -285,7 +289,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.97.0" in page.content(), "cache-buster not bumped to 5.97.0")
+        check("app.js?v=5.98.0" in page.content(), "cache-buster not bumped to 5.98.0")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

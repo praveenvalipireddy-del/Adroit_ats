@@ -31,6 +31,7 @@ async function connect(server, key) {
 }
 
 async function start() {
+  if (!$('in-server').value && typeof JH_DEFAULT_SERVER !== 'undefined') $('in-server').value = JH_DEFAULT_SERVER;
   const saved = await chrome.storage.local.get(['server', 'key', 'cid']);
   $('in-server').value = saved.server || (typeof JH_DEFAULT_SERVER !== 'undefined' ? JH_DEFAULT_SERVER : '');
   if (!saved.key) { show('connect'); return; }

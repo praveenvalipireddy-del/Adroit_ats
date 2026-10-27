@@ -67,7 +67,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.97.0" in page.content(), "cache-buster not bumped to 5.97.0")
+        check("app.js?v=5.98.0" in page.content(), "cache-buster not bumped to 5.98.0")
         page.click("a.nav-item[data-tab=jobs]")
         page.fill("#filter-query", "data analyst")
         page.click("#btn-search-jobs")
@@ -97,6 +97,7 @@ try:
         # Browse Jobs from a 4-year consultant sets the slider
         page.eval_on_selector("#filter-experience", "el => { el.value = 16; el.dispatchEvent(new Event('input')); }")
         page.click("a.nav-item[data-tab=candidates]")
+        page.click("#cons-view-table")       # the table view (cards are the default)
         page.locator(f"button[onclick^='browseJobsForCandidate({cand_id},']").first.click()
         page.wait_for_function("document.getElementById('filter-experience-value').textContent === '4 yrs'", timeout=10000)
         page.wait_for_function(f"{ROWS} >= 1", timeout=20000)

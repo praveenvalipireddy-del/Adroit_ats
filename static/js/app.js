@@ -181,6 +181,12 @@ async function fetchConsultants(recruiterId = null) {
         refreshJobConsultantSelects();
         if (typeof renderConsultantsTable === 'function') renderConsultantsTable();
         renderConsultantsGrid();
+        renderConsultantCards();
+        if (consUi.openId) {
+            if (state.consultants.some(c => c.id === consUi.openId)) { renderConsWorkspaceHeader(); if (consUi.pane === 'profile') showConsPane('profile'); }
+            else closeConsultantWorkspace();
+        }
+        loadConsOverview();
         if (typeof renderDashboardPipeline === 'function') renderDashboardPipeline();
     } catch (err) {
         console.error('Error fetching consultants:', err);
@@ -6879,4 +6885,345 @@ document.addEventListener('DOMContentLoaded', () => {
             msg.style.color = 'var(--danger, #ef4444)';
         }
     });
+})();
+
+
+// =========================================================================
+// Consultants: cards home + one page per consultant (jobs, applications, requirements & replies, profile)
+// The table view (bulk assign etc.) stays one click away.
+// =========================================================================
+const consUi = { view: 'cards', chip: 'all', overview: {}, openId: null, pane: 'jobs', jobs: {} };
+try { consUi.view = localStorage.getItem('consView') === 'table' ? 'table' : 'cards'; } catch (e) { /* storage blocked */ }
+
+async function loadConsOverview() {
+    try {
+        const res = await fetch('/api/consultants/overview');
+        const d = await res.json().catch(() => ({}));
+        consUi.overview = (res.ok && d.overview) || {};
+    } catch (e) { consUi.overview = {}; }
+    renderConsultantCards();
+    if (consUi.openId) renderConsWorkspaceHeader();
+}
+
+function consInitials(name) {
+    return (name || 'C').split(/\s+/).filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase();
+}
+
+function consNeedsAttention(c) {
+    return !c.gmail_connected || !(c.resume_filename || c.resume_path) || ((consUi.overview[c.id] || {}).replies_waiting > 0);
+}
+
+function consMarket(c) { return (c.country || 'United States') === 'India' ? 'India' : 'US'; }
+
+function setConsView(view) {
+    consUi.view = view;
+    try { localStorage.setItem('consView', view); } catch (e) { /* ignore */ }
+    const cards = document.getElementById('cons-cards'), table = document.getElementById('cons-table-wrap');
+    if (cards) cards.hidden = view !== 'cards';
+    if (table) table.hidden = view !== 'table';
+    document.querySelectorAll('.cons-view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    const chips = document.getElementById('cons-chips');
+    if (chips) chips.style.visibility = view === 'cards' ? 'visible' : 'hidden';
+}
+
+function renderConsultantCards() {
+    const box = document.getElementById('cons-cards');
+    if (!box) return;
+    const all = state.consultants || [];
+    const counts = { all: all.length, us: all.filter(c => consMarket(c) === 'US').length, india: all.filter(c => consMarket(c) === 'India').length,
+        attention: all.filter(consNeedsAttention).length };
+    const chips = document.getElementById('cons-chips');
+    if (chips) {
+        chips.innerHTML = [['all', 'All'], ['us', 'US bench'], ['india', 'India'], ['attention', 'Needs attention']]
+            .map(([k, l]) => `<button type="button" class="cons-chip ${consUi.chip === k ? 'active' : ''}" data-chip="${k}">${l} (${counts[k]})</button>`).join('');
+        chips.querySelectorAll('.cons-chip').forEach(b => b.addEventListener('click', () => { consUi.chip = b.dataset.chip; renderConsultantCards(); }));
+    }
+    const q = (document.getElementById('filter-consultants-search')?.value || '').toLowerCase().trim();
+    const list = all.filter(c => consUi.chip === 'all' || (consUi.chip === 'us' && consMarket(c) === 'US') ||
+        (consUi.chip === 'india' && consMarket(c) === 'India') || (consUi.chip === 'attention' && consNeedsAttention(c)));
+    if (!all.length) {
+        box.innerHTML = '<div class="cons-empty">No consultants yet. Click <b>+ Add Consultant Profile</b> to add your first bench consultant.</div>';
+        return;
+    }
+    box.innerHTML = list.map(c => {
+        const o = consUi.overview[c.id] || {};
+        const hasResume = Boolean(c.resume_filename || c.resume_path);
+        const warn = !c.gmail_connected ? 'Gmail not connected - connect to send' : (!hasResume ? 'No resume on file' : '');
+        return `
+        <div class="cons-card" data-id="${c.id}" tabindex="0" title="Open ${escapeHtml(c.name)}'s page">
+            <div class="cons-card-head">
+                <div class="cons-av">${consInitials(c.name)}</div>
+                <div class="cons-card-name"><b>${escapeHtml(c.name)}</b><span>${escapeHtml(c.title || 'Consultant')}${c.experience_years ? ' · ' + c.experience_years + '+ yrs' : ''}</span></div>
+            </div>
+            <div class="cons-tags">
+                ${c.target_rate ? `<span class="cons-tag green">${escapeHtml(c.target_rate)}</span>` : ''}
+                <span class="cons-tag blue">${escapeHtml(c.visa_status || (consMarket(c) === 'India' ? 'India-based' : 'Visa not set'))}</span>
+                ${c.location ? `<span class="cons-tag">${escapeHtml(c.location)}</span>` : ''}
+            </div>
+            <div class="cons-stats">
+                <div><b>${o.applied_this_week || 0}</b><span>Applied this week</span></div>
+                <div><b>${o.open || 0}</b><span>Open applications</span></div>
+                <div><b class="${o.replies_waiting ? 'hot' : ''}">${o.replies_waiting || 0}</b><span>Replies waiting</span></div>
+            </div>
+            <div class="cons-foot ${warn ? 'warn' : ''}"><span class="cons-dot"></span>${warn ? escapeHtml(warn) : `Gmail connected · ${escapeHtml(c.recruiter_name || 'Recruiter')}`}</div>
+        </div>`;
+    }).join('') || '<div class="cons-empty">No consultants in this group.</div>';
+    box.querySelectorAll('.cons-card').forEach(card => {
+        const open = () => openConsultantWorkspace(parseInt(card.dataset.id));
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', e => { if (e.key === 'Enter') open(); });
+        if (q) card.style.display = card.innerText.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+// ---------------------------------------------------------------- one consultant's page
+function openConsultantWorkspace(cid, pane) {
+    const c = (state.consultants || []).find(x => x.id === cid);
+    if (!c) return;
+    consUi.openId = cid;
+    consUi.pane = pane || 'jobs';
+    if (typeof setActiveConsultant === 'function') setActiveConsultant(cid);
+    document.getElementById('cons-home').hidden = true;
+    const ws = document.getElementById('cons-workspace');
+    ws.hidden = false;
+    renderConsWorkspaceHeader();
+    showConsPane(consUi.pane);
+    window.scrollTo(0, 0);
+}
+
+function closeConsultantWorkspace() {
+    consUi.openId = null;
+    const ws = document.getElementById('cons-workspace');
+    if (ws) ws.hidden = true;
+    const home = document.getElementById('cons-home');
+    if (home) home.hidden = false;
+    renderConsultantCards();
+}
+
+function renderConsWorkspaceHeader() {
+    const c = (state.consultants || []).find(x => x.id === consUi.openId);
+    const head = document.getElementById('cons-ws-head');
+    if (!c || !head) return;
+    const o = consUi.overview[c.id] || {};
+    const hasResume = Boolean(c.resume_filename || c.resume_path);
+    head.innerHTML = `
+        <button type="button" class="cons-back" id="cons-ws-back">← All consultants</button>
+        <div class="cons-ws-top">
+            <div class="cons-av big">${consInitials(c.name)}</div>
+            <div class="cons-ws-id">
+                <h2>${escapeHtml(c.name)} <span>· ${escapeHtml(c.title || 'Consultant')}</span></h2>
+                <div class="cons-tags">
+                    ${c.target_rate ? `<span class="cons-tag green">${escapeHtml(c.target_rate)}</span>` : ''}
+                    <span class="cons-tag blue">${escapeHtml(c.visa_status || 'Visa not set')}</span>
+                    ${c.experience_years ? `<span class="cons-tag">${c.experience_years}+ yrs</span>` : ''}
+                    ${c.location ? `<span class="cons-tag">${escapeHtml(c.location)}</span>` : ''}
+                    ${hasResume ? `<span class="cons-tag">📄 ${escapeHtml(c.resume_filename || 'Resume on file')}</span>` : `<button type="button" class="cons-tag amber" id="cons-ws-upload">⚠️ Upload resume</button>`}
+                    ${c.gmail_connected ? `<span class="cons-tag green">● ${escapeHtml(c.gmail_account || 'Gmail connected')}</span>` : `<button type="button" class="cons-tag amber" id="cons-ws-gmail">Connect Gmail</button>`}
+                    <span class="cons-tag">👤 ${escapeHtml(c.recruiter_name || 'Recruiter')}</span>
+                </div>
+            </div>
+            <div class="cons-ws-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="cons-ws-edit">✏️ Edit profile</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="cons-ws-ai">🤖 AI Outreach</button>
+                <button type="button" class="btn btn-sm" id="cons-ws-paste" style="background:#16a34a;color:#fff;border:none;">📋 Paste requirement</button>
+            </div>
+        </div>
+        <div class="cons-tabs">
+            <button type="button" class="cons-tab" data-pane="jobs">Matched jobs</button>
+            <button type="button" class="cons-tab" data-pane="apps">Applications <i>${o.total || 0}</i></button>
+            <button type="button" class="cons-tab" data-pane="reqs">Requirements &amp; replies <i class="${o.replies_waiting ? 'hot' : ''}">${o.replies_waiting || 0}</i></button>
+            <button type="button" class="cons-tab" data-pane="profile">Profile &amp; resume</button>
+        </div>`;
+    head.querySelectorAll('.cons-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.pane === consUi.pane);
+        b.addEventListener('click', () => showConsPane(b.dataset.pane));
+    });
+    document.getElementById('cons-ws-back').addEventListener('click', closeConsultantWorkspace);
+    document.getElementById('cons-ws-edit').addEventListener('click', () => openConsultantModal(c));
+    document.getElementById('cons-ws-ai').addEventListener('click', () => openAiCopilotModal(c.id));
+    document.getElementById('cons-ws-paste').addEventListener('click', () => openPasteDraftModal(c.id));
+    document.getElementById('cons-ws-upload')?.addEventListener('click', () => openUploadResumeModal(c.id, c.name));
+    document.getElementById('cons-ws-gmail')?.addEventListener('click', () => openAppPasswordModal(c.id, c.name, c.email || ''));
+}
+
+function showConsPane(pane) {
+    consUi.pane = pane;
+    document.querySelectorAll('#cons-ws-head .cons-tab').forEach(b => b.classList.toggle('active', b.dataset.pane === pane));
+    const body = document.getElementById('cons-ws-body');
+    const c = (state.consultants || []).find(x => x.id === consUi.openId);
+    if (!body || !c) return;
+    if (pane === 'jobs') return consPaneJobs(c, body);
+    if (pane === 'apps') return consPaneApps(c, body);
+    if (pane === 'reqs') return consPaneReqs(c, body);
+    return consPaneProfile(c, body);
+}
+
+// ---- Matched jobs: today's jobs for this consultant's title + market (no paid scrape here)
+function consCoreTitle(t) {
+    return (t || '').replace(/^(senior|lead|principal|staff|junior|sr|jr|associate)\s+/i, '').replace(/[|&,]/g, ' ').trim().split(/\s+/).slice(0, 3).join(' ');
+}
+
+function consSkillMatch(c, job) {
+    const skills = (c.primary_skills || '').split(/[,;/\n|]/).map(s => s.trim()).filter(Boolean);
+    const text = `${job.title || ''} ${job.description || ''} ${job.full_description || ''}`.toLowerCase();
+    if (!skills.length || !text.trim()) return null;
+    const hit = skills.filter(s => new RegExp(`(^|[^a-z0-9])${s.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(text));
+    return { pct: Math.round(100 * hit.length / skills.length), hit };
+}
+
+async function consPaneJobs(c, body) {
+    const country = consMarket(c) === 'India' ? 'India' : 'United States';
+    const query = consCoreTitle(c.title);
+    body.innerHTML = `<div class="cons-pane-bar"><span>Last 24h · ${escapeHtml(country)} · "${escapeHtml(query || 'all roles')}"</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="cons-jobs-more">More filters &amp; live search in Jobs →</button></div>
+        <div id="cons-jobs-list" class="cons-loading">Finding today's jobs for ${escapeHtml(c.name)}…</div>`;
+    document.getElementById('cons-jobs-more').addEventListener('click', () => browseJobsForCandidate(c.id, c.title || '', c.country || 'United States'));
+    let jobs = consUi.jobs[c.id];
+    if (!jobs) {
+        try {
+            const res = await fetch('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, location: country, source: 'All', country, contract_only: true, is_24h_only: true, live_scrape: false,
+                    no_scrape: true, my_experience: c.experience_years || null, include_unstated: true }) });
+            const d = await res.json().catch(() => ({}));
+            jobs = Array.isArray(d) ? d : (d.jobs || d.results || []);
+            consUi.jobs[c.id] = jobs;
+        } catch (e) { jobs = null; }
+    }
+    if (consUi.openId !== c.id || consUi.pane !== 'jobs') return;
+    const list = document.getElementById('cons-jobs-list');
+    list.classList.remove('cons-loading');
+    if (!jobs) { list.innerHTML = '<div class="cons-empty">Could not load jobs. Try again.</div>'; return; }
+    if (!jobs.length) { list.innerHTML = `<div class="cons-empty">No jobs from the last 24 hours match "${escapeHtml(query)}" yet. Use <b>More filters &amp; live search</b> to search the portals.</div>`; return; }
+    const scored = jobs.map(j => ({ j, m: consSkillMatch(c, j) })).sort((a, b) => ((b.m || {}).pct || 0) - ((a.m || {}).pct || 0)).slice(0, 40);
+    list.innerHTML = scored.map(({ j, m }) => {
+        const pct = m ? m.pct : null;
+        const col = pct == null ? '#94a3b8' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706';
+        const word = pct == null ? '' : pct >= 60 ? 'STRONG' : pct >= 35 ? 'GOOD' : 'STRETCH';
+        return `
+        <div class="cons-job" data-id="${j.id}">
+            <div class="cons-job-main">
+                <div class="cons-job-title">${escapeHtml(j.title || '')}</div>
+                <div class="cons-job-meta">${escapeHtml(j.company || '')}${j.location ? ' · ' + escapeHtml(j.location) : ''}${j.source ? ' · ' + escapeHtml(j.source) : ''}</div>
+                <div class="cons-tags">
+                    ${j.job_type ? `<span class="cons-tag">${escapeHtml(j.job_type)}</span>` : ''}
+                    ${j.salary ? `<span class="cons-tag">${escapeHtml(j.salary)}</span>` : ''}
+                    ${j.recruiter_email ? '<span class="cons-tag blue">Recruiter email found</span>' : ''}
+                    ${m && m.hit.length ? `<span class="cons-tag green" title="Consultant skills in this job">✓ ${escapeHtml(m.hit.slice(0, 4).join(', '))}</span>` : ''}
+                </div>
+                <div class="cons-job-acts">
+                    ${j.recruiter_email ? `<button type="button" class="btn btn-primary btn-sm cons-job-draft">✉️ Email recruiter</button>` : ''}
+                    ${j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the form">⚡ Apply on site ↗</a>` : ''}
+                </div>
+            </div>
+            ${!pct ? `<div class="cons-ring none" title="None of the consultant's listed skills appear in this posting's text">skills not mentioned</div>`
+                : `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of the consultant's skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`}
+        </div>`;
+    }).join('');
+    list.querySelectorAll('.cons-job-draft').forEach(btn => btn.addEventListener('click', () => {
+        const jobId = parseInt(btn.closest('.cons-job').dataset.id);
+        createJobDraft(jobId, c.id, '', btn);
+    }));
+}
+
+// ---- Applications as a board
+const CONS_BOARD = [
+    ['Draft created', ['Drafted', 'Saved']], ['Applied', ['Applied']], ['Responded', ['Responded', 'Screening', 'Submitted']],
+    ['Interview', ['Interviewing', 'Offer', 'Hired']], ['Closed', ['Rejected', 'No response', 'On hold', 'Withdrawn']],
+];
+
+async function consPaneApps(c, body) {
+    body.innerHTML = `<div class="cons-pane-bar"><span>Every application for ${escapeHtml(c.name)}</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="cons-apps-full">Open full tracker (edit, follow-ups, export)</button></div>
+        <div id="cons-board" class="cons-loading">Loading applications…</div>`;
+    document.getElementById('cons-apps-full').addEventListener('click', () => openTracker(c.id, 'apps'));
+    let apps = [];
+    try {
+        const res = await fetch(`/api/applications?candidate_id=${c.id}`);
+        const d = await res.json().catch(() => ({}));
+        apps = d.applications || [];
+    } catch (e) { /* shown empty */ }
+    if (consUi.openId !== c.id || consUi.pane !== 'apps') return;
+    const board = document.getElementById('cons-board');
+    board.classList.remove('cons-loading');
+    board.innerHTML = CONS_BOARD.map(([label, stages]) => {
+        const items = apps.filter(a => stages.includes(a.stage));
+        return `<div class="cons-col"><h4>${label} <i>${items.length}</i></h4>` + (items.map(a => `
+            <div class="cons-bc" data-app="${a.id}" title="Open in the tracker">
+                <b>${escapeHtml(a.job_title || '')}</b>
+                <span>${escapeHtml(a.client_company || a.job_company || '')}</span>
+                <small>${escapeHtml(a.status_label || a.stage)}${a.method_label ? ' · ' + escapeHtml(a.method_label) : ''}${(a.applied_date || a.updated_at) ? ' · ' + escapeHtml((a.applied_date || a.updated_at).slice(0, 10)) : ''}</small>
+                ${a.reply_count ? `<small class="hot">↩ ${a.reply_count} repl${a.reply_count === 1 ? 'y' : 'ies'}</small>` : ''}
+            </div>`).join('') || '<div class="cons-col-empty">—</div>') + '</div>';
+    }).join('');
+    board.querySelectorAll('.cons-bc').forEach(el => el.addEventListener('click', () => openTracker(c.id, 'apps', parseInt(el.dataset.app))));
+}
+
+// ---- Requirements (from the consultant's Gmail) and recruiter replies
+async function consPaneReqs(c, body) {
+    body.innerHTML = `<div class="cons-two">
+        <div class="cons-panel"><div class="cons-panel-h"><h3>Recruiter replies waiting</h3><button type="button" class="btn btn-secondary btn-sm" id="cons-open-replies">Open replies</button></div><div id="cons-replies" class="cons-loading">Loading…</div></div>
+        <div class="cons-panel"><div class="cons-panel-h"><h3>Requirements from ${escapeHtml(c.name)}'s Gmail</h3><button type="button" class="btn btn-secondary btn-sm" id="cons-open-reqs">Open requirements</button></div><div id="cons-reqs" class="cons-loading">Loading…</div></div>
+    </div>`;
+    document.getElementById('cons-open-replies').addEventListener('click', () => openReplies(c.id));
+    document.getElementById('cons-open-reqs').addEventListener('click', () => openRequirements(c.id));
+    const [rep, req] = await Promise.all([
+        fetch(`/api/replies?candidate_id=${c.id}&open=1`).then(r => r.json()).catch(() => ({})),
+        fetch(`/api/requirements?candidate_id=${c.id}`).then(r => r.json()).catch(() => ({})),
+    ]);
+    if (consUi.openId !== c.id || consUi.pane !== 'reqs') return;
+    const replies = rep.replies || [], reqs = (req.requirements || []).slice(0, 25);
+    const rBox = document.getElementById('cons-replies'), qBox = document.getElementById('cons-reqs');
+    rBox.classList.remove('cons-loading'); qBox.classList.remove('cons-loading');
+    rBox.innerHTML = replies.length ? replies.map(r => `<div class="cons-li" data-app="${r.application_id || ''}">
+            <b>${escapeHtml(r.from_name || r.from_email || 'Recruiter')}</b><span>${escapeHtml(r.subject || '')}</span>
+            <small>${escapeHtml(r.category_label || '')}${r.received_at ? ' · ' + escapeHtml(String(r.received_at).slice(0, 16)) : ''}</small></div>`).join('')
+        : '<div class="cons-empty small">No replies waiting.</div>';
+    rBox.querySelectorAll('.cons-li').forEach(el => el.addEventListener('click', () => openReplies(c.id, parseInt(el.dataset.app) || undefined)));
+    qBox.innerHTML = reqs.length ? reqs.map(r => `<div class="cons-li">
+            <b>${escapeHtml(r.job_title || r.subject || 'Requirement')}</b><span>${escapeHtml(r.from_name || r.from_email || '')}</span>
+            <small>${escapeHtml(r.status_label || r.status || '')}${r.match_pct != null ? ' · ' + r.match_pct + '% match' : ''}${r.received_at ? ' · ' + escapeHtml(String(r.received_at).slice(0, 16)) : ''}</small></div>`).join('')
+        : '<div class="cons-empty small">No requirements found yet. Open requirements to scan the Gmail.</div>';
+    qBox.querySelectorAll('.cons-li').forEach(el => el.addEventListener('click', () => openRequirements(c.id)));
+}
+
+// ---- Profile & resume
+function consPaneProfile(c, body) {
+    let a = c.autofill_answers || {};
+    if (typeof a === 'string') { try { a = JSON.parse(a || '{}'); } catch (e) { a = {}; } }
+    const kv = (k, v) => `<div class="cons-kv"><span>${k}</span><b>${v ? escapeHtml(String(v)) : '—'}</b></div>`;
+    const hasResume = Boolean(c.resume_filename || c.resume_path);
+    const answered = AF_FIELDS.filter(([k]) => a[k]);
+    body.innerHTML = `<div class="cons-two">
+        <div class="cons-panel"><div class="cons-panel-h"><h3>Profile</h3><button type="button" class="btn btn-secondary btn-sm" id="cons-prof-edit">✏️ Edit profile</button></div>
+            ${kv('Email', c.email)}${kv('Phone', c.phone)}${kv('Title', c.title)}${kv('Skills', c.primary_skills)}${kv('Experience', c.experience_years ? c.experience_years + ' years' : '')}
+            ${kv('Rate / salary', c.target_rate)}${kv('Visa / work authorization', c.visa_status)}${kv('Location', c.location)}${kv('Country', c.country)}${kv('Recruiter', c.recruiter_name)}
+        </div>
+        <div>
+            <div class="cons-panel"><div class="cons-panel-h"><h3>Resume</h3></div>
+                <div class="cons-muted">${hasResume ? '📄 ' + escapeHtml(c.resume_filename || 'Resume on file') : 'No resume on file - drafts and autofill need one.'}</div>
+                <div class="cons-job-acts"><button type="button" class="btn btn-secondary btn-sm" id="cons-prof-upload">${hasResume ? 'Replace resume' : 'Upload resume'}</button></div>
+            </div>
+            <div class="cons-panel"><div class="cons-panel-h"><h3>Gmail</h3></div>
+                <div class="cons-muted">${c.gmail_connected ? '● Connected: ' + escapeHtml(c.gmail_account || '') : 'Not connected - emails can\'t be drafted or sent yet.'}</div>
+                <div class="cons-job-acts">${c.gmail_connected ? gmailManageButtons(c) : `<button type="button" class="btn btn-primary btn-sm" id="cons-prof-gmail">🔑 Connect with App Password</button>`}</div>
+            </div>
+            <div class="cons-panel"><div class="cons-panel-h"><h3>Autofill answers <small>(Chrome extension)</small></h3><button type="button" class="btn btn-secondary btn-sm" id="cons-prof-af">Edit</button></div>
+                ${answered.length ? answered.map(([k, label]) => kv(label, a[k])).join('') : '<div class="cons-muted">Not filled yet - visa, sponsorship and notice-period questions will be left for you.</div>'}
+            </div>
+            ${(window.CURRENT_USER || {}).admin ? `<div class="cons-job-acts"><button type="button" class="btn-trigger-reassign btn btn-secondary btn-sm" data-id="${c.id}" data-name="${escapeHtml(c.name)}">Assign to another recruiter</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="cons-prof-delete" style="color:#ef4444;">🗑️ Delete consultant</button></div>`
+                : `<div class="cons-job-acts"><button type="button" class="btn btn-secondary btn-sm" id="cons-prof-delete" style="color:#ef4444;">🗑️ Delete consultant</button></div>`}
+        </div>
+    </div>`;
+    document.getElementById('cons-prof-edit').addEventListener('click', () => openConsultantModal(c));
+    document.getElementById('cons-prof-af').addEventListener('click', () => { openConsultantModal(c); const d = document.getElementById('af-section'); if (d) d.open = true; });
+    document.getElementById('cons-prof-upload').addEventListener('click', () => openUploadResumeModal(c.id, c.name));
+    document.getElementById('cons-prof-gmail')?.addEventListener('click', () => openAppPasswordModal(c.id, c.name, c.email || ''));
+    document.getElementById('cons-prof-delete').addEventListener('click', () => deleteConsultant(c.id, c.name));
+}
+
+(function initConsultantLayout() {
+    document.querySelectorAll('.cons-view-btn').forEach(b => b.addEventListener('click', () => setConsView(b.dataset.view)));
+    setConsView(consUi.view);
+    document.getElementById('filter-consultants-search')?.addEventListener('input', () => renderConsultantCards());
 })();

@@ -175,10 +175,11 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.97.0" in page.content(), "cache-buster not bumped to 5.97.0")
+        check("app.js?v=5.98.0" in page.content(), "cache-buster not bumped to 5.98.0")
 
         # 1. Browse Jobs on Karun (not the first consultant)
         page.click("a.nav-item[data-tab=candidates]")
+        page.click("#cons-view-table")       # the table view (cards are the default)
         btn = page.locator(f"button[onclick^='browseJobsForCandidate({karun_id},']").first
         btn.wait_for(state="visible", timeout=10000)
         btn.click()

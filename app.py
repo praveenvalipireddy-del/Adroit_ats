@@ -1873,6 +1873,36 @@ def api_applications():
                     "methods": [{"value": k, "label": v or "-"} for k, v in application_tracker.METHODS.items()]})
 
 
+@app.route("/api/consultants/overview", methods=["GET"])
+def api_consultants_overview():
+    """Numbers on each consultant card: applied this week, open applications, replies waiting, interviews."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    ids = _tracker_candidate_ids(user)
+    out = {i: {"applied_this_week": 0, "open": 0, "replies_waiting": 0, "interviews": 0, "total": 0} for i in ids}
+    if not ids:
+        return jsonify({"overview": {}})
+    conn = models.get_db_connection()
+    try:
+        rows = application_tracker.list_for(conn, ids)
+        cur = conn.cursor()
+        cur.execute(f"SELECT candidate_id, COUNT(*) FROM application_replies WHERE handled = 0 AND candidate_id IN ({', '.join(['?'] * len(ids))}) "
+                    "GROUP BY candidate_id", ids)
+        replies = {r[0]: r[1] for r in cur.fetchall()}
+    finally:
+        conn.close()
+    by_cand = {}
+    for r in rows:
+        by_cand.setdefault(r["candidate_id"], []).append(r)
+    for cid in ids:
+        s = application_tracker.summary(by_cand.get(cid, []))
+        out[cid].update({"applied_this_week": s["applied_this_week"], "interviews": s["interviews"], "total": s["total"],
+                         "open": sum(1 for r in by_cand.get(cid, []) if r["stage"] in application_tracker.OPEN and r["stage"] != "Saved"),
+                         "replies_waiting": int(replies.get(cid, 0))})
+    return jsonify({"overview": {str(k): v for k, v in out.items()}})
+
+
 @app.route("/api/applications/<int:app_id>", methods=["PUT"])
 def api_application_update(app_id):
     user = current_user()

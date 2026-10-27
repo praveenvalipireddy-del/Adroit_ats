@@ -103,7 +103,14 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.2" in page.content(), "cache-buster not bumped to 5.99.2")
+        check("app.js?v=5.99.3" in page.content(), "cache-buster not bumped to 5.99.3")
+        # the Dashboard (made-up pipeline, "88%" / "24 Days") is gone: the app opens on the consultant cards
+        page.wait_for_selector(f".cons-card[data-id='{K}']", timeout=15000)
+        check(page.locator("a.nav-item[data-tab=dashboard]").count() == 0 and page.locator("#tab-dashboard").count() == 0, "no Dashboard tab")
+        check("88%" not in page.content() and "24 Days" not in page.content(), "no made-up numbers")
+        check("active" in (page.get_attribute("a.nav-item[data-tab=candidates]", "class") or ""), "Consultants is the first screen")
+        page.goto(f"http://127.0.0.1:{port}/dashboard#dashboard")
+        page.wait_for_selector(f".cons-card[data-id='{K}']", timeout=15000)
         page.click("a.nav-item[data-tab=candidates]")
         page.wait_for_selector(f".cons-card[data-id='{K}']")
         page.wait_for_function(f"document.querySelector(\".cons-card[data-id='{K}']\").innerText.includes('Replies waiting') && "

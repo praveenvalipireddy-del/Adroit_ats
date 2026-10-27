@@ -51,17 +51,17 @@ function initNavigation() {
         });
     });
 
-    // Hash support
+    // Hash support (the Consultants cards are the first screen; an old #dashboard link opens them too)
     if (window.location.hash) {
         const hashTab = window.location.hash.replace('#', '');
         switchTab(hashTab);
     } else {
-        switchTab('dashboard');
+        switchTab('candidates');
     }
 }
 
 const tabAliasMap = {
-    'dashboard': 'dashboard',
+    'dashboard': 'consultants',
     'candidates': 'consultants',
     'consultants': 'consultants',
     'jobs': 'jobs',
@@ -93,9 +93,7 @@ function switchTab(rawTabId) {
     const activePane = document.getElementById(`tab-${paneKey}`) || document.getElementById(`tab-${rawTabId}`);
     if (activePane) activePane.classList.add('active');
 
-    if (paneKey === 'dashboard') {
-        if (typeof renderDashboardPipeline === 'function') renderDashboardPipeline();
-    } else if (paneKey === 'consultants') {
+    if (paneKey === 'consultants') {
         if (typeof renderConsultantsTable === 'function') renderConsultantsTable();
     } else if (paneKey === 'drafts') {
         loadPipeline();
@@ -187,7 +185,6 @@ async function fetchConsultants(recruiterId = null) {
             else closeConsultantWorkspace();
         }
         loadConsOverview();
-        if (typeof renderDashboardPipeline === 'function') renderDashboardPipeline();
     } catch (err) {
         console.error('Error fetching consultants:', err);
     }
@@ -772,11 +769,6 @@ function initJobsTable() {
             });
             // Filter candidates table if on candidates pane
             document.querySelectorAll('#tab-consultants tbody tr, #tab-candidates tbody tr').forEach(row => {
-                const text = row.innerText.toLowerCase();
-                row.style.display = (!term || text.includes(term)) ? '' : 'none';
-            });
-            // Filter dashboard pipeline if on dashboard
-            document.querySelectorAll('#dashboard-pipeline-tbody tr').forEach(row => {
                 const text = row.innerText.toLowerCase();
                 row.style.display = (!term || text.includes(term)) ? '' : 'none';
             });
@@ -3414,80 +3406,6 @@ function renderConsultantsTable() {
 }
 
 // =========================================================================
-// Dashboard Candidate Pipeline Table View
-// =========================================================================
-function renderDashboardPipeline() {
-    const tbody = document.getElementById('dashboard-pipeline-tbody');
-    if (!tbody) return;
-
-    const cands = state.consultants || [];
-    if (cands.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 30px; color: #64748b;">No candidate applications found yet.</td></tr>`;
-        return;
-    }
-
-    const stages = [
-        { stage: "Tech Interview", color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe", status: "Active" },
-        { stage: "Offer Sent", color: "#d97706", bg: "#fffbeb", border: "#fde68a", status: "Offer" },
-        { stage: "Sourcing", color: "#059669", bg: "#ecfdf5", border: "#a7f3d0", status: "Sourcing" },
-        { stage: "Client Review", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe", status: "Active" },
-        { stage: "Tech Interview", color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe", status: "Active" }
-    ];
-
-    const targetRoles = [
-        "Applied for Senior Cloud / AWS Developer",
-        "Lead Full-Stack Java Engineer (Remote)",
-        "Principal AI & Automation Architect",
-        "Senior DevOps / Kubernetes Engineer",
-        "Data Platform & Snowflake Specialist"
-    ];
-
-    const dates = ["09/20/26", "09/19/26", "09/18/26", "09/16/26", "09/15/26"];
-
-    tbody.innerHTML = cands.slice(0, 8).map((c, idx) => {
-        const initials = (c.name || "C").split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-        const stageInfo = stages[idx % stages.length];
-        const roleStr = targetRoles[idx % targetRoles.length];
-        const dateStr = dates[idx % dates.length];
-        const recruiterName = c.recruiter_name || "Praveen Valipireddy";
-
-        return `
-        <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
-            <td style="padding: 14px 20px;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <div style="width: 36px; height: 36px; border-radius: 50%; background: #f1f5f9; color: #1e293b; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; border: 1px solid #cbd5e1; flex-shrink: 0;">
-                        ${initials}
-                    </div>
-                    <div>
-                        <div style="font-weight: 700; color: #0f172a;">${escapeHtml(c.name)}</div>
-                        <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">${escapeHtml(c.title || 'Technical Consultant')}</div>
-                    </div>
-                </div>
-            </td>
-            <td style="padding: 14px 20px; font-weight: 600; color: #334155; font-size: 0.85rem;">
-                ${escapeHtml(roleStr)}
-            </td>
-            <td style="padding: 14px 20px;">
-                <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background: ${stageInfo.bg}; color: ${stageInfo.color}; border: 1px solid ${stageInfo.border};">
-                    ${stageInfo.stage}
-                </span>
-            </td>
-            <td style="padding: 14px 20px; color: #64748b; font-size: 0.85rem;">
-                ${dateStr}
-            </td>
-            <td style="padding: 14px 20px; font-size: 0.85rem; color: #0f172a; font-weight: 600;">
-                ${escapeHtml(recruiterName)}
-            </td>
-            <td style="padding: 14px 20px;">
-                <span style="display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; background: ${stageInfo.bg}; color: ${stageInfo.color}; border: 1px solid ${stageInfo.border};">
-                    ${stageInfo.status}
-                </span>
-            </td>
-        </tr>`;
-    }).join('');
-}
-
-// =========================================================================
 // Recruiter AI Outreach Personalization Chatbot
 // =========================================================================
 let currentCopilotCandId = null;
@@ -3751,8 +3669,6 @@ async function submitCopilotDraftToGmail() {
             closeAiCopilotModal();
             const statDrafts = document.getElementById('stat-drafted-count');
             if (statDrafts) statDrafts.innerText = (parseInt(statDrafts.innerText) || 0) + 1;
-            const statKpiDrafts = document.getElementById('stat-kpi-drafts');
-            if (statKpiDrafts) statKpiDrafts.innerText = (parseInt(statKpiDrafts.innerText) || 0) + 1;
         } else {
             showToast(data.error || 'Failed to save draft in Gmail', 'error', 6000);
         }

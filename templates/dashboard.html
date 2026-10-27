@@ -96,11 +96,7 @@
             </div>
 
             <nav class="nav-menu" style="margin-top: 16px;">
-                <a href="#dashboard" class="nav-item active" data-tab="dashboard">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                    <span>Dashboard</span>
-                </a>
-                <a href="#candidates" class="nav-item" data-tab="candidates">
+                <a href="#candidates" class="nav-item active" data-tab="candidates">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                     <span>Consultants / Bench</span>
                     <span class="nav-badge count-badge">{{ candidates|length }}</span>
@@ -198,94 +194,6 @@
             <main class="content-area">
 
                 <!-- TAB 1: 24-HOUR USA IT JOBS TABLE & OUTREACH -->
-                                <!-- TAB: DASHBOARD (EXECUTIVE OVERVIEW & RECRUITER METRICS) -->
-                <div class="tab-pane active" id="tab-dashboard">
-                    <div class="section-header" style="margin-bottom: 24px;">
-                        <div>
-                            <h2 style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0 0 6px;">Dashboard</h2>
-                            <p style="color: #64748b; margin: 0;">Recruiter performance metrics, active talent bench, and real-time candidate outreach pipeline.</p>
-                        </div>
-                    </div>
-
-                    <!-- Recruiter Metrics KPI Row -->
-                    <div style="margin-bottom: 30px;">
-                        <h3 style="font-size: 1.05rem; font-weight: 600; color: #0f172a; margin-bottom: 14px;">Recruiter Metrics KPI</h3>
-                        <div class="stats-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
-                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card); cursor: pointer; transition: transform 0.15s ease;" onclick="switchTab('candidates')" title="Click to view all Candidates">
-                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Active Candidates</div>
-                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
-                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;" id="stat-kpi-candidates">{{ candidates|length }}</span>
-                                    <span style="font-size: 0.78rem; font-weight: 600; color: #059669; background: #ecfdf5; padding: 2px 8px; border-radius: 9999px;">Active Bench</span>
-                                </div>
-                                <div style="font-size: 0.78rem; color: #2563eb; font-weight: 600; margin-top: 8px;">View all Candidates &rarr;</div>
-                            </div>
-                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card); cursor: pointer; transition: transform 0.15s ease;" onclick="switchTab('jobs')" title="Click to browse Live 24h Jobs">
-                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Live 24h US Jobs</div>
-                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
-                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;" id="stat-kpi-jobs">{{ stats.total_jobs }}</span>
-                                    <span style="font-size: 0.78rem; font-weight: 600; color: #2563eb; background: #eff6ff; padding: 2px 8px; border-radius: 9999px;">Live 24h</span>
-                                </div>
-                                <div style="font-size: 0.78rem; color: #2563eb; font-weight: 600; margin-top: 8px;">Browse 24h Jobs &rarr;</div>
-                            </div>
-                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
-                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Time-to-Hire</div>
-                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
-                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;">24 Days</span>
-                                    <span style="font-size: 0.78rem; font-weight: 600; color: #7c3aed; background: #f5f3ff; padding: 2px 8px; border-radius: 9999px;">Avg.</span>
-                                </div>
-                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;"><strong id="stat-kpi-drafts" style="color: #475569;">{{ stats.drafted_count }}</strong> Outreach Drafts Created</div>
-                            </div>
-                            <div class="stat-card" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow-card);">
-                                <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Offer Acceptance</div>
-                                <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px;">
-                                    <span style="font-size: 2rem; font-weight: 800; color: #0f172a;">88%</span>
-                                    <span style="font-size: 0.78rem; font-weight: 600; color: #059669; background: #ecfdf5; padding: 2px 8px; border-radius: 9999px;">+3%</span>
-                                </div>
-                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;"><strong id="stat-kpi-emails" style="color: #475569;">{{ stats.jobs_with_email }}</strong> Direct Hiring Contacts</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Candidate Pipeline Table Section -->
-                    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-card);">
-                        <div style="padding: 18px 24px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #ffffff;">
-                            <div>
-                                <h3 style="font-size: 1.1rem; font-weight: 700; margin: 0; color: #0f172a;">Candidate Pipeline</h3>
-                                <span style="font-size: 0.8rem; color: #64748b;">Live submissions, interviews, and active outreach stages</span>
-                            </div>
-                            <div style="display: flex; gap: 8px;">
-                                <button class="btn btn-secondary btn-sm" onclick="switchTab('candidates')">View All Candidates</button>
-                                <button class="btn btn-primary btn-sm" onclick="switchTab('jobs')">Browse 24h Jobs</button>
-                            </div>
-                        </div>
-
-                        <div style="overflow-x: auto;">
-                            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
-                                <thead>
-                                    <tr style="background: #f8fafc; color: #475569; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;">
-                                        <th style="padding: 14px 20px;">Candidate</th>
-                                        <th style="padding: 14px 20px;">Applied Role</th>
-                                        <th style="padding: 14px 20px;">Current Stage</th>
-                                        <th style="padding: 14px 20px;">Application Date</th>
-                                        <th style="padding: 14px 20px;">Recruiter</th>
-                                        <th style="padding: 14px 20px;">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="dashboard-pipeline-tbody">
-                                    <!-- Rendered dynamically by app.js?v=5.9.1 -->
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- Pagination -->
-                        <div style="padding: 14px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: center; align-items: center; gap: 8px; background: #ffffff;">
-                            <button class="btn btn-secondary btn-sm" style="padding: 4px 10px; min-width: 32px;" disabled>&lt;</button>
-                            <button class="btn btn-primary btn-sm" style="padding: 4px 12px; min-width: 32px; font-weight: 700;">1</button>
-                            <button class="btn btn-secondary btn-sm" style="padding: 4px 10px; min-width: 32px;" disabled>&gt;</button>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="tab-pane" id="tab-jobs">
                     <div class="section-header">
                         <div>
@@ -698,7 +606,7 @@
                     </div>
                 </div>
 
-<div class="tab-pane" id="tab-consultants">
+<div class="tab-pane active" id="tab-consultants">
                   <div id="cons-home">
                     <div class="section-header">
                         <div>
@@ -1647,7 +1555,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.99.2"></script>
+    <script src="/static/js/app.js?v=5.99.3"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

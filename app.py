@@ -48,6 +48,7 @@ from flask.json.provider import DefaultJSONProvider
 import job_description_fetch
 import job_types
 import autofill
+import career_boards
 from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
 logging.basicConfig(level=logging.INFO)
@@ -777,6 +778,10 @@ def api_jobs_search():
     country = _job_country_for(current_user(), (data.get("country") or "United States").strip())
     my_experience = _int_or_none(data.get("my_experience"))
     include_unstated = data.get("include_unstated", True) is not False
+    # "Posted within" (hours): wider than the default last 24h - 3 days, a week, two weeks
+    max_age_hours = _int_or_none(data.get("posted_within_hours"))
+    max_age_hours = max(1, min(max_age_hours, 24 * 31)) if max_age_hours else None
+    company_sites = (source or "").lower().startswith("company site")
     if country.lower() == "india":
         # "India" as the location means the whole market (the country filter covers it) - Naukri writes
         # "Bengaluru", not "Bengaluru, India".
@@ -800,7 +805,8 @@ def api_jobs_search():
         country=country,
         my_experience=my_experience,
         include_unstated=include_unstated,
-        type_filter=type_filter
+        type_filter=type_filter,
+        max_age_hours=max_age_hours
     )
 
     # If 0 results or live_scrape requested, trigger a live scrape of the selected market. This no
@@ -814,8 +820,8 @@ def api_jobs_search():
     # page's own Live 24h Scrape. US portals are read for free, so they keep scraping on an empty result.
     us_picked = _us_sources_for(source)
     paid = country.lower() == "india" or any(s in us_job_scrapers.US_SOURCES and s not in us_job_scrapers.US_FREE_SOURCES for s in us_picked or [])
-    no_scrape = bool(data.get("no_scrape")) and paid
-    if (len(results) == 0 and not no_scrape) or live_scrape:
+    no_scrape = (bool(data.get("no_scrape")) and paid) or company_sites     # company sites: read by the career-board sync, never a portal scrape
+    if (len(results) == 0 and not no_scrape) or (live_scrape and not company_sites):
         scrape_query = query or "Software Engineer"
         try:
             if country.lower() == "india":
@@ -846,7 +852,8 @@ def api_jobs_search():
                 country=country,
                 my_experience=my_experience,
                 include_unstated=include_unstated,
-                type_filter=type_filter
+                type_filter=type_filter,
+                max_age_hours=max_age_hours
             )
             if not results and scrape_res.get("jobs"):
                 # never show another portal's jobs as if they came from the one that was picked
@@ -857,6 +864,12 @@ def api_jobs_search():
             logger.error(f"Live scrape on-demand error: {e}")
 
     _tag_known_vendors(results, current_user())
+    # Company-site jobs carry the whole posting in full_description: the list sends the summary only
+    # (the Resume Optimizer asks /api/jobs/<id>/full-description, which returns the stored text).
+    for r in results:
+        if len(r.get("full_description") or "") > 2000:
+            r.pop("full_description", None)
+            r["has_full_description"] = True
 
     return jsonify({
         "jobs": results,
@@ -2260,6 +2273,128 @@ def _reply_check_loop(minutes: float):
         except Exception as ex:
             logger.warning(f"Reply check failed: {ex}")
         time.sleep(minutes * 60)
+
+
+# ---------------------------------------------------------------------------------------------
+# Company career portals (career_boards.py): the list of companies and their daily job sync
+# ---------------------------------------------------------------------------------------------
+_board_sync = {"running": False, "last": None}
+
+
+def _run_board_sync(time_budget_s=1500):
+    if _board_sync["running"]:
+        return
+    _board_sync["running"] = True
+    try:
+        conn = models.get_db_connection()
+        try:
+            _board_sync["last"] = career_boards.sync_all(conn, time_budget_s=time_budget_s)
+            logger.info(f"Company career sites: {_board_sync['last']}")
+        finally:
+            conn.close()
+    except Exception as ex:
+        logger.warning(f"Company career-site sync failed: {ex}")
+    finally:
+        _board_sync["running"] = False
+
+
+def _board_sync_loop(hours: float):
+    time.sleep(120)
+    while True:
+        _run_board_sync()
+        time.sleep(hours * 3600)
+
+
+try:
+    _c = models.get_db_connection()
+    try:
+        career_boards.ensure_seed(_c)
+    finally:
+        _c.close()
+except Exception as _ex:
+    logger.warning(f"Career boards starter list not loaded: {_ex}")
+
+# CAREER_SYNC_HOURS (default 6 on the live server; off locally and in tests - no network in tests)
+_board_hours = float(os.getenv("CAREER_SYNC_HOURS", "6" if config.DATABASE_URL else "0") or 0)
+if _board_hours > 0:
+    threading.Thread(target=_board_sync_loop, args=(_board_hours,), daemon=True).start()
+
+
+@app.route("/api/career-boards", methods=["GET", "POST"])
+def api_career_boards():
+    """GET: the companies whose career sites are read. POST {url, company}: add one by any careers / job link."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            res = career_boards.add_board(conn, str(data.get("url") or ""), str(data.get("company") or ""))
+            if res["status"] in ("unsupported", "error"):
+                return jsonify(res), 400
+            if res["status"] == "added":
+                board = next((b for b in career_boards.list_boards(conn) if b["id"] == res["id"]), None)
+                if board:
+                    res["sync"] = career_boards.sync_board(conn, board)        # its jobs right away
+            return jsonify(res)
+        boards = career_boards.list_boards(conn)
+    finally:
+        conn.close()
+    return jsonify({"boards": boards, "count": len(boards), "active": sum(1 for b in boards if b.get("active")),
+                    "syncing": _board_sync["running"], "last_sync": _board_sync["last"],
+                    "portals": list(career_boards.PORTAL_NAMES.values())})
+
+
+@app.route("/api/career-boards/sync", methods=["POST"])
+def api_career_boards_sync():
+    """Read every company's career site now, in the background (free)."""
+    if not current_user():
+        return jsonify({"error": "Login required"}), 401
+    if _board_sync["running"]:
+        return jsonify({"started": False, "syncing": True})
+    threading.Thread(target=_run_board_sync, daemon=True).start()
+    return jsonify({"started": True, "syncing": True})
+
+
+@app.route("/api/career-boards/<int:board_id>", methods=["PUT", "DELETE"])
+def api_career_board_update(board_id):
+    """Admins: pause / resume (PUT {active}) or remove (DELETE) a company."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if "Admin" not in (user.get("role") or ""):
+        return jsonify({"error": "Only an admin can change the company list."}), 403
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        if request.method == "DELETE":
+            cur.execute("DELETE FROM career_boards WHERE id = ?", (board_id,))
+        else:
+            cur.execute("UPDATE career_boards SET active = ? WHERE id = ?", (1 if (request.get_json(silent=True) or {}).get("active") else 0, board_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/jobs/<int:job_id>/save", methods=["POST"])
+def api_job_save(job_id):
+    """'Save' on a job card: the job goes into the consultant's Applications as Saved."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    cid = _int_or_none((request.get_json(silent=True) or {}).get("candidate_id"))
+    if not cid or not can_access_candidate(user, cid):
+        return jsonify({"error": "Choose the consultant."}), 404
+    if not models.get_job_by_id(job_id):
+        return jsonify({"error": "Job not found"}), 404
+    conn = models.get_db_connection()
+    try:
+        app_id = application_tracker.upsert(conn, job_id, cid, user["id"], stage="Saved")
+    finally:
+        conn.close()
+    return jsonify({"success": True, "application_id": app_id})
 
 
 # Automatic reply checks: REPLY_CHECK_MINUTES (default 10 on the live server - the one with a

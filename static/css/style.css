@@ -1223,3 +1223,26 @@ body {
 .cons-muted { color: #64748b; font-size: 0.84rem; }
 @media (max-width: 900px) { .cons-two { grid-template-columns: 1fr; } .cons-ring { width: 60px; } }
 .cons-ring.none { font-size: 0.68rem; color: #94a3b8; padding-top: 18px; }
+
+/* Jobs as cards + right panel (consultant, company career sites) */
+.jobs-view-bar { display: flex; justify-content: space-between; align-items: center; margin: 14px 0 12px; gap: 10px; }
+.jobs-cards-count { color: #64748b; font-size: 0.85rem; }
+.jobs-view-bar .cons-view-toggle { height: 36px; margin: 0; }
+.jobs-cards-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+.jobs-cards-wrap[hidden], #jobs-table-view[hidden] { display: none !important; }
+.job-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; display: flex; gap: 14px; margin-bottom: 12px; }
+.job-card:hover { border-color: #93c5fd; }
+.jc-logo { width: 42px; height: 42px; border-radius: 10px; background: #2563eb; color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; font-size: 0.85rem; }
+.jc-main { flex: 1; min-width: 0; }
+.jc-title { font-weight: 700; font-size: 1rem; color: #0f172a; }
+.jc-company { font-size: 0.85rem; color: #334155; margin-top: 2px; }
+.jc-company span { color: #64748b; }
+.jc-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 0.8rem; color: #475569; }
+.jc-details { margin-top: 12px; border-top: 1px dashed #e2e8f0; padding-top: 10px; }
+.jc-details[hidden] { display: none; }
+.jc-desc { white-space: pre-wrap; font-size: 0.82rem; color: #334155; max-height: 260px; overflow: auto; }
+.jc-email-row { margin-top: 8px; max-width: 360px; }
+.jobs-side { position: sticky; top: 76px; }
+.jobs-board-list { max-height: 260px; overflow: auto; margin-top: 6px; }
+.jobs-board-list small { color: #94a3b8; }
+@media (max-width: 1100px) { .jobs-cards-wrap { grid-template-columns: 1fr; } .jobs-side { position: static; } }

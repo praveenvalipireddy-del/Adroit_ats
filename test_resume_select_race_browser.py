@@ -85,6 +85,7 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 950})
+        page.add_init_script("try { localStorage.setItem('jobsView', 'table') } catch (e) {}")   # these checks use the Jobs table view
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         page.route("**/*", guard)
         page.goto(base + "/login")
@@ -92,7 +93,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.98.0" in page.content(), "cache-buster not bumped to 5.98.0")
+        check("app.js?v=5.99.0" in page.content(), "cache-buster not bumped to 5.99.0")
 
         # 1. open the optimizer on Saiteja (slow), then immediately pick Praveen
         page.click("a.nav-item[data-tab=resumebot]")

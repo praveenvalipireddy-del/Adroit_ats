@@ -686,12 +686,14 @@ function syncJobsMarketUi() {
                <option value="Foundit">Foundit / Monster India</option>
                <option value="Indeed">Indeed India</option>
                <option value="LinkedIn">LinkedIn (Live)</option>
-               <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>`
+               <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
+               <option value="Company site">🏢 Company career sites</option>`
             : `<option value="All">All US Portals (LinkedIn, Dice)</option>
                <option value="LinkedIn">LinkedIn (Live 24h)</option>
                <option value="Dice">Dice.com</option>
                <option value="Indeed">Indeed</option>
-               <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>`;
+               <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
+               <option value="Company site">🏢 Company career sites</option>`;
         jobsPortalCostHint();
     }
     if (descEl) {
@@ -816,6 +818,9 @@ async function searchJobs(liveScrape = false, opts = {}) {
             </tr>`;
     }
 
+    const cardsBox = document.getElementById('jobs-cards');
+    if (cardsBox) cardsBox.innerHTML = `<div class="cons-loading"><div class="spinner" style="display:inline-block; margin-right:8px;"></div>${liveScrape ? 'Scraping fresh jobs across portals…' : 'Searching jobs…'}</div>`;
+
     try {
         const res = await fetch('/api/jobs/search', {
             method: 'POST',
@@ -830,6 +835,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
                 live_scrape: liveScrape,
                 type_filter: document.getElementById('filter-job-type')?.value || '',
                 no_scrape: !opts.allowScrape,       // India: only a click on Search Jobs may start a paid scrape
+                posted_within_hours: (parseInt(document.getElementById('filter-posted')?.value) || 24) > 24 ? parseInt(document.getElementById('filter-posted').value) : null,
                 my_experience: jobsMyExperience(),
                 include_unstated: document.getElementById('filter-exp-unstated')?.checked !== false
             })
@@ -855,6 +861,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
         }
 
         renderJobsTable(state.jobs);
+        renderJobCards(state.jobs);
     } catch (err) {
         console.error('Error fetching jobs:', err);
         if (tbody) {
@@ -6007,7 +6014,8 @@ async function jobOptimizeOpen(jobId, candId, row) {
     if (!candId) { showToast('Please select a Target Candidate first', 'warning'); return; }
     const header = [job.title, job.company].filter(Boolean).join(' - ');
     const desc = (job.description || '').trim();
-    let full = (job.full_description || '').trim() || ((job.source === 'Manual Paste' || desc.length >= FULL_JD_MIN_CHARS) ? desc : '');
+    // has_full_description: the list sent a summary only (company-site jobs) - the stored full text is fetched below
+    let full = (job.full_description || '').trim() || (!job.has_full_description && (job.source === 'Manual Paste' || desc.length >= FULL_JD_MIN_CHARS) ? desc : '');
     const emailInput = row ? row.querySelector('.email-inline-input') : null;
     const restored = await openOptimizePanel({ mode: 'job', candId, jobId, emailInput, title: header,
         jdText: full, summary: [header, desc].filter(Boolean).join('\n\n') });
@@ -7226,4 +7234,217 @@ function consPaneProfile(c, body) {
     document.querySelectorAll('.cons-view-btn').forEach(b => b.addEventListener('click', () => setConsView(b.dataset.view)));
     setConsView(consUi.view);
     document.getElementById('filter-consultants-search')?.addEventListener('input', () => renderConsultantCards());
+})();
+
+// =========================================================================
+// Jobs as cards (like NextRaise): match ring for the selected consultant, Save / Email recruiter /
+// Optimize resume / Apply; right panel with the consultant and the company career sites we read.
+// The table view stays one click away.
+// =========================================================================
+const jobsUi = { view: 'cards', boards: null, open: new Set() };
+try { jobsUi.view = localStorage.getItem('jobsView') === 'table' ? 'table' : 'cards'; } catch (e) { /* storage blocked */ }
+
+function setJobsView(view) {
+    jobsUi.view = view;
+    try { localStorage.setItem('jobsView', view); } catch (e) { /* ignore */ }
+    const cards = document.getElementById('jobs-cards-wrap'), table = document.getElementById('jobs-table-view');
+    if (cards) cards.hidden = view !== 'cards';
+    if (table) table.hidden = view !== 'table';
+    document.querySelectorAll('.jobs-view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+}
+
+function jobAgo(ts) {
+    if (!ts) return '';
+    const d = new Date(String(ts).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(ts)) ? '' : 'Z'));
+    if (isNaN(d)) return '';
+    const h = Math.max(0, (Date.now() - d.getTime()) / 3600000);
+    if (h < 1) return 'just now';
+    if (h < 24) return `${Math.floor(h)}h ago`;
+    const days = Math.floor(h / 24);
+    return days === 1 ? '1 day ago' : `${days} days ago`;
+}
+
+function jobsActiveConsultant() {
+    return (state.consultants || []).find(c => c.id === state.activeConsultantId) || null;
+}
+
+function renderJobCards(jobs) {
+    const box = document.getElementById('jobs-cards');
+    if (!box) return;
+    renderJobsSide();
+    const c = jobsActiveConsultant();
+    const countEl = document.getElementById('jobs-cards-count');
+    const list = jobs || [];
+    if (countEl) countEl.textContent = `${list.length} job${list.length === 1 ? '' : 's'}${c ? ` · match shown for ${c.name}` : ''}`;
+    if (!list.length) {
+        const company = (document.getElementById('filter-source')?.value || '') === 'Company site';
+        box.innerHTML = `<div class="cons-empty">No jobs match these filters.${company
+            ? ' Company-site jobs show by posting date - try <b>Posted within: Last week</b>, or <b>Refresh company jobs</b> on the right.'
+            : ' Try <b>Posted within: Last 3 days</b>, other keywords, or <b>Live 24h Scrape</b>.'}</div>`;
+        return;
+    }
+    const scored = list.slice(0, 200).map(j => ({ j, m: c ? consSkillMatch(c, j) : null }));
+    box.innerHTML = scored.map(({ j, m }) => {
+        const pct = m ? m.pct : null;
+        const col = !pct ? '#94a3b8' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706';
+        const word = !pct ? '' : pct >= 60 ? 'STRONG' : pct >= 35 ? 'GOOD' : 'STRETCH';
+        const company = (j.source || '').toLowerCase().startsWith('company site');
+        const open = jobsUi.open.has(j.id);
+        const salary = j.salary && !/^Rate on Discussion/i.test(j.salary) ? j.salary : '';
+        return `
+        <div class="job-card" data-job-id="${j.id}">
+            <div class="jc-logo">${consInitials(j.company || j.title)}</div>
+            <div class="jc-main">
+                <div class="jc-title">${escapeHtml(j.title || 'Untitled requirement')}</div>
+                <div class="jc-company">${escapeHtml(j.company || '')}${j.scraped_at ? ` <span>· ${company ? 'posted' : 'found'} ${escapeHtml(jobAgo(j.scraped_at))}</span>` : ''}</div>
+                <div class="jc-meta">
+                    ${j.location ? `<span>📍 ${escapeHtml(j.location)}</span>` : ''}
+                    ${j.type_label ? `<span class="cons-tag ${j.type_label === 'Contract' ? 'blue' : j.type_label === 'Full-time' ? 'green' : ''}">${escapeHtml(j.type_label)}</span>` : ''}
+                    ${j.experience && j.experience.label && j.experience.source ? `<span class="cons-tag">${escapeHtml(j.experience.label)}</span>` : ''}
+                    ${salary ? `<span class="cons-tag green">${escapeHtml(salary)}</span>` : ''}
+                    <span class="cons-tag ${company ? 'amber' : ''}" style="cursor:default">${company ? '🏢 ' : ''}${escapeHtml(j.source || 'Portal')}</span>
+                    ${j.recruiter_email ? '<span class="cons-tag blue">Recruiter email found</span>' : ''}
+                    ${j.vendor ? `<span class="cons-tag green" title="Your vendor contacts at ${escapeHtml(j.vendor.company)}">🤝 Known vendor · ${j.vendor.count}</span>` : ''}
+                </div>
+                <div class="cons-job-acts">
+                    <button type="button" class="btn btn-secondary btn-sm jc-details-btn">${open ? 'Hide details' : 'View details'}</button>
+                    <button type="button" class="btn btn-secondary btn-sm jc-save" title="Add to the consultant's Applications as Saved">🔖 Save</button>
+                    <button type="button" class="btn btn-sm jc-optimize" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;" title="Tailor the consultant's resume to this job">⚡ Tailor resume</button>
+                    ${j.recruiter_email ? '<button type="button" class="btn btn-primary btn-sm jc-draft">✉️ Email recruiter</button>' : ''}
+                    ${j.url ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the application">Apply ↗</a>` : ''}
+                </div>
+                <div class="jc-details" ${open ? '' : 'hidden'}>
+                    <div class="jc-desc">${escapeHtml((j.description || '').slice(0, 1500))}${(j.description || '').length > 1500 || j.has_full_description ? '…' : ''}</div>
+                    <div class="jc-email-row"><input type="email" class="form-control form-control-sm jc-email" value="${escapeHtml(j.recruiter_email || '')}" placeholder="Recruiter email (saves when you leave the box)"></div>
+                </div>
+            </div>
+            ${pct ? `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of ${escapeHtml(c.name)}'s skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`
+                : (c ? '<div class="cons-ring none" title="None of the consultant\'s listed skills appear in this posting\'s text">skills not mentioned</div>' : '')}
+        </div>`;
+    }).join('') + (list.length > 200 ? `<div class="cons-empty small">Showing the first 200 of ${list.length}. Narrow the search to see the rest.</div>` : '');
+
+    const jobOf = el => (state.jobs || []).find(x => x.id === parseInt(el.closest('.job-card').dataset.jobId));
+    const needCand = () => {
+        const id = state.activeConsultantId;
+        if (!id) showToast('Pick a consultant on the right first.', 'warning');
+        return id;
+    };
+    box.querySelectorAll('.jc-details-btn').forEach(b => b.addEventListener('click', () => {
+        const card = b.closest('.job-card'), id = parseInt(card.dataset.jobId), d = card.querySelector('.jc-details');
+        d.hidden = !d.hidden;
+        if (d.hidden) jobsUi.open.delete(id); else jobsUi.open.add(id);
+        b.textContent = d.hidden ? 'View details' : 'Hide details';
+    }));
+    box.querySelectorAll('.jc-save').forEach(b => b.addEventListener('click', async () => {
+        const cid = needCand(); if (!cid) return;
+        const j = jobOf(b);
+        const res = await fetch(`/api/jobs/${j.id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: cid }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
+        b.textContent = '✓ Saved';
+        b.disabled = true;
+        showToast(`Saved to ${jobsActiveConsultant()?.name || 'the consultant'}'s Applications.`, 'success', 2500);
+    }));
+    box.querySelectorAll('.jc-optimize').forEach(b => b.addEventListener('click', () => {
+        const cid = needCand(); if (!cid) return;
+        jobOptimizeOpen(jobOf(b).id, cid, null);
+    }));
+    box.querySelectorAll('.jc-draft').forEach(b => b.addEventListener('click', () => {
+        const cid = needCand(); if (!cid) return;
+        const j = jobOf(b);
+        const typed = b.closest('.job-card').querySelector('.jc-email')?.value.trim();
+        createJobDraft(j.id, cid, typed || j.recruiter_email || '', b);
+    }));
+    box.querySelectorAll('.jc-email').forEach(inp => inp.addEventListener('change', () => {
+        const j = jobOf(inp);
+        if (inp.value.trim()) { saveRecruiterEmail(j.id, inp.value); j.recruiter_email = inp.value.trim(); }
+    }));
+}
+
+async function loadCareerBoards(force) {
+    if (jobsUi.boards && !force) return jobsUi.boards;
+    try {
+        const res = await fetch('/api/career-boards');
+        jobsUi.boards = res.ok ? await res.json() : null;
+    } catch (e) { jobsUi.boards = null; }
+    return jobsUi.boards;
+}
+
+async function renderJobsSide() {
+    const side = document.getElementById('jobs-side');
+    if (!side) return;
+    const c = jobsActiveConsultant();
+    const opts = (state.consultants || []).map(x => `<option value="${x.id}" ${c && x.id === c.id ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
+    const o = c ? (consUi.overview[c.id] || {}) : {};
+    const b = await loadCareerBoards(false);
+    side.innerHTML = `
+        <div class="cons-panel">
+            <div class="cons-panel-h"><h3>Applying for</h3></div>
+            <select id="jobs-side-consultant" class="form-control">${opts || '<option value="">No consultants yet</option>'}</select>
+            ${c ? `<div class="cons-muted" style="margin-top:8px;">${escapeHtml(c.title || '')}${c.experience_years ? ' · ' + c.experience_years + '+ yrs' : ''}</div>
+                <div class="cons-muted">📄 ${escapeHtml(c.resume_filename || 'No resume on file')}</div>
+                <div class="cons-stats" style="margin-top:10px;"><div><b>${o.applied_this_week || 0}</b><span>Applied this week</span></div><div><b>${o.open || 0}</b><span>Open</span></div><div><b>${o.replies_waiting || 0}</b><span>Replies</span></div></div>
+                <div class="cons-job-acts"><button type="button" class="btn btn-secondary btn-sm" id="jobs-side-match">Jobs for ${escapeHtml(c.name.split(' ')[0])}'s role</button></div>` : ''}
+        </div>
+        <div class="cons-panel">
+            <div class="cons-panel-h"><h3>🏢 Company career sites</h3></div>
+            <div class="cons-muted">${b ? `${b.active} companies read for free (${escapeHtml((b.portals || []).join(', '))}).` : 'Company list unavailable.'}
+                ${b && b.syncing ? '<br><b>Reading their job lists now…</b>' : ''}</div>
+            <div class="cons-job-acts">
+                <button type="button" class="btn btn-secondary btn-sm" id="jobs-boards-show">Show only company jobs</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="jobs-boards-sync" ${b && b.syncing ? 'disabled' : ''}>Refresh company jobs</button>
+            </div>
+            <div style="margin-top:10px;">
+                <input type="text" id="jobs-board-url" class="form-control" placeholder="Add a company: paste its careers link">
+                <button type="button" class="btn btn-primary btn-sm" id="jobs-board-add" style="margin-top:6px; width:100%;">Add company</button>
+                <div id="jobs-board-msg" class="cons-muted" style="margin-top:6px;"></div>
+            </div>
+            <details style="margin-top:8px;"><summary class="cons-muted" style="cursor:pointer;">See the companies</summary>
+                <div class="jobs-board-list">${b ? b.boards.map(x => `<div class="cons-kv"><span>${escapeHtml(x.company || x.slug)} <small>(${escapeHtml(x.portal)})</small></span><b>${x.last_checked_at ? (x.last_error ? '<span style="color:#b45309" title="' + escapeHtml(x.last_error) + '">error</span>' : (x.last_job_count || 0) + ' jobs') : 'not read yet'}</b></div>`).join('') : ''}</div>
+            </details>
+        </div>`;
+    document.getElementById('jobs-side-consultant')?.addEventListener('change', e => {
+        setActiveConsultant(parseInt(e.target.value));
+        renderJobCards(state.jobs);
+    });
+    document.getElementById('jobs-side-match')?.addEventListener('click', () => browseJobsForCandidate(c.id, c.title || '', c.country || 'United States'));
+    document.getElementById('jobs-boards-show').addEventListener('click', () => {
+        const src = document.getElementById('filter-source');
+        if (src) { src.value = 'Company site'; src.dispatchEvent(new Event('change')); }
+    });
+    document.getElementById('jobs-boards-sync').addEventListener('click', async () => {
+        await fetch('/api/career-boards/sync', { method: 'POST' });
+        showToast('Reading every company\'s career site in the background (free). New jobs appear in a few minutes.', 'success', 6000);
+        await loadCareerBoards(true);
+        renderJobsSide();
+    });
+    document.getElementById('jobs-board-add').addEventListener('click', async () => {
+        const url = document.getElementById('jobs-board-url').value.trim();
+        const msg = document.getElementById('jobs-board-msg');
+        if (!url) return;
+        msg.textContent = 'Checking that careers site…';
+        const res = await fetch('/api/career-boards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { msg.textContent = d.error || 'Could not add it.'; msg.style.color = '#b91c1c'; return; }
+        msg.style.color = '';
+        msg.textContent = d.status === 'exists' ? `${d.company} is already on the list.`
+            : `Added ${d.company}${d.sync ? ` - ${d.sync.new} new job${d.sync.new === 1 ? '' : 's'} from the last two weeks` : ''}.`;
+        await loadCareerBoards(true);
+        if (d.status === 'added') searchJobs(false);
+    });
+}
+
+(function initJobCards() {
+    document.querySelectorAll('.jobs-view-btn').forEach(b => b.addEventListener('click', () => setJobsView(b.dataset.view)));
+    setJobsView(jobsUi.view);
+    document.getElementById('filter-posted')?.addEventListener('change', () => searchJobs(false));
+    // company career sites are mostly full-time: picking them shows all job types
+    document.getElementById('filter-source')?.addEventListener('change', e => {
+        if (e.target.value === 'Company site') {
+            const t = document.getElementById('filter-job-type');
+            if (t) t.value = '';
+            const p = document.getElementById('filter-posted');
+            if (p && p.value === '24') p.value = '168';
+        }
+    }, true);       // capture: runs before the listener that searches
 })();

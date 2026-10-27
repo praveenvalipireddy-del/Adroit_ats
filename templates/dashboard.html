@@ -325,6 +325,16 @@
                                     <option value="Dice">Dice.com</option>
                                     <option value="Indeed">Indeed</option>
                                     <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
+                                    <option value="Company site">🏢 Company career sites</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Posted within</label>
+                                <select id="filter-posted" title="How recent the jobs are">
+                                    <option value="24" selected>Last 24 hours</option>
+                                    <option value="72">Last 3 days</option>
+                                    <option value="168">Last week</option>
+                                    <option value="336">Last 2 weeks</option>
                                 </select>
                             </div>
                             <div class="filter-group">
@@ -355,8 +365,20 @@
                         </div>
                     </div>
 
+                    <div class="jobs-view-bar">
+                        <span id="jobs-cards-count" class="jobs-cards-count"></span>
+                        <div class="cons-view-toggle" role="group" aria-label="View">
+                            <button type="button" class="jobs-view-btn cons-view-btn" data-view="cards" id="jobs-view-cards">▦ Cards</button>
+                            <button type="button" class="jobs-view-btn cons-view-btn" data-view="table" id="jobs-view-table">☰ Table</button>
+                        </div>
+                    </div>
+                    <div id="jobs-cards-wrap" class="jobs-cards-wrap">
+                        <div id="jobs-cards" class="jobs-cards"></div>
+                        <aside id="jobs-side" class="jobs-side"></aside>
+                    </div>
+
                     <!-- Interactive Live Jobs Table -->
-                    <div class="jobs-table-wrap">
+                    <div class="jobs-table-wrap" id="jobs-table-view">
                         <div class="table-header-info">
                             <span id="jobs-table-count">Showing Live US Requisitions</span>
                             <span class="table-tip">💡 Tip: Type or paste recruiter email directly into the cell — it auto-saves instantly!</span>
@@ -1600,7 +1622,7 @@
         window.VIEW_REGION = {{ view_region | tojson }};</script>
     <script src="/static/vendor/jszip.min.js"></script>
     <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.98.0"></script>
+    <script src="/static/js/app.js?v=5.99.0"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

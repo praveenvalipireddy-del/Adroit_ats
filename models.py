@@ -598,6 +598,25 @@ def init_db():
         meta_value TEXT
     );
     """)
+    # Company career portals whose public job feeds are read (career_boards.py). slug: the company's name
+    # on that portal (Workday: tenant|wdN|site).
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS career_boards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ats TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        company TEXT,
+        careers_url TEXT,
+        found_via TEXT,
+        active INTEGER DEFAULT 1,
+        last_checked_at TEXT,
+        last_job_count INTEGER DEFAULT 0,
+        last_new INTEGER DEFAULT 0,
+        last_error TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (ats, slug)
+    );
+    """)
 
     conn.commit()
 
@@ -1556,7 +1575,7 @@ def _parse_db_timestamp(value):
 
 
 def get_jobs(query=None, location=None, source=None, job_type=None, contract_only=False, is_24h_only=False, country=None,
-             my_experience=None, include_unstated=True, type_filter=None):
+             my_experience=None, include_unstated=True, type_filter=None, max_age_hours=None):
     """my_experience: the consultant's years - hides jobs that need clearly more (see job_experience).
     Every returned job carries "experience": {min, max, source, level, label}."""
     import job_experience
@@ -1604,11 +1623,13 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
         # (they are never a real scrape, no matter what scraped_at says), and exclude anything
         # whose scraped_at is missing or older than 24 hours. A missing/unparseable scraped_at is
         # treated as NOT fresh (excluded), never assumed fresh.
-        if is_24h_only:
+        # max_age_hours widens it (Jobs "Posted within": 3 days, a week ...). Company-site jobs carry their
+        # posting time in scraped_at (career_boards), so for them this is "posted within".
+        if is_24h_only or max_age_hours:
             if j.get("is_seed_example"):
                 continue
             scraped_dt = _parse_db_timestamp(j.get("scraped_at"))
-            if scraped_dt is None or (datetime.now(timezone.utc) - scraped_dt) > timedelta(hours=24):
+            if scraped_dt is None or (datetime.now(timezone.utc) - scraped_dt) > timedelta(hours=max_age_hours or 24):
                 continue
 
         # 1. Source filter (matches 'Dice' for 'Dice.com', 'LinkedIn' for 'LinkedIn (Live 24h)', etc.)
@@ -1621,8 +1642,9 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
             if location.lower() not in loc:
                 continue
 
-        # 3. Contract filter
-        if contract_only:
+        # 3. Contract filter (company career-site jobs are mostly full-time: they are kept and labelled
+        # with their type - pick "Contract" in the type filter to hide them)
+        if contract_only and not src.startswith("company site"):
             if not any(k in jtype or k in desc for k in ["contract", "c2c", "corp", "1099", "temp"]):
                 continue
 

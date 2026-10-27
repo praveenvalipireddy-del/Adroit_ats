@@ -79,7 +79,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.98.0" in page.content(), "cache-buster not bumped to 5.98.0")
+        check("app.js?v=5.99.0" in page.content(), "cache-buster not bumped to 5.99.0")
         page.click("a.nav-item[data-tab=candidates]")
         page.click("#cons-view-table")       # the table view (cards are the default)
         page.wait_for_selector(".btn-disconnect-gmail", timeout=15000)

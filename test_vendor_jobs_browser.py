@@ -100,13 +100,14 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 950})
+        page.add_init_script("try { localStorage.setItem('jobsView', 'table') } catch (e) {}")   # these checks use the Jobs table view
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/login")
         page.fill("input[name=email]", EMAIL)
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.98.0" in page.content(), "cache-buster not bumped to 5.98.0")
+        check("app.js?v=5.99.0" in page.content(), "cache-buster not bumped to 5.99.0")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
 
         # Browse Jobs for the 4-year consultant

@@ -235,6 +235,37 @@ try:
         job_page.screenshot(path=shots["form"], full_page=True)
         panel.click("#btn-applied")
         wait_text(panel, '#applied-card', 'Marked as Applied')
+
+        # -- a job page with no form: Autofill clicks the site's Apply, then fills; a 2-step form: "Next page" fills step 2
+        STEP1 = """<html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>AI Developer II (Fixture)</h1>
+          <p>Labelled fixture job page for the extension test. SQL and Python reporting.</p>
+          <a href="https://fixture.example.invalid/job/9/apply/section/1">Apply Now</a></body></html>"""
+        SEC1 = """<html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>Contact Information</h1>
+          <label for="fn">First Name *</label><input id="fn" required><label for="em">Email *</label><input id="em" required>
+          <a href="https://fixture.example.invalid/job/9/apply/section/2">Next</a></body></html>"""
+        SEC2 = """<html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>Work Summary</h1>
+          <label for="li">LinkedIn Profile</label><input id="li"><button onclick="window.submitted=true">Submit</button></body></html>"""
+        for path, body in (("/job/9", STEP1), ("/job/9/apply/section/1", SEC1), ("/job/9/apply/section/2", SEC2)):
+            ctx.route("https://fixture.example.invalid" + path, (lambda b: lambda r: r.fulfill(status=200, content_type="text/html", body=b))(body))
+        job_page.goto("https://fixture.example.invalid/job/9")
+        job_page.bring_to_front()
+        panel.bring_to_front()
+        wait_text(panel, '#job-title', 'AI Developer II')
+        panel.click("#btn-autofill")
+        wait_text(panel, '#result-box', 'Next page', timeout=30)
+        check("/apply/section/1" in job_page.url and job_page.eval_on_selector("#fn", "e => e.value") == "Karun"
+              and job_page.eval_on_selector("#em", "e => e.value") == "karun.fixture@example.invalid", "Apply clicked, step 1 filled")
+        check(panel.inner_text("#job-title") == "AI Developer II (Fixture)", f"job kept on the apply steps: {panel.inner_text('#job-title')!r}")
+        panel.click("#btn-next-step")
+        wait_text(panel, '#result-box', 'filled from', timeout=30)
+        for _ in range(50):
+            if "/section/2" in job_page.url and job_page.eval_on_selector("#li", "e => e.value"):
+                break
+            job_page.wait_for_timeout(200)
+        check(job_page.eval_on_selector("#li", "e => e.value") == "https://www.linkedin.com/in/karun-fixturetest", "Next page -> step 2 filled")
+        check(panel.inner_text("#job-title") != "Work Summary", "a step heading never becomes the job title")
+        check(not job_page.evaluate("!!window.submitted"), "Submit never clicked on the last step")
+        check(not panel.is_hidden("#applied-card"), "'Did you apply?' shown on the last step")
         ctx.close()
 
         conn = models.get_db_connection()

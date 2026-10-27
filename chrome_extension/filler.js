@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 1) return;
+  if (window.JH && window.JH.version === 2) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -35,6 +35,9 @@
     return '';
   }
 
+  const SECTION_HEADING = /^(work summary|summary|import (your )?profile|apply|application|my information|personal (info|information|details)|contact (info|information)|my experience|experience|education|review|voluntary disclosures?|self[- ]identify|questions|application questions|additional information|documents|attachments|sign in|create account)$/i;
+  const APPLY_STEP_URL = /\/apply(\/|$|\?)|\/application(\/|$)|apply\/section|\/candidate\//i;
+
   function readJob() {
     const job = { url: location.href, title: '', company: '', location: '', description: '' };
     for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
@@ -55,11 +58,17 @@
     }
     const atsCompany = companyFromUrl();
     if (!job.company) job.company = atsCompany || norm((document.querySelector('meta[property="og:site_name"]') || {}).content);
-    if (!job.title) job.title = textOf(document.querySelector('h1')) || norm((document.querySelector('meta[property="og:title"]') || {}).content) || norm(document.title);
+    if (!job.title) {
+      // a heading like "Work Summary" / "Import your profile" on an application step is not the job title
+      const cands = [textOf(document.querySelector('h1')), norm((document.querySelector('meta[property="og:title"]') || {}).content),
+        norm(document.title).split(/\s[|–-]\s/)[0]];
+      job.title = cands.find((t) => t && t.length > 2 && !SECTION_HEADING.test(t)) || '';
+    }
     if (!job.location) {
       const l = document.querySelector('[class*="location" i], [data-qa*="location" i], [data-automation-id*="location" i]');
-      if (l) job.location = textOf(l).slice(0, 120);
+      if (l) job.location = textOf(l).replace(/^(job )?location\s*:?\s*/i, '').slice(0, 120);
     }
+    job.isApplyStep = APPLY_STEP_URL.test(location.pathname + location.hash);
     if (!job.description || job.description.length < 60) {
       const main = document.querySelector('main, [role="main"], #content, .content, article, #app_body') || document.body;
       job.description = (main.innerText || '').trim();
@@ -393,5 +402,48 @@
     return n;
   }
 
-  window.JH = { version: 1, readJob, fill, fillAnswers, markUnanswered, clearMarks, _keyFor: keyFor, _labelOf: labelOf };
+  // ---------------- buttons: open the form / go to the next step. Never Submit.
+  const FINAL = /submit|send|finish|complete|confirm|review and submit|sign|agree/i;
+  const APPLY_BTN = /^(apply|apply now|apply for this job|apply for this position|apply online|start (your )?application|i'?m interested|easy apply|apply on company site)\b/i;
+  const NEXT_BTN = /^(next|continue|save (and|&) continue|next step|proceed|save and next|next page)\b/i;
+
+  function buttons() {
+    return Array.from(document.querySelectorAll('button, a[href], [role="button"], input[type="button"], input[type="submit"]'))
+      .filter((b) => isShown(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true')
+      .map((b) => ({ el: b, text: norm(b.innerText || b.value || b.getAttribute('aria-label') || '') }))
+      .filter((b) => b.text && b.text.length < 60);
+  }
+
+  function formFieldCount() {
+    return Array.from(document.querySelectorAll('input, select, textarea'))
+      .filter((e) => !SKIP_TYPES.test(e.type || '') && (e.type === 'file' || isShown(e))).length;
+  }
+
+  // On a job page with no form yet: click the site's Apply button (it can't submit anything - there is no form).
+  function clickApply() {
+    if (formFieldCount() > 0) return { clicked: false, reason: 'form' };
+    const b = buttons().find((x) => APPLY_BTN.test(x.text) && !FINAL.test(x.text));
+    if (!b) return { clicked: false, reason: 'none' };
+    b.el.click();
+    return { clicked: true, text: b.text };
+  }
+
+  function nextButton() {
+    return buttons().find((x) => NEXT_BTN.test(x.text) && !FINAL.test(x.text)) || null;
+  }
+
+  function hasNext() {
+    const b = nextButton();
+    return b ? b.text : '';
+  }
+
+  function clickNext() {
+    const b = nextButton();
+    if (!b) return { clicked: false };
+    b.el.click();
+    return { clicked: true, text: b.text };
+  }
+
+  window.JH = { version: 2, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+    _keyFor: keyFor, _labelOf: labelOf };
 })();

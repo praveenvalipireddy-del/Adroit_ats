@@ -127,6 +127,37 @@ with sync_playwright() as p:
     page.fill("#first_name", "Typed By Recruiter")
     page.evaluate("([p, r]) => window.JH.fill(p, r)", [PROFILE, RESUME])
     check(v("#first_name") == "Typed By Recruiter", "a second Autofill keeps what the recruiter typed")
+    check(page.evaluate("window.JH.clickApply().clicked") is False, "Apply is never clicked when a form is already there")
+    check(page.evaluate("window.JH.hasNext()") == "", "'Submit application' is not a Next button")
+    check(not page.evaluate("!!window.submitted"), "still never submitted")
+
+    # ---- 7. a job page with no form: Apply opens it; an application step: section heading is not the title
+    page.route("https://fixture.example.invalid/hcmUI/jobs/job/1", lambda r: r.fulfill(status=200, content_type="text/html", body="""
+      <html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>AI Developer II (Fixture)</h1>
+      <div class="job-location">Location: Chandigarh, India</div><p>Labelled fixture job page.</p>
+      <a href="#" id="apply" onclick="document.getElementById('f').hidden=false;window.applyClicked=true;return false;">Apply Now</a>
+      <form id="f" hidden><label for="e">Email *</label><input id="e"><button type="submit" onclick="window.submitted=true;return false;">Submit</button></form>
+      </body></html>"""))
+    page.goto("https://fixture.example.invalid/hcmUI/jobs/job/1")
+    page.add_script_tag(path=FILLER)
+    j = page.evaluate("window.JH.readJob()")
+    check(j["title"] == "AI Developer II (Fixture)" and j["location"] == "Chandigarh, India", f"title + location without 'Location:': {j}")
+    c = page.evaluate("window.JH.clickApply()")
+    check(c["clicked"] and page.evaluate("!!window.applyClicked") and page.evaluate("window.JH.formFieldCount()") == 1, f"Apply opened the form: {c}")
+    check(not page.evaluate("!!window.submitted"), "opening the form submits nothing")
+
+    page.route("https://fixture.example.invalid/hcmUI/jobs/job/1/apply/section/2", lambda r: r.fulfill(status=200, content_type="text/html", body="""
+      <html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>Work Summary</h1>
+      <label for="co">Current Company</label><input id="co">
+      <button id="back">Back</button><button id="nx" onclick="window.nextClicked=true">Next</button>
+      <button onclick="window.submitted=true">Submit</button></body></html>"""))
+    page.goto("https://fixture.example.invalid/hcmUI/jobs/job/1/apply/section/2")
+    page.add_script_tag(path=FILLER)
+    j = page.evaluate("window.JH.readJob()")
+    check(j["title"] == "AI Developer II (Fixture)" and j["isApplyStep"], f"'Work Summary' is a step heading, not the title: {j}")
+    check(page.evaluate("window.JH.hasNext()") == "Next", "Next button found")
+    page.evaluate("window.JH.clickNext()")
+    check(page.evaluate("!!window.nextClicked") and not page.evaluate("!!window.submitted"), "Next clicked, Submit never")
     browser.close()
 
 check(not js_errors, f"JS errors: {js_errors}")

@@ -134,7 +134,7 @@ async function readPage() {
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.JH.readJob() });
     let job = r && r.result;
     // an application form page (e.g. Lever /apply) shows less of the job: keep what we read on the job page
-    if (prev && st.tabId === tab.id && job && (job.description || '').length < 300 && new URL(prev.url).host === new URL(job.url).host) {
+    if (prev && st.tabId === tab.id && job && (job.isApplyStep || (job.description || '').length < 300) && new URL(prev.url).host === new URL(job.url).host) {
       job = { ...prev, url: job.url };
     }
     st.tabId = tab.id;
@@ -205,9 +205,46 @@ function flash(text, bad) {
 }
 
 // ------------------------------------------------------------- autofill
-$('btn-autofill').addEventListener('click', autofill);
+$('btn-autofill').addEventListener('click', () => autofill());
 
-async function autofill() {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// fields in any frame of the tab (0 while a new step is still loading)
+async function fieldCount(tabId) {
+  try {
+    await inject(tabId, true);
+    const out = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => (window.JH ? window.JH.formFieldCount() : 0) });
+    return out.reduce((n, f) => n + (f.result || 0), 0);
+  } catch (e) { return 0; }
+}
+
+async function waitForForm(tabId, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    await sleep(700);
+    if (await fieldCount(tabId)) return true;
+  }
+  return false;
+}
+
+async function nextStepText(tabId) {
+  const out = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => (window.JH ? window.JH.hasNext() : '') });
+  return (out.find((f) => f.result) || {}).result || '';
+}
+
+async function goNext() {
+  const tab = await targetTab();
+  if (!tab) return;
+  await inject(tab.id, true);
+  const out = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => (window.JH ? window.JH.clickNext() : { clicked: false }) });
+  if (!out.some((f) => f.result && f.result.clicked)) { flash('No Next button on this page.', true); return; }
+  await sleep(1200);
+  await waitForForm(tab.id, 10000);
+  await readPage();
+  autofill();
+}
+
+async function autofill(opened) {
   const btn = $('btn-autofill');
   const box = $('result-box');
   if (!st.cid) return;
@@ -232,8 +269,28 @@ async function autofill() {
       res.resumeAttached = res.resumeAttached || r.resumeAttached; res.fieldsSeen += r.fieldsSeen;
     }
     if (!res.fieldsSeen) {
+      // a job page with no form yet: click the site's Apply button once, wait for the form, fill it
+      if (!opened) {
+        const clicked = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.JH.clickApply() });
+        const c = clicked[0] && clicked[0].result;
+        if (c && c.clicked) {
+          btn.innerHTML = `<span class="spin"></span>Opening "${esc(c.text)}"…`;
+          await sleep(1500);
+          const target = await targetTab();
+          if (target && await waitForForm(target.id, 12000)) {
+            btn.disabled = false;
+            btn.textContent = 'Autofill';
+            await readPage();
+            return autofill(true);
+          }
+        }
+      }
+      const next = await nextStepText(tab.id).catch(() => '');
       box.hidden = false;
-      box.innerHTML = '<p class="warn">No application form on this page yet. Click the site\'s <b>Apply</b> button, then Autofill again.</p>';
+      box.innerHTML = next
+        ? `<p class="warn">Nothing to fill on this step.</p><button class="btn primary wide" id="btn-next-step">Next page › (${esc(next)})</button>`
+        : '<p class="warn">No application form on this page yet. Click the site\'s <b>Apply</b> button (or sign in), then Autofill again.</p>';
+      if (next) $('btn-next-step').addEventListener('click', goNext);
       return;
     }
     let ai = { filled: [], left: res.questions.map((q) => q.id) };
@@ -258,10 +315,14 @@ async function autofill() {
       res.aiError ? ['var(--red)', `AI answers unavailable: ${esc(res.aiError)}`] : null,
       requiredLeft.length || res.needsYou.length ? ['var(--red)', `Needs you: ${esc([...requiredLeft.map((q) => q.label), ...res.needsYou].slice(0, 6).join(' · '))}`] : null,
     ].filter(Boolean);
+    const next = await nextStepText(tab.id).catch(() => '');
     box.hidden = false;
     box.innerHTML = lines.map(([c, t]) => `<div class="res-line"><span class="dot" style="background:${c}"></span><span>${t}</span></div>`).join('') +
-      '<p class="hint" style="text-align:left;margin:8px 0 0">Check the form, then click the site\'s Submit button yourself.</p>';
-    $('applied-card').hidden = false;
+      (next
+        ? `<p class="hint" style="text-align:left;margin:8px 0">Check this page, then go to the next one - it is filled automatically.</p><button class="btn primary wide" id="btn-next-step">Next page › (${esc(next)})</button>`
+        : '<p class="hint" style="text-align:left;margin:8px 0 0">Check the form, then click the site\'s Submit button yourself.</p>');
+    if (next) $('btn-next-step').addEventListener('click', goNext);
+    $('applied-card').hidden = !!next;
   } catch (e) {
     box.hidden = false;
     box.innerHTML = `<p class="warn">${esc(e.auth ? 'Not connected - open Settings and connect again.' : e.message)}</p>`;

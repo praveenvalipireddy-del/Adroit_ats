@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Job Hunt - Recruiter Workspace</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=5.6.0">
+    <link rel="stylesheet" href="/static/css/style.css?v={{ asset_v.css }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
 {% macro resume_workspace(p, text_id, orig_id, text_label, h="58vh", chat_h="44vh") %}
@@ -138,7 +138,7 @@
 
             <div class="sidebar-footer">
                 <div class="user-profile-card" {% if 'Admin' in user.role %}onclick="switchTab('settings')" style="cursor: pointer;" title="Click to open Admin & Recruiter Management"{% endif %}>
-                    <img src="{{ user.avatar_url or 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' }}" alt="{{ user.name }}" class="avatar">
+                    {% if user.avatar_url and 'unsplash.com' not in user.avatar_url %}<img src="{{ user.avatar_url }}" alt="{{ user.name }}" class="avatar">{% else %}<div class="avatar avatar-initials">{{ (user.name or 'U').split()|map('first')|join('')|upper|truncate(2, True, '') }}</div>{% endif %}
                     <div class="user-info">
                         <div class="name">{{ user.name }}</div>
                         <div class="role">{{ user.role }}</div>
@@ -977,7 +977,7 @@
                                     {% for r in recruiters %}
                                     <tr style="border-bottom: 1px solid #f1f5f9;" id="recruiter-row-{{ r.id }}">
                                         <td style="padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
-                                            <img src="{{ r.avatar_url or 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80' }}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid #cbd5e1;">
+                                            {% if r.avatar_url and 'unsplash.com' not in r.avatar_url %}<img src="{{ r.avatar_url }}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid #cbd5e1;">{% else %}<div class="avatar-initials" style="width: 34px; height: 34px; font-size: 0.75rem;">{{ (r.name or 'U').split()|map('first')|join('')|upper|truncate(2, True, '') }}</div>{% endif %}
                                             <span style="font-weight: 600; color: #0f172a;">{{ r.name }}</span>
                                         </td>
                                         <td style="padding: 14px 18px; color: #475569;">{{ r.email }}</td>
@@ -1553,9 +1553,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/vendor/jszip.min.js"></script>
-    <script src="/static/vendor/docx-preview.min.js"></script>
-    <script src="/static/js/app.js?v=5.99.3"></script>
+    <script src="/static/js/app.js?v=5.99.4"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

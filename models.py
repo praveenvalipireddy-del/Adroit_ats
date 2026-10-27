@@ -924,7 +924,7 @@ def migrate_db(conn):
                 "praveen@adroit-ai.com",
                 default_admin_hash,
                 "Admin",
-                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
+                ""   # no stock photo: initials are shown
             ))
 
         cursor.execute("SELECT id, password_hash FROM users WHERE email = ?", ("praveen@aventra-ai.com",))
@@ -1000,7 +1000,7 @@ def seed_initial_data(conn):
         "Praveen Valipireddy",
         "praveen@adroit-ai.com",
         "Lead Technical Recruiter & Admin",
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
+        ""   # no stock photo: initials are shown
     ))
 
     # 2. Seed Initial US Bench Consultants
@@ -1148,7 +1148,7 @@ def get_or_create_user(name, email, role="Recruiter", avatar_url=None, password=
         cursor.execute("""
         INSERT INTO users (name, email, password_hash, role, avatar_url)
         VALUES (?, ?, ?, ?, ?)
-        """, (name, email, p_hash, role, avatar_url or "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"))
+        """, (name, email, p_hash, role, avatar_url or ""))
         conn.commit()
         cursor.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,))
         user = cursor.fetchone()
@@ -1173,7 +1173,7 @@ def create_user(name, email, password, role="Recruiter", avatar_url=None, region
         email,
         p_hash,
         role,
-        avatar_url or "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
+        avatar_url or "",
         region if region in ("USA", "India") else "USA"
     ))
     conn.commit()

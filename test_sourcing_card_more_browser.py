@@ -72,7 +72,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.3" in page.content(), "cache-buster not bumped to 5.99.3")
+        check("app.js?v=5.99.4" in page.content(), "cache-buster not bumped to 5.99.4")
         page.click("a.nav-item[data-tab=sourcing]")
         page.evaluate(f"trkOpen({PID})")
         page.wait_for_function(OPEN)

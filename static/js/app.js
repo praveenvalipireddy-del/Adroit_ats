@@ -788,8 +788,8 @@ function initJobsTable() {
         });
     }
 
-    // Initial load of jobs
-    searchJobs(false);
+    // No search on page open: the Jobs tab searches when it is first opened (switchTab), so opening
+    // Job Hunt on the Consultants cards doesn't wait for a jobs search it never shows.
 }
 
 async function searchJobs(liveScrape = false, opts = {}) {
@@ -2933,7 +2933,9 @@ async function loadRecruiters() {
             tbody.innerHTML = recruiters.map(r => `
                 <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);" id="recruiter-row-${r.id}">
                     <td style="padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
-                        <img src="${r.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,255,255,0.2);">
+                        ${r.avatar_url && !r.avatar_url.includes('unsplash.com')
+                            ? `<img src="${escapeHtml(r.avatar_url)}" style="width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255,255,255,0.2);">`
+                            : `<div class="avatar-initials" style="width: 34px; height: 34px; font-size: 0.75rem;">${consInitials(r.name)}</div>`}
                         <span style="font-weight: 600; color: #0f172a;">${escapeHtml(r.name)}</span>
                     </td>
                     <td style="padding: 14px 18px; color: #cbd5e1;">${escapeHtml(r.email)}</td>
@@ -5651,6 +5653,8 @@ function makeResumeWorkspace(prefix, host) {
         const box = el('preview');
         const mySeq = ++ws.renderSeq;
         box.classList.remove('rv-text');
+        if (ws.docx) await loadDocxPreview();
+        if (mySeq !== ws.renderSeq) return;
         if (ws.docx && window.docx && window.docx.renderAsync) {
             const tmp = document.createElement('div');
             try {
@@ -7440,6 +7444,24 @@ async function renderJobsSide() {
         }
     }, true);       // capture: runs before the listener that searches
 })();
+
+// The Word-resume preview libraries (170 KB) load the first time a resume preview opens, not with every page.
+let docxPreviewLoading = null;
+function loadDocxPreview() {
+    if (window.docx && window.docx.renderAsync) return Promise.resolve();
+    if (!docxPreviewLoading) {
+        const add = src => new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = src;
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+        });
+        docxPreviewLoading = add('/static/vendor/jszip.min.js?v=3').then(() => add('/static/vendor/docx-preview.min.js?v=3'))
+            .catch(() => { docxPreviewLoading = null; });          // the text preview is shown instead; the next try loads again
+    }
+    return docxPreviewLoading;
+}
 
 // =========================================================================
 // Super Apply: the hiring team at the job's company (Apollo). Searching is free; each email is 1 credit and

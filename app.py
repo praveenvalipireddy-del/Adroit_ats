@@ -50,7 +50,6 @@ import job_types
 import autofill
 import career_boards
 import apollo_api
-from templates_bundle import EMBEDDED_LOGIN_HTML, EMBEDDED_DASHBOARD_HTML, EMBEDDED_STYLE_CSS, EMBEDDED_APP_JS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -190,25 +189,32 @@ def add_cors_headers(response):
 
 # --- Static Asset Routing ---
 
-@app.route("/static/css/style.css")
-def serve_custom_css():
-    css_file = os.path.join(BASE_DIR, "static", "css", "style.css")
-    if os.path.exists(css_file):
-        with open(css_file, "r", encoding="utf-8") as f:
-            return Response(f.read(), mimetype="text/css")
-    return Response(EMBEDDED_STYLE_CSS, mimetype="text/css")
+def _asset_version(rel_path):
+    """A short fingerprint of a static file, so its URL changes whenever the file does (style.css?v=...)."""
+    import hashlib
+    try:
+        with open(os.path.join(BASE_DIR, "static", rel_path), "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:10]
+    except OSError:
+        return "0"
 
-@app.route("/static/js/app.js")
-def serve_custom_js():
-    js_file = os.path.join(BASE_DIR, "static", "js", "app.js")
-    if os.path.exists(js_file):
-        with open(js_file, "r", encoding="utf-8") as f:
-            resp = Response(f.read(), mimetype="application/javascript")
-            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            resp.headers["Pragma"] = "no-cache"
-            return resp
-    resp = Response(EMBEDDED_APP_JS, mimetype="application/javascript")
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+
+ASSET_VERSIONS = {"css": _asset_version("css/style.css")}
+
+
+@app.context_processor
+def _inject_asset_versions():
+    return {"asset_v": ASSET_VERSIONS}
+
+
+@app.after_request
+def _static_cache_headers(resp):
+    """Static files with a version in the URL (?v=...) never change: the browser keeps them a year instead of
+    downloading the 467 KB app.js on every page open (it used to be sent with no-store). Without a version they
+    are re-checked each time (a cheap 304 when unchanged)."""
+    if request.path.startswith("/static/") and resp.status_code in (200, 304):
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable" if request.args.get("v") else "no-cache"
+        resp.headers.pop("Pragma", None)
     return resp
 
 # --- Authentication ---
@@ -242,10 +248,7 @@ def login():
             if request.is_json:
                 return jsonify({"error": error_msg}), 401
 
-    try:
-        return render_template("login.html", error=error_msg, has_azure=config.HAS_AZURE_AUTH, allow_dev_login=config.ALLOW_DEV_LOGIN, env=config.ENV)
-    except Exception:
-        return render_template_string(EMBEDDED_LOGIN_HTML, error=error_msg, has_azure=config.HAS_AZURE_AUTH, allow_dev_login=config.ALLOW_DEV_LOGIN, env=config.ENV)
+    return render_template("login.html", error=error_msg, has_azure=config.HAS_AZURE_AUTH, allow_dev_login=config.ALLOW_DEV_LOGIN, env=config.ENV)
 
 @app.route("/dev-login", methods=["GET", "POST"])
 def dev_login():
@@ -260,7 +263,6 @@ def dev_login():
             name="Praveen Valipireddy",
             email="praveen@adroit-ai.com",
             role="Admin",
-            avatar_url="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
             password="Admin@2026"
         )
     session["user"] = user
@@ -310,29 +312,8 @@ def dashboard():
     can_switch_team = regions.can_switch(user, my_team)
     view_region = (session.get("view_region") or "Both") if can_switch_team else next(iter(view_regions))
 
-    try:
-        return render_template(
+    return render_template(
             "dashboard.html",
-            user=user,
-            stats=stats,
-            candidates=candidates,
-            recruiters=recruiters,
-            selected_recruiter_id=selected_recruiter_id if is_admin else None,
-            view_region=view_region,
-            can_switch_team=can_switch_team,
-            env=config.ENV,
-            has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
-            has_google_oauth=gmail_multi_manager.oauth_configured(),
-            has_gemini=resume_bot.gemini_configured(),
-            has_claude=resume_bot.claude_configured(),
-            claude_model=resume_bot.CLAUDE_MODEL,
-            has_grok=resume_bot.xai_configured(),
-            has_openrouter=resume_bot.openrouter_configured()
-        )
-    except Exception as e:
-        logger.warning(f"Using embedded template fallback: {e}")
-        return render_template_string(
-            EMBEDDED_DASHBOARD_HTML,
             user=user,
             stats=stats,
             candidates=candidates,

@@ -91,7 +91,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.5" in page.content(), "cache-buster not bumped to 5.99.5")
+        check("app.js?v=5.99.7" in page.content(), "cache-buster not bumped to 5.99.7")
         page.click("a.nav-item[data-tab=resumebot]")
         page.fill("#resumebot-resume-text", RESUME)
         page.fill("#resumebot-jd-text", "Senior Data Engineer. Requirements: Spark, Python, Kafka, 7+ years.")

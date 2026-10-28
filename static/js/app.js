@@ -7041,7 +7041,7 @@ async function consPaneJobs(c, body) {
             <div class="cf-go"><button type="button" class="btn btn-primary" id="cons-jf-go">🔍 Search</button></div>
         </div>
         <div class="cons-pane-bar"><span id="cons-jobs-count">${escapeHtml(country)} jobs for ${escapeHtml(c.name)}</span>
-            <button type="button" class="btn btn-secondary btn-sm" id="cons-jobs-more" title="The full Jobs page: live portal scrapes, experience filter">Live portal search in Jobs →</button></div>
+            <button type="button" class="btn btn-primary btn-sm" id="cons-jobs-live" title="Ask the job portals for new jobs matching these filters">🔄 Find new jobs from portals</button></div>
         <div id="cons-jobs-list" class="cons-loading">Finding jobs for ${escapeHtml(c.name)}…</div>`;
     const read = () => {
         f.query = document.getElementById('cons-jf-query').value.trim();
@@ -7055,7 +7055,7 @@ async function consPaneJobs(c, body) {
     document.getElementById('cons-jf-go').addEventListener('click', go);
     ['cons-jf-query', 'cons-jf-loc'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') go(); }));
     ['cons-jf-posted', 'cons-jf-type', 'cons-jf-source', 'cons-jf-work'].forEach(id => document.getElementById(id).addEventListener('change', go));
-    document.getElementById('cons-jobs-more').addEventListener('click', () => browseJobsForCandidate(c.id, f.query || c.title || '', c.country || 'United States'));
+    document.getElementById('cons-jobs-live').addEventListener('click', () => { read(); consFindLiveJobs(c, f, country, body); });
     rolePicker(document.getElementById('cons-jf-roles'), {
         get: () => f.roles,
         set: v => { f.roles = v; if (v.length && f.query === consCoreTitle(c.title)) f.query = ''; },   // picked roles replace the title keyword
@@ -7083,7 +7083,7 @@ async function consPaneJobs(c, body) {
     if (!jobs) { list.innerHTML = '<div class="cons-empty">Could not load jobs. Try again.</div>'; return; }
     document.getElementById('cons-jobs-count').textContent = `${jobs.length} job${jobs.length === 1 ? '' : 's'} · ${country} · best skills match first`;
     if (!jobs.length) {
-        list.innerHTML = `<div class="cons-empty">No jobs match these filters. Try <b>Posted within: Last week</b>, fewer words in Role / skills, or <b>Live portal search in Jobs</b>.</div>`;
+        list.innerHTML = `<div class="cons-empty">No jobs match these filters. Try <b>Posted within: Last week</b>, fewer words in Role / skills, or <b>🔄 Find new jobs from portals</b> above.</div>`;
         return;
     }
     const scored = jobs.map(j => ({ j, m: consSkillMatch(c, j) })).sort((a, b) => ((b.m || {}).pct || 0) - ((a.m || {}).pct || 0)).slice(0, 60);
@@ -7129,6 +7129,41 @@ async function consPaneJobs(c, body) {
         btn.textContent = '✓ Saved';
         btn.disabled = true;
     }));
+}
+
+// "Find new jobs from portals" on the consultant's page: a live portal search for these filters. Paid portals
+// (Apify: Indeed, Naukri, Foundit, recruiter posts) say what it costs and ask first; company career sites are
+// read by the free background reader instead.
+async function consFindLiveJobs(c, f, country, body) {
+    const btn = document.getElementById('cons-jobs-live');
+    const src = f.source || 'All';
+    if (src === 'Email') { showToast('Requirement emails come from the consultant\'s Gmail - use Requirements & replies.', 'info', 6000); return; }
+    if (src === 'Company site') {
+        await fetch('/api/career-boards/sync', { method: 'POST' });
+        showToast('Reading every company\'s career site in the background (free). New jobs show here in a few minutes - press Search then.', 'success', 8000);
+        return;
+    }
+    const keyword = f.query || (f.roles || [])[0] || consCoreTitle(c.title);
+    if (!keyword) { showToast('Type a role or skill (or pick a role) first.', 'warning'); return; }
+    const india = country === 'India';
+    const cost = PORTAL_COST[src] || (india ? 'Naukri, Foundit and Indeed India are read through Apify: about $0.001 per job found plus about $0.004 per Indeed search (Apify credit).'
+        : 'LinkedIn and Dice are free; Indeed is about $0.004 per search (Apify credit).');
+    if (!confirm(`Search the job portals now for "${keyword}" in ${country}${src !== 'All' ? ' (' + src + ')' : ''}?\n\n${cost}\n\nIt can take 1-2 minutes.`)) return;
+    btn.disabled = true;
+    btn.textContent = 'Searching the portals…';
+    try {
+        const res = await fetch('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: keyword, location: f.location || country, source: src, country, is_24h_only: true, live_scrape: true,
+                no_scrape: false, type_filter: f.type, my_experience: c.experience_years || null, include_unstated: true }) });
+        const d = await res.json().catch(() => ({}));
+        const parts = Object.entries(d.scrape_sources || {}).map(([name, v]) => v.error ? `${name}: ${v.error}` : `${name}: ${v.count} found`);
+        showToast(res.ok ? `Portal search done${parts.length ? ' - ' + parts.join(' · ') : ''}.` : (d.error || 'The portal search failed.'), res.ok ? 'success' : 'error', 9000);
+    } catch (e) {
+        showToast('The portal search didn\'t finish - try again.', 'error');
+    } finally {
+        Object.keys(consUi.jobs).filter(k => k.startsWith(`${c.id}|`)).forEach(k => delete consUi.jobs[k]);    // show the new jobs
+        if (consUi.openId === c.id && consUi.pane === 'jobs') consPaneJobs(c, body);
+    }
 }
 
 // ---- Applications as a board

@@ -695,8 +695,8 @@ function syncJobsMarketUi() {
     }
     if (descEl) {
         descEl.innerText = isIndia
-            ? 'Scraped fresh requisitions from Naukri, Foundit (Monster India), and LinkedIn India. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.'
-            : 'Scraped fresh C2C contract requisitions from LinkedIn US and Dice.com. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.';
+            ? 'India jobs from Naukri, Foundit, Indeed, LinkedIn, recruiter posts and company career sites. Pick the consultant on the right to see the match, tailor the resume and apply.'
+            : 'US jobs from LinkedIn, Dice, Indeed, recruiter posts and company career sites. Pick the consultant on the right to see the match, tailor the resume and apply.';
     }
 }
 
@@ -946,7 +946,7 @@ function renderJobsTable(jobs) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">
-                    No jobs found matching your search. Try adjusting keywords or click <strong>"Live 24h Scrape"</strong> to fetch fresh postings.
+                    No jobs found matching your search. Try adjusting keywords or click <strong>"Live scrape"</strong> to fetch fresh postings.
                 </td>
             </tr>`;
         return;
@@ -7313,7 +7313,7 @@ function renderJobCards(jobs) {
         const company = (document.getElementById('filter-source')?.value || '') === 'Company site';
         box.innerHTML = `<div class="cons-empty">No jobs match these filters.${company
             ? ' Company-site jobs show by posting date - try <b>Posted within: Last week</b>, or <b>Refresh company jobs</b> on the right.'
-            : ' Try <b>Posted within: Last 3 days</b>, other keywords, or <b>Live 24h Scrape</b>.'}</div>`;
+            : ' Try <b>Posted within: Last 3 days</b>, other keywords, or <b>Live scrape</b>.'}</div>`;
         return;
     }
     const scored = list.slice(0, 200).map(j => ({ j, m: c ? consSkillMatch(c, j) : null }));

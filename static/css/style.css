@@ -1237,6 +1237,17 @@ body {
 .sa-p-act { text-align: right; max-width: 55%; }
 .sa-email { color: #15803d; font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; }
 
+/* Jobs filters: ten filters in two even rows of five (the general 4-column grid wrapped them unevenly) */
+#tab-jobs .filter-row { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 14px; align-items: end; }
+#tab-jobs .filter-group[style*="min-width"] { min-width: 0 !important; }
+#tab-jobs .filter-actions { display: flex; gap: 8px; align-items: flex-end; }
+#tab-jobs .filter-actions label { display: none; }
+#tab-jobs .filter-actions .btn { flex: 1; justify-content: center; white-space: nowrap; padding: 9px 10px; }
+#filter-exp-unstated-wrap { margin-top: 6px !important; }
+#filter-exp-unstated-wrap input[type="checkbox"] { width: 15px; height: 15px; padding: 0; margin: 0; flex: none; accent-color: #2563eb; }
+@media (max-width: 1250px) { #tab-jobs .filter-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { #tab-jobs .filter-row { grid-template-columns: 1fr; } }
+
 /* Role picker */
 .rp { position: relative; min-width: 170px; }
 .rp-btn { text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #fff; display: flex; justify-content: space-between; align-items: center; gap: 6px; }

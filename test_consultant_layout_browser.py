@@ -103,7 +103,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.7" in page.content(), "cache-buster not bumped to 5.99.7")
+        check("app.js?v=5.99.8" in page.content(), "cache-buster not bumped to 5.99.8")
         # the Dashboard (made-up pipeline, "88%" / "24 Days") is gone: the app opens on the consultant cards
         page.wait_for_selector(f".cons-card[data-id='{K}']", timeout=15000)
         check(page.locator("a.nav-item[data-tab=dashboard]").count() == 0 and page.locator("#tab-dashboard").count() == 0, "no Dashboard tab")

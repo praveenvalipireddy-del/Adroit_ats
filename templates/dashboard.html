@@ -197,8 +197,8 @@
                 <div class="tab-pane" id="tab-jobs">
                     <div class="section-header">
                         <div>
-                            <h2>Live 24-Hour IT Jobs & 1-Click Outreach</h2>
-                            <p id="jobs-tab-source-desc">Scraped fresh C2C contract requisitions from LinkedIn US and Dice.com. Edit recruiter emails directly in the table and create 1-click Gmail drafts with attached .docx resumes.</p>
+                            <h2>Jobs</h2>
+                            <p id="jobs-tab-source-desc">US jobs from LinkedIn, Dice, Indeed, recruiter posts and company career sites. Pick the consultant on the right to see the match, tailor the resume and apply.</p>
                         </div>
                         <div class="stats-pills">
                             <span class="pill"><strong id="stat-total-jobs">{{ stats.total_jobs }}</strong> Total Jobs</span>
@@ -276,11 +276,11 @@
                                 <label>&nbsp;</label>
                                 <button class="btn btn-primary" id="btn-search-jobs">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                                    Search Jobs
+                                    Search
                                 </button>
                                 <button class="btn btn-success" id="btn-live-scrape-trigger">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                                    Live 24h Scrape
+                                    Live scrape
                                 </button>
                             </div>
                         </div>
@@ -1557,7 +1557,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.7"></script>
+    <script src="/static/js/app.js?v=5.99.8"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

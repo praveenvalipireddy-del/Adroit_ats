@@ -305,7 +305,13 @@ def _handle(conn, rid: int, cand: Dict, p: Dict, full_text: str, user_id: Option
     docx = original if name.lower().endswith(".docx") else None
     resume_text = resume_bot.extract_text_from_file_bytes(original, name, strict=True)
     import consultant_rules
-    res = resume_bot.optimize_resume_for_jd(resume_text, jd, custom_instructions=consultant_rules.text_for(cand["id"], "resume"), docx_bytes=docx)
+    standing = consultant_rules.text_for(cand["id"], "resume")
+    # the same instructions as the Optimize window's Review (/api/resume-bot/optimize), so Review reuses this analysis
+    custom = ("Standing rules for this consultant:\n" + standing) if standing else ""
+    if AUTO_DRAFT:      # no review: the resume is tailored now, the way the analysis decides
+        res = resume_bot.optimize_resume_for_jd(resume_text, jd, custom_instructions=custom, docx_bytes=docx)
+    else:               # review first: only the match now - the recruiter chooses the resume changes in Review
+        res = resume_bot.analyze_for_review(resume_text, jd, custom_instructions=custom, docx_bytes=docx)
     if res.get("error"):
         raise RuntimeError(res["error"])
     if not res.get("ai_powered"):
@@ -351,8 +357,7 @@ def _handle(conn, rid: int, cand: Dict, p: Dict, full_text: str, user_id: Option
              draft_to=plan["to"], draft_subject=plan["subject"], draft_body=plan["body"],
              draft_checklist=json.dumps(plan.get("checklist") or []), thread_refs=p.get("references_hdr") or "",
              thread_emails=",".join(thread_emails),
-             reason=f"Match {match}% - resume " + (f"tailored ({attachment[0]})" if version_id else "unchanged (no changes needed)")
-                    + " and reply written. Review them, then create the draft."
+             reason=f"Match {match}% - reply written. Review: see the gaps, choose the resume changes (or send it as is), then create the draft."
                     + (f" Needs your input: {'; '.join(x.strip('[]') for x in needs)}" if needs else ""))
         return "review"
     out = gmail_multi_manager.create_candidate_draft(

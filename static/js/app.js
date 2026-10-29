@@ -5256,8 +5256,8 @@ async function openOptimizePanel(opts) {
     $('do-step2').innerHTML = '';
     optSteps(1);
     $('modal-draft-optimize').style.display = 'flex';
-    if (await optRestore(opts)) return true;
-    if (opts.requirement) { await rqShowOriginal(); return true; }   // no changes were needed: the original resume goes
+    if (await optRestore(opts)) return true;      // e.g. a requirement whose resume the scan already tailored (older ones)
+    if (opts.requirement && !(opts.jdText || '').trim()) { await rqShowOriginal(); return true; }   // nothing to check against
     if (opts.mode === 'job' && !opts.jdText) return false;     // the job's JD is still loading (jobOptimizeOpen)
     draftOptimizeRun(true);
     return false;
@@ -5514,7 +5514,8 @@ async function optShowResult(data, key, jd, stale) {
         ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b>${optPanel.mode === 'job' ? ' and attached to this job\'s draft' : ' and attached to this draft'}.` : '';
     $('btn-do-save').disabled = !data.optimized;
     $('btn-do-download').style.display = data.optimized ? '' : 'none';
-    if (data.optimized || (optPanel.mode !== 'job' && data.ai_powered !== false)) doEmailGenerate();
+    if (optPanel.requirement) rqFillEmail();          // the reply prepared from the vendor's email stays the reply
+    else if (data.optimized || (optPanel.mode !== 'job' && data.ai_powered !== false)) doEmailGenerate();
 }
 
 // "Send resume as is": the consultant's original resume is attached; straight to the email.
@@ -5649,6 +5650,9 @@ const chatMem = {
 };
 const CHAT_REVIEW = '__review__';
 const chatLabel = (instruction) => instruction === CHAT_REVIEW ? '💡 Review & suggest' : instruction;
+
+// Admins see and manage 📌 Rules; recruiters never need to - the AI learns from their edits (email_memory.learn_from_edit)
+function isAdmin() { return !!(window.CURRENT_USER || {}).admin; }
 
 // 📌 Rules: standing instructions per consultant for every email / resume (consultant_rules.py)
 const rules = { candId: null, list: [], wired: false, onChange: [] };
@@ -6064,6 +6068,7 @@ function makeResumeWorkspace(prefix, host) {
         el('instr').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ws.send(); } });
         document.querySelectorAll(`#${prefix}-workspace .rv-chip`).forEach(b => b.addEventListener('click', () => ws.send(b.getAttribute('data-instr'))));
         const rulesLink = el('rules');
+        if (rulesLink && !isAdmin()) rulesLink.style.display = 'none';     // recruiters don't manage rules - the AI learns
         const showRules = () => {
             const cid = host.candId();
             if (rulesLink) rulesLink.textContent = `📌 Rules${cid && rulesCount(cid, 'resume') ? ` (${rulesCount(cid, 'resume')})` : ''}`;
@@ -6237,7 +6242,7 @@ function emailBox(prefix, ctx) {
                     <button type="button" class="btn btn-primary btn-sm" id="btn-${prefix}-email-ai">Ask AI</button>
                     <button type="button" class="btn btn-secondary btn-sm" id="btn-${prefix}-email-review" title="The AI reviews this email for this job and suggests improvements - nothing is changed">💡 Review &amp; suggest</button>
                 </div>
-                <div style="font-size:0.75rem; color:#64748b; margin-top:6px;">The AI remembers this job's conversation and follows <a href="#" id="${prefix}-email-rules" style="font-weight:700;">📌 Rules</a> for every email of this consultant.</div>
+                <div style="font-size:0.75rem; color:#64748b; margin-top:6px;">The AI remembers this job's conversation and learns from your edits for this consultant<span${isAdmin() ? '' : ' style="display:none;"'}> - see <a href="#" id="${prefix}-email-rules" style="font-weight:700;">📌 Rules</a></span>.</div>
             </div>`;
         $(`btn-${prefix}-email-rewrite`).addEventListener('click', () => box.generate());
         $(`btn-${prefix}-email-ai`).addEventListener('click', () => box.ask());
@@ -6315,7 +6320,7 @@ function emailBox(prefix, ctx) {
                 + (d.fallback ? ' <span style="color:#b45309;">(Standard email used - the AI could not write one that only uses facts from the resume.)</span>' : '');
             // what the AI thought about: the plan / check notes, and rules that repeat or contradict each other
             const notes = (d.notes || []).map(n => '• ' + escapeHtml(n));
-            const clash = (d.rule_conflicts || []).map(n => '⚠ ' + escapeHtml(n) + ' - open 📌 Rules to clean them up');
+            const clash = isAdmin() ? (d.rule_conflicts || []).map(n => '⚠ ' + escapeHtml(n) + ' - open 📌 Rules to clean them up') : [];
             const think = $(`${prefix}-email-thinking`);
             think.innerHTML = notes.length || clash.length ? `<b>🧠 What the AI did</b><br>${[...notes, ...clash].join('<br>')}` : '';
             think.style.display = think.innerHTML ? '' : 'none';
@@ -6986,7 +6991,7 @@ async function rqRecheck(btn) {
     const res = await fetch(`/api/requirements/${btn.dataset.id}/recheck`, { method: 'POST' });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { aiMsg(d.error || 'Could not check it again.', 'err'); btn.disabled = false; return; }
-    aiMsg(d.started ? 'Checking it again - reading the whole email, then tailoring the resume (about a minute)...' : (d.message || ''), '');
+    aiMsg(d.started ? 'Checking it again - reading the whole email and checking the match (about a minute)...' : (d.message || ''), '');
     rq.recheckId = parseInt(btn.dataset.id);
     rq.recheckUntil = Date.now() + 4 * 60 * 1000;
     setTimeout(rqLoad, 3000);

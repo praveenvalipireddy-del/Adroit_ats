@@ -2740,6 +2740,56 @@ def _ext_ai(system, prompt, max_tokens):
     return raw
 
 
+@app.route("/api/ext/tailor", methods=["POST"])
+def api_ext_tailor():
+    """The side panel's 'Tailor resume': mode "analyze" -> the match + the suggested changes (ticked when the resume
+    shows them); mode "apply" + "approved" -> only those changes made, saved as a version, and the tailored Word file
+    returned for Autofill to attach. Same optimizer and rules as the Optimize window."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    data = request.get_json(silent=True) or {}
+    cand = _ext_consultant(user, data.get("candidate_id"))
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    job = autofill.clean_job(data.get("job"))
+    jd = (job.get("description") or "").strip()
+    if len(jd) < 80:
+        return jsonify({"error": "Couldn't read the job description on this page."}), 400
+    _ensure_resume_text(cand)
+    docx_bytes = _stored_docx_bytes(cand)
+    resume_text = (cand.get("resume_text") or "").strip()
+    if docx_bytes is None and not resume_text:
+        return jsonify({"error": f"No resume is on file for {cand.get('name')}. Upload one in Job Hunt."}), 404
+    standing = consultant_rules.text_for(cand["id"], "resume")
+    custom = ("Standing rules for this consultant:\n" + standing) if standing else ""
+    if str(data.get("mode") or "") == "apply":
+        approved = [str(a) for a in (data.get("approved") or []) if str(a).strip()][:40]
+        res = resume_bot.optimize_resume_for_jd(resume_text, jd, custom_instructions=custom, docx_bytes=docx_bytes, approved=approved)
+        if res.get("error"):
+            return jsonify(res), 400
+        if not res.get("optimized"):
+            return jsonify({"changed": False, "reason": res.get("not_optimized_reason") or res.get("ai_unavailable_reason") or "The resume was left as it is."})
+        data_out = resume_versions.decode_docx(res.get("docx_base64") or "") if res.get("format_preserved") else None
+        if not data_out:
+            buf = resume_bot.create_docx_resume(res.get("updated_resume_text") or resume_text, cand.get("name") or "Candidate")
+            data_out = buf.getvalue() if hasattr(buf, "getvalue") else bytes(buf)
+        skill = resume_versions.primary_skill(res, cand, jd)
+        fname = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cand["id"]))
+        vid = resume_versions.save(cand["id"], None, fname, data_out, skill, "", jd[:300], user["id"])
+        changes = [{"before": c.get("before") or "", "after": c.get("after") or ""} for c in (res.get("changes") or [])][:20]
+        return jsonify({"changed": True, "version_id": vid, "filename": fname, "changes": changes,
+                        "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "base64": base64.b64encode(data_out).decode("ascii"),
+                        "initial": res.get("initial_match_percentage")})
+    res = resume_bot.analyze_for_review(resume_text, jd, custom_instructions=custom, docx_bytes=docx_bytes)
+    if res.get("error"):
+        return jsonify(res), 400
+    return jsonify({"match": res.get("initial_match_percentage"), "matched": res.get("mandatory_matched_skills") or [],
+                    "partial": res.get("partial_match_skills") or [], "missing": res.get("mandatory_missing_skills") or [],
+                    "review": res.get("review") or {"items": [], "initial": res.get("initial_match_percentage"), "target": res.get("initial_match_percentage")}})
+
+
 @app.route("/api/ext/match", methods=["POST"])
 def api_ext_match():
     """Match score for the job on the page: AI (Gemini, free tier) when available, else the free keyword check."""

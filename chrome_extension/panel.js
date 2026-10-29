@@ -79,6 +79,7 @@ function renderMain() {
 $('sel-consultant').addEventListener('change', async (e) => {
   st.cid = parseInt(e.target.value, 10) || null;
   await store({ cid: st.cid });
+  resetTailor();
   $('match-box').hidden = true;
   $('result-box').hidden = true;
   $('applied-card').hidden = true;
@@ -139,6 +140,7 @@ async function readPage() {
       job = { ...prev, url: job.url };
     }
     st.tabId = tab.id;
+    if (!prev || !job || prev.title !== job.title || prev.company !== job.company) resetTailor();   // another job: its own resume
     st.job = job;
     renderJob(job);
   } catch (e) {
@@ -182,11 +184,96 @@ $('btn-match').addEventListener('click', async () => {
     box.innerHTML = `<div class="match"><div class="ring" style="background:conic-gradient(${col} ${m.score}%, #e5e7eb 0)"><span>${m.score}%</span></div>
       <div><b style="color:${col};font-size:12px">${word}</b><div class="hint" style="text-align:left;margin:2px 0">${esc(m.note || '')}</div></div></div>
       ${m.matched && m.matched.length ? `<div class="tags">${m.matched.map((t) => `<span class="tag ok">✓ ${esc(t)}</span>`).join('')}</div>` : ''}
-      ${m.missing && m.missing.length ? `<div class="tags">${m.missing.map((t) => `<span class="tag no">✗ ${esc(t)}</span>`).join('')}</div>` : ''}`;
+      ${m.missing && m.missing.length ? `<div class="tags">${m.missing.map((t) => `<span class="tag no">✗ ${esc(t)}</span>`).join('')}</div>` : ''}
+      <button class="btn wide" id="btn-tailor">✨ Tailor resume for this job</button>`;
+    $('btn-tailor').addEventListener('click', tailorAnalyze);
   } catch (e) {
     box.innerHTML = `<p class="warn">${esc(e.message)}</p>`;
   }
 });
+
+// ------------------------------------------------------------- tailor the resume for this job
+// Same steps as Job Hunt: the match + suggested changes (ticked when the resume shows them) -> only the ticked
+// changes are made -> a preview of what changed -> Autofill attaches that tailored resume (or the original).
+function resetTailor() {
+  st.tailored = null;
+  st.tailorReview = null;
+  $('tailor-box').hidden = true;
+  $('tailor-box').innerHTML = '';
+  if (st.profile) $('resume-name').textContent = st.profile.profile.resume_filename || 'No resume on file - upload one in Job Hunt';
+}
+
+function tailorChecked() { return [...document.querySelectorAll('#tailor-box input[data-ch]:checked')].map((i) => i.dataset.ch); }
+
+function tailorProjected() {
+  const r = st.tailorReview || { items: [], initial: 0, target: 0 };
+  const on = new Set(tailorChecked());
+  const counted = r.items.filter((i) => i.kind !== 'missing');
+  const share = counted.length ? counted.filter((i) => on.has(i.id)).length / counted.length : 0;
+  const extra = r.items.filter((i) => i.kind === 'missing' && on.has(i.id)).length * 3;
+  return Math.min(98, Math.round(r.initial + (r.target - r.initial) * share + extra));
+}
+
+function tailorChanged() {
+  const n = tailorChecked().length;
+  $('tl-proj').textContent = n ? `about ${tailorProjected()}%` : 'no change';
+  $('btn-tl-apply').textContent = n ? `Apply ${n} change${n === 1 ? '' : 's'}` : 'Tick a change first';
+  $('btn-tl-apply').disabled = !n;
+}
+
+async function tailorAnalyze() {
+  const box = $('tailor-box');
+  box.hidden = false;
+  if (!st.job || !st.cid) { box.innerHTML = '<p class="warn">Open a job page and pick a consultant.</p>'; return; }
+  box.innerHTML = '<p class="hint">Checking what to change…</p>';
+  try {
+    const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'analyze' } });
+    st.tailorReview = d.review;
+    const why = (i) => i.kind === 'align' ? 'Rewords his summary and latest project - no new facts.'
+      : i.kind === 'safe' ? `In his resume: "${esc(i.evidence)}"`
+      : i.kind === 'unproven' ? "His resume doesn't say it - tick only if it's true."
+      : 'Not in his resume - only if he really has it (Skills only).';
+    const item = (i) => `<label class="tl-item"><input type="checkbox" data-ch="${esc(i.id)}"${i.checked ? ' checked' : ''}><span>${esc(i.label)}<small>${why(i)}</small></span></label>`;
+    const group = (title, color, list) => list.length ? `<div class="tl-group" style="color:${color}">${title}</div>${list.map(item).join('')}` : '';
+    const items = d.review.items;
+    box.innerHTML = `<b>Tailor the resume</b> <span class="hint">- only the ticked changes are made</span>
+      ${group('Backed by his resume', 'var(--green)', items.filter((i) => i.kind === 'align' || i.kind === 'safe'))}
+      ${group('Not stated in his resume', 'var(--amber)', items.filter((i) => i.kind === 'unproven'))}
+      ${group('Not in the resume', 'var(--red)', items.filter((i) => i.kind === 'missing'))}
+      <div class="tl-proj">Match ${esc(d.review.initial)}% → <b id="tl-proj"></b></div>
+      <div class="row"><button class="btn primary" id="btn-tl-apply">Apply</button><button class="btn" id="btn-tl-cancel">Keep the original</button></div>`;
+    box.querySelectorAll('input[data-ch]').forEach((i) => i.addEventListener('change', tailorChanged));
+    $('btn-tl-apply').addEventListener('click', tailorApply);
+    $('btn-tl-cancel').addEventListener('click', resetTailor);
+    tailorChanged();
+  } catch (e) {
+    box.innerHTML = `<p class="warn">${esc(e.message)}</p>`;
+  }
+}
+
+async function tailorApply() {
+  const ids = tailorChecked();
+  if (!ids.length) return;
+  const btn = $('btn-tl-apply');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>Making the changes…';
+  try {
+    const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids } });
+    const box = $('tailor-box');
+    if (!d.changed) { box.innerHTML = `<p class="warn">${esc(d.reason)}</p><p class="hint">Autofill attaches the original resume.</p>`; return; }
+    st.tailored = { filename: d.filename, mime: d.mime, base64: d.base64 };
+    $('resume-name').textContent = `${d.filename} (tailored for this job)`;
+    const list = d.changes.map((c) => `<li>${c.before ? `<s>${esc(c.before)}</s><br>` : ''}<span>${esc(c.after)}</span></li>`).join('');
+    box.innerHTML = `<b style="color:var(--green)">✓ ${d.changes.length} change${d.changes.length === 1 ? '' : 's'} made</b>
+      <p class="hint">Autofill attaches <b>${esc(d.filename)}</b> (saved in Job Hunt).</p><ul class="tl-changes">${list}</ul>
+      <button class="link-btn" id="btn-tl-orig">Attach the original resume instead</button>`;
+    $('btn-tl-orig').addEventListener('click', resetTailor);
+  } catch (e) {
+    flash(e.message, true);
+    btn.disabled = false;
+    tailorChanged();
+  }
+}
 
 $('btn-save').addEventListener('click', async () => {
   if (!st.job || !st.cid) return;
@@ -257,7 +344,9 @@ async function autofill(opened) {
   try {
     if (!st.profile) await loadProfile();
     let resume = null;
-    if ($('chk-resume').checked && st.profile && st.profile.profile.resume_filename) {
+    if ($('chk-resume').checked && st.tailored) {
+      resume = st.tailored;                           // the resume tailored for this job (Tailor resume)
+    } else if ($('chk-resume').checked && st.profile && st.profile.profile.resume_filename) {
       try { resume = await api(`/api/ext/consultants/${st.cid}/resume`); } catch (e) { resume = null; }
     }
     await inject(tab.id, true);

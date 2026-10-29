@@ -142,6 +142,40 @@ m2 = anon.post("/api/ext/match", headers=H, json={"candidate_id": K, "job": JOB}
 check(m2["method"] == "keywords" and m2["score"] == 75 and m2["missing"] == ["Tableau"], f"keyword fallback when the AI fails: {m2}")
 app_module._ext_ai = fake_ai
 
+# ---- Tailor resume: the match + suggested changes, then only the ticked ones made, saved, returned for Autofill
+import resume_bot as _rb  # noqa: E402
+import resume_versions as _rv  # noqa: E402
+tailor_calls = []
+TAILORED_TEXT = "KARUN FIXTURETEST\nData Analyst - SQL, Power BI dashboards (tailored fixture)"
+
+
+def fake_analyze(resume_text, jd_text, custom_instructions="", docx_bytes=None):
+    return {"ai_powered": True, "initial_match_percentage": 70, "mandatory_matched_skills": ["SQL"], "partial_match_skills": ["Power BI"],
+            "mandatory_missing_skills": ["Tableau"], "review": {"initial": 70, "target": 85, "items": [
+                {"id": "align", "kind": "align", "skill": "", "label": "Reword the summary for this job", "sections": [], "evidence": "", "checked": True},
+                {"id": "skill:Power BI", "kind": "safe", "skill": "Power BI", "label": "Show Power BI in the skills", "sections": ["skills"],
+                 "evidence": "Power BI dashboards", "checked": True},
+                {"id": "skill:Tableau", "kind": "missing", "skill": "Tableau", "label": "Add Tableau", "sections": ["skills"], "evidence": "", "checked": False}]}}
+
+
+def fake_tailor(resume_text, jd_text, custom_instructions="", docx_bytes=None, approved=None, **_k):
+    tailor_calls.append(approved)
+    return {"optimized": True, "format_preserved": False, "updated_resume_text": TAILORED_TEXT, "initial_match_percentage": 70,
+            "changes": [{"op": "replace", "before": "Data Analyst - SQL", "after": "Data Analyst - SQL, Power BI dashboards"}],
+            "mandatory_matched_skills": ["SQL", "Power BI"]}
+
+
+_rb.analyze_for_review = fake_analyze
+_rb.optimize_resume_for_jd = fake_tailor
+ta = anon.post("/api/ext/tailor", headers=H, json={"candidate_id": K, "job": JOB, "mode": "analyze"}).get_json()
+check(ta["match"] == 70 and [i["id"] for i in ta["review"]["items"] if i["checked"]] == ["align", "skill:Power BI"], f"tailor: suggestions: {ta}")
+tp = anon.post("/api/ext/tailor", headers=H, json={"candidate_id": K, "job": JOB, "mode": "apply", "approved": ["align", "skill:Power BI"]}).get_json()
+check(tp.get("changed") and tailor_calls[-1] == ["align", "skill:Power BI"] and tp["filename"].endswith(".docx")
+      and base64.b64decode(tp["base64"])[:2] == b"PK" and tp["changes"][0]["after"].endswith("Power BI dashboards"),
+      f"tailor: only the ticked changes, a Word file back: {dict((k, v) for k, v in tp.items() if k != 'base64')}")
+check(len(_rv.list_for(K)) == 1, "the tailored resume is saved as a version")
+check(anon.post("/api/ext/tailor", json={"candidate_id": K, "job": JOB}).status_code == 401, "tailor needs the connection key")
+
 sv = anon.post("/api/ext/save-job", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
 conn = models.get_db_connection()
 cur = conn.cursor()
@@ -240,6 +274,31 @@ try:
         panel.click("#btn-applied")
         wait_text(panel, '#applied-card', 'Marked as Applied')
 
+        # -- Tailor resume in the panel: ticks -> Apply -> what changed -> Autofill attaches the tailored file
+        panel.click("#btn-tailor")
+        wait_text(panel, '#tailor-box', 'Rewords his summary')
+        ticks = panel.eval_on_selector_all("#tailor-box input[data-ch]", "els => els.map(e => e.dataset.ch + ':' + e.checked)")
+        check(ticks == ["align:true", "skill:Power BI:true", "skill:Tableau:false"], f"panel: proof decides the ticks: {ticks}")
+        check("Apply 2 changes" in panel.inner_text("#btn-tl-apply") and "about" in panel.inner_text("#tl-proj"), "panel: Apply count + expected match")
+        panel.click("#btn-tl-apply")
+        wait_text(panel, '#tailor-box', 'change made')
+        tailored_name = panel.inner_text("#resume-name").replace(" (tailored for this job)", "")
+        check("Power BI dashboards" in panel.inner_text("#tailor-box") and tailored_name.endswith(".docx") and "tailored" in panel.inner_text("#resume-name"),
+              f"panel: what changed + the tailored resume is the one attached: {panel.inner_text('#resume-name')!r}")
+        shots["tailor"] = os.path.join(tmp_dir, "panel_tailor.png")
+        panel.screenshot(path=shots["tailor"], full_page=True)
+        job_page.goto("https://boards.greenhouse.io/samplefixtureco/jobs/1")      # the same job's form again, empty
+        job_page.bring_to_front()
+        panel.bring_to_front()
+        panel.wait_for_timeout(1500)
+        panel.click("#btn-autofill")
+        for _ in range(100):
+            if job_page.eval_on_selector("#cv", "e => e.files.length"):
+                break
+            panel.wait_for_timeout(200)
+        check(job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == tailored_name, f"Autofill attached the tailored resume ({tailored_name})")
+        panel.wait_for_selector("#applied-card:not([hidden])", timeout=20000)
+
         # -- a job page with no form: Autofill clicks the site's Apply, then fills; a 2-step form: "Next page" fills step 2
         STEP1 = """<html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>AI Developer II (Fixture)</h1>
           <p>Labelled fixture job page for the extension test. SQL and Python reporting.</p>
@@ -289,7 +348,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
+        check("app.js?v=5.99.12" in page.content(), "cache-buster not bumped to 5.99.12")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

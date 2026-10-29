@@ -61,3 +61,15 @@ h2 { font-size: 16px; margin: 0 0 8px; }
 .foot { color: var(--mute); font-size: 11.5px; margin: 14px 2px; }
 .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; animation: s .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 @keyframes s { to { transform: rotate(360deg); } }
+
+/* Tailor the resume: choose changes -> preview -> attached on Autofill */
+#tailor-box { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.tl-group { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin: 10px 0 4px; }
+.tl-item { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.4; margin: 6px 0; cursor: pointer; }
+.tl-item input { margin-top: 2px; accent-color: var(--blue); flex: none; }
+.tl-item small { display: block; color: var(--mute); font-size: 11.5px; }
+.tl-proj { font-size: 13px; margin: 10px 0; }
+.tl-changes { list-style: none; padding: 0; margin: 8px 0; max-height: 220px; overflow-y: auto; }
+.tl-changes li { font-size: 12px; line-height: 1.4; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tl-changes s { color: var(--mute); }
+.tl-changes span { color: var(--ink); background: #eaf2ff; }

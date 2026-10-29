@@ -1,12 +1,12 @@
 """Requirements from Gmail - Review first (Edge).
 
 A requirement email (a Dice Private Email: plain-text stub, job + signature in HTML) is scanned:
-the resume is tailored and the reply written, but NO Gmail draft is made - the row is "Ready to review".
-Review opens the Optimize window with the tailored Word resume (changes highlighted) and the prepared
-reply (To = the recruiter's own address from the signature) without calling the AI again. The recruiter
-edits the email and clicks Create Draft: the draft goes into the vendor's thread with the reviewed resume,
-the row becomes "Draft created" and the tracker shows the application. A requirement whose resume needed
-no changes is reviewed the same way and the original resume is attached.
+the match is checked and the reply written, but the resume is NOT changed and NO Gmail draft is made - the
+row is "Ready to review". Review opens the Optimize window on the match check; the recruiter chooses the
+resume changes and applies them (changes highlighted), and the prepared reply (To = the recruiter's own
+address from the signature) stays the reply. The recruiter edits the email and clicks Create Draft: the
+draft goes into the vendor's thread with the reviewed resume, the row becomes "Draft created" and the
+tracker shows the application. "Send resume as is" on the second requirement attaches the original.
 Gmail and the AI are stubs. Labelled test fixtures. Run: python test_requirement_review_browser.py
 """
 import email
@@ -111,15 +111,30 @@ ORIGINAL = make_docx(["ABHI REVIEWTEST", "Java Developer", "SKILLS", "Java, Spri
 TAILORED = make_docx(["ABHI REVIEWTEST", "Java Developer", "SKILLS", "Java, Spring Boot, Microservices, REST APIs"])
 
 
-def fake_optimize(resume_text, jd_text, custom_instructions="", docx_bytes=None):
-    if "platform engineer" in jd_text.lower():       # the resume already fits: no changes
-        return {"ai_powered": True, "initial_match_percentage": 88, "optimized": False, "match_decision": "No major changes"}
+analyze_calls, optimize_calls = [], []
+
+
+def fake_analyze(resume_text, jd_text, custom_instructions="", docx_bytes=None):
+    analyze_calls.append(jd_text[:30])
+    m = 88 if "platform engineer" in jd_text.lower() else 78
+    items = [{"id": "align", "kind": "align", "skill": "", "label": "Reword the summary for this job", "sections": ["summary"], "evidence": "", "checked": True}]
+    if m == 78:
+        items.append({"id": "skill:Microservices", "kind": "safe", "skill": "Microservices", "label": "Show Microservices in the skills",
+                      "sections": ["skills"], "evidence": "Java, Spring Boot", "checked": True})
+    return {"ai_powered": True, "initial_match_percentage": m, "match_breakdown": {}, "match_decision": "Strong", "domain_detected": "Software",
+            "mandatory_matched_skills": ["Java", "Spring Boot"], "partial_match_skills": [], "mandatory_missing_skills": [],
+            "review": {"items": items, "initial": m, "target": 90}}
+
+
+def fake_optimize(resume_text, jd_text, custom_instructions="", docx_bytes=None, approved=None, **_k):
+    optimize_calls.append(approved)
     return {"ai_powered": True, "initial_match_percentage": 78, "optimized": True, "format_preserved": True,
             "docx_base64": base64.b64encode(TAILORED).decode(), "updated_resume_text": "ABHI REVIEWTEST\nJava Developer\nSKILLS\nJava, Spring Boot, Microservices, REST APIs",
             "mandatory_matched_skills": ["Java", "Spring Boot"], "match_decision": "Strong"}
 
 
 resume_bot.optimize_resume_for_jd = fake_optimize
+resume_bot.analyze_for_review = fake_analyze
 
 
 def mail(n, frm, subject, plain, html_body, msg_id):
@@ -155,10 +170,12 @@ stats = iq.scan_candidate(conn, models.get_candidate_by_id(cid), REC)
 check(stats["review"] == 2 and stats["drafted"] == 0 and not appended, f"scan prepares, creates no draft: {stats}, drafts={len(appended)}")
 rows = {r["message_id"]: r for r in iq.list_for(conn, [cid])}
 r1, r2 = rows["<dice1@user.dice.com>"], rows["<plat2@vendor>"]
-check(r1["status"] == "review" and r1["status_label"] == "Ready to review" and r1["resume_version_id"] and r1["match_pct"] == 78, f"row 1: {r1['status']}")
+check(r1["status"] == "review" and r1["status_label"] == "Ready to review" and not r1["resume_version_id"] and r1["match_pct"] == 78,
+      f"row 1: match checked, resume not changed yet: {r1['status']} {r1['resume_version_id']}")
+check(optimize_calls == [] and len(analyze_calls) == 2, f"the scan only checks the match: optimize={optimize_calls} analyze={analyze_calls}")
 check(r1["draft_to"] == "risa@techdigital-test.example" and r1["draft_subject"] == "Re: Java Backend Developer on W2" and r1["draft_body"],
       f"reply prepared to the recruiter's own address: {r1['draft_to']} / {r1['draft_subject']}")
-check(r2["status"] == "review" and not r2["resume_version_id"] and "unchanged" in r2["reason"], f"row 2 (no changes needed): {r2['reason']}")
+check(r2["status"] == "review" and not r2["resume_version_id"] and "choose the resume changes" in r2["reason"], f"row 2: {r2['reason']}")
 cur = conn.cursor()
 cur.execute("SELECT COUNT(*) FROM applications WHERE candidate_id = ?", (cid,))
 check(cur.fetchone()[0] == 0, "nothing in the tracker before the review")
@@ -188,7 +205,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
+        check("app.js?v=5.99.12" in page.content(), "cache-buster not bumped to 5.99.12")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
         page.evaluate(f"openTracker({cid})")
         page.click("#ai-tab-reqs")
@@ -196,10 +213,13 @@ try:
         check(page.inner_text("#rq-list").count("Review & create the draft") == 2 and "Ready to review" in page.inner_text("#rq-list"), "Review offered on both")
         check(page.inner_text("#ai-count-reqs").strip() == "2", f"tab badge = 2 to review: {page.inner_text('#ai-count-reqs')!r}")
 
-        # ---- 1. tailored resume + prepared reply, edited, then the draft
-        ai_calls.clear()
+        # ---- 1. match check -> choose -> apply -> the tailored resume + the prepared reply, edited, then the draft
         page.click(f".rq-item[data-id='{r1['id']}']")
         page.click(f"#rq-detail .rq-review[data-id='{r1['id']}']")
+        page.wait_for_function(_optimize_steps.READY, timeout=15000)
+        check("78%" in page.inner_text("#do-step1 .mc-pct"), "Review opens on the match check")
+        _optimize_steps.through_apply(page)
+        check(optimize_calls and optimize_calls[-1] == ["align", "skill:Microservices"], f"only the ticked changes are applied: {optimize_calls}")
         page.wait_for_function("document.querySelector('#rv-preview .docx-wrapper') && document.querySelector('#rv-preview').innerText.includes('Microservices')", timeout=15000)
         page.wait_for_function("document.getElementById('do-email-to') && document.getElementById('do-email-to').value", timeout=10000)
         check(not page.is_visible("#modal-tracker"), "the Applications & Inbox window steps aside")
@@ -207,11 +227,9 @@ try:
               f"prepared reply shown: {page.input_value('#do-email-to')} / {page.input_value('#do-email-subject')}")
         check(page.input_value("#do-email-body") == r1["draft_body"], "the body is exactly the prepared one")
         check(page.locator("#rv-preview .rv-changed").count() >= 1, "tailored lines highlighted")
-        check("Create Draft" in page.inner_text("#btn-do-save") and "Review before the draft is created" in page.inner_text("#do-status"), "review wording")
-        check(page.evaluate("optPanel.step") == 3, "Review opens on the resume (step 3); the reply is the next step")
+        check("Create Draft" in page.inner_text("#btn-do-save"), "review wording")
         _optimize_steps.to_email(page)
         page.fill("#do-email-body", page.input_value("#do-email-body") + "\nEDITED BY RECRUITER")
-        check(ai_calls == [], f"no AI call to open the review: {ai_calls}")
         page.screenshot(path=shot)
         page.click("#btn-do-save")
         page.wait_for_function("!document.getElementById('modal-draft-optimize') || document.getElementById('modal-draft-optimize').style.display === 'none'", timeout=15000)
@@ -224,7 +242,7 @@ try:
             att = list(m.iter_attachments())
             check(att and att[0].get_payload(decode=True) == TAILORED, f"the reviewed (tailored) resume is attached: {[a.get_filename() for a in att]}")
 
-        # ---- 2. no changes needed: the original resume is shown and attached
+        # ---- 2. "Send resume as is": the original resume is attached
         page.evaluate(f"openTracker({cid})")
         page.click("#ai-tab-reqs")
         page.wait_for_selector(f".rq-item[data-id='{r2['id']}']", timeout=10000)
@@ -238,9 +256,9 @@ try:
               "the reviewed one is now Draft created")
         page.click(f".rq-item[data-id='{r2['id']}']")
         page.click(f"#rq-detail .rq-review[data-id='{r2['id']}']")
-        page.wait_for_function("document.getElementById('do-status').innerText.includes('no changes were needed')", timeout=15000)
-        page.wait_for_function("document.getElementById('do-email-to').value === 'sam@platform-vendor.example'", timeout=10000)
-        _optimize_steps.to_email(page)
+        page.wait_for_function(_optimize_steps.READY, timeout=15000)
+        page.click("#btn-do-asis")
+        page.wait_for_function("optPanel.step === 4 && document.getElementById('do-email-to').value === 'sam@platform-vendor.example'", timeout=10000)
         page.click("#btn-do-save")
         page.wait_for_function("document.getElementById('modal-draft-optimize').style.display === 'none'", timeout=15000)
         page.wait_for_timeout(1500)
@@ -268,4 +286,5 @@ if failures:
         print("  -", f)
     print("screenshot:", shot)
     sys.exit(1)
-print(f"PASS: requirement review first - prepared not drafted, Review shows the tailored resume + prepared reply (no AI), edit, draft in the vendor's thread with the reviewed resume; unchanged resume -> original attached. Screenshot: {shot}")
+print(f"PASS: requirement review first - the scan checks the match + writes the reply (resume unchanged, no draft), Review: match check -> "
+      f"chosen changes applied -> prepared reply kept, edit, draft in the vendor's thread with the reviewed resume; 'send as is' -> original. Screenshot: {shot}")

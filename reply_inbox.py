@@ -54,11 +54,20 @@ auto_reply (out-of-office, automatic acknowledgement, no human content), other (
 REPLY_SYSTEM = """You write the consultant's reply to a recruiter's email about a job application.
 First work out exactly what the recruiter is asking for or proposing - every question, document and next
 step in their email, read against CONVERSATION (the application email we sent and the earlier messages in
-this thread) - and answer each one, in their order. Facts about the consultant's work may come from RESUME.
+this thread) - and answer EACH one, in their order (keep their numbering when they number them). Facts about
+the consultant's work may come from RESUME.
+- An answer that is not in FACTS / RESUME / INSTRUCTION is never skipped and never guessed: write that point
+  with a placeholder, e.g. "2. Availability for a call: [please confirm: times this week]" or
+  "Visa copy: [please confirm: will share separately]" - and list it in "needs_info".
+- Never promise relocation, onsite days, start date, interview times, notice period or documents unless they
+  are written in FACTS or INSTRUCTION (being located in a city is not agreeing to onsite days).
+- When they ask for the resume, say the updated resume is attached.
+- Label each answer with a short neutral word ("Rate:", "Availability:", "Location / onsite:", "Documents:") -
+  don't repeat the recruiter's terms such as C2C / W2 / H1B in a label. A rate question is answered with
+  FACTS.target_rate when it is given.
 Use ONLY the facts in FACTS, RESUME and anything the recruiter-side user says in INSTRUCTION. Never invent or
 agree to a rate, years of experience, visa / work authorization, availability, notice period, location
-or interview time that is not given. If the recruiter asks for something not in FACTS, do not make it
-up: leave it out and list it in "needs_info". If FACTS.us_based is false, never mention C2C, W2, H1B,
+or interview time that is not given - use a placeholder as above. If FACTS.us_based is false, never mention C2C, W2, H1B,
 green card or US work authorization. Plain text, short and polite, sign with the consultant's name,
 phone and email. If CURRENT DRAFT is given, edit it as instructed and keep the rest.
 Return ONLY JSON: {"body": "...", "needs_info": ["..."], "reply": "one sentence about what you did"}"""
@@ -389,7 +398,9 @@ def draft_reply(cand: Dict, job: Dict, reply: Dict, instruction: str = "", curre
         return {"body": current, "needs_info": needs, "applied": False, "model": model,
                 "note": "Not drafted because it would add " + "; ".join(problems) + ". Tell the AI the detail (or add it to the profile) and ask again."}
     confirm = list(dict.fromkeys(re.findall(r"\[please confirm: [^\]]+\]", masked)))
-    return {"body": masked, "needs_info": (needs + confirm)[:8], "applied": True, "model": model,
+    # one list: the AI's own items, plus a placeholder only when the AI didn't already list that point
+    extra = [c for c in confirm if not any(w in " ".join(needs).lower() for w in c[17:-1].lower().split() if len(w) > 3)]
+    return {"body": masked, "needs_info": (needs + extra)[:6], "applied": True, "model": model,
             "note": (str(data.get("reply") or "").strip() + " " if data.get("reply") else "")
                     + f"Marked {len(problems)} detail(s) that aren't on file as [please confirm: ...] - fill them before sending."}
 

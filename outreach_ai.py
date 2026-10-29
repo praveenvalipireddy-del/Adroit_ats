@@ -67,6 +67,7 @@ _AUTH = re.compile(r"\b(C2C|corp[- ]to[- ]corp|W-?2|1099|H-?1B|H-?4|green card|G
                    r"US citizen|authori[sz]ed to work|work authori[sz]ation|sponsorship)\b", re.I)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"\+?\d[\d\s().-]{8,}\d")
+_PLACEHOLDER = re.compile(r"\[please (?:fill|add|confirm):[^\]]*\]", re.I)
 
 
 def facts(cand: Dict, job: Dict) -> Dict:
@@ -97,6 +98,7 @@ def _amount(money: str) -> str:
 
 def guard(f: Dict, old_text: str, new_text: str, instruction: str) -> List[str]:
     """Things the edit ADDS that aren't on file or in the instruction - each is a reason to refuse."""
+    new_text = _PLACEHOLDER.sub("", new_text)          # "[please confirm: work authorization]" asks; it claims nothing
     allowed = " ".join([old_text, instruction, json.dumps(f, default=str)])
     # a rate in the JOB DESCRIPTION is the client's budget, never the consultant's rate
     own = " ".join([old_text, instruction, json.dumps({k: v for k, v in f.items() if k != "job_description"}, default=str)])
@@ -123,6 +125,28 @@ def guard(f: Dict, old_text: str, new_text: str, instruction: str) -> List[str]:
         if len(d) >= 10 and d not in digits_allowed:
             problems.append(f"a phone number ({p.strip()}) that isn't on file")
     return list(dict.fromkeys(problems))
+
+
+def mask(f: Dict, old_text: str, new_text: str, instruction: str) -> str:
+    """new_text with each detail guard() would refuse replaced by a "[please confirm: ...]" placeholder - the AI's
+    email is kept and a person fills in the one unverified detail, instead of the whole draft being thrown away."""
+    allowed = " ".join([old_text, instruction, json.dumps(f, default=str)])
+    own = " ".join([old_text, instruction, json.dumps({k: v for k, v in f.items() if k != "job_description"}, default=str)])
+    own_amounts = {_amount(m) for m in _MONEY.findall(own)}
+    out = _MONEY.sub(lambda m: m.group(0) if _amount(m.group(0)) in own_amounts else "[please confirm: rate]", new_text)
+    exp = str(f.get("experience_years") or "")
+    out = _YEARS.sub(lambda m: m.group(0) if m.group(1) == exp or re.search(rf"\b{m.group(1)}\+?\s*(?:years|yrs)\b", old_text + " " + instruction, re.I)
+                     else "[please confirm: years of experience]", out)
+    old_auth = {a.lower() for a in _AUTH.findall(old_text + " " + instruction)}
+    visa = (f.get("visa_status") or "").lower()
+    out = _AUTH.sub(lambda m: m.group(0) if m.group(0).lower() in old_auth or (f.get("us_based") and m.group(0).lower() in visa)
+                    else "[please confirm: work authorization]", out)
+    known_emails = set(_EMAIL.findall(allowed))
+    out = _EMAIL.sub(lambda m: m.group(0) if m.group(0) in known_emails else "[please confirm: email]", out)
+    digits_allowed = re.sub(r"\D", "", allowed)
+    out = _PHONE.sub(lambda m: m.group(0) if len(re.sub(r"\D", "", m.group(0))) < 10 or re.sub(r"\D", "", m.group(0)) in digits_allowed
+                     else "[please confirm: phone]", out)
+    return out
 
 
 def changed_lines(old: str, new: str) -> int:

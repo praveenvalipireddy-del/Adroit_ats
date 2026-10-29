@@ -20,9 +20,10 @@ from typing import Dict, List, Optional
 
 import gmail_multi_manager
 import outreach_ai
+import reply_inbox
 import resume_bot
 
-FILL_RE = re.compile(r"\[please (?:fill|add):[^\]]*\]", re.I)
+FILL_RE = re.compile(r"\[please (?:fill|add|confirm):[^\]]*\]", re.I)
 _METRIC = re.compile(r"\b\d+(?:\.\d+)?\s?(?:%|x\b|percent|hours?|hrs?|minutes?|mins?|days?|weeks?|months?|servers?|services?|"
                      r"clusters?|nodes?|users?|applications?|apps?|environments?|pipelines?|microservices?|regions?|accounts?|teams?)", re.I)
 
@@ -83,9 +84,10 @@ every [please ...] placeholder, the closing and the signature lines.
 Return ONLY JSON: {"body": "the corrected email", "notes": ["2-4 short notes for the recruiter on what this email does and why, e.g. 'Opened with where we found the job (rule 2)'"]}"""
 
 
-def _ai(system: str, prompt: str):
+def _ai(system: str, prompt: str, thinking: str = "low"):
+    """thinking: how hard Gemini reasons first - the email itself is written at REPLY_AI_THINKING (default high)."""
     client, types = resume_bot._gemini_client() if resume_bot.gemini_configured() else (None, None)
-    raw, _, model = resume_bot._generate(client, types, system, prompt, want_json=True, max_tokens=3000)
+    raw, _, model = resume_bot._generate(client, types, system, prompt, want_json=True, max_tokens=3000, thinking=thinking)
     return resume_bot._parse_json_object(raw) or {}, model
 
 
@@ -169,11 +171,12 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
     check_facts = lambda text: (outreach_ai.guard(f, allowed_contacts, FILL_RE.sub("", text), rules)  # noqa: E731
                                 + guard_metrics(text, resume_text + "\n" + rules, f))
     problems: List[str] = []
-    model = ""
+    model, body, data = "", "", {}
     for _ in range(2):
         # 2. write from the plan
         try:
-            data, model = _ai(WRITE_SYSTEM, prompt + (f"\nYOUR LAST DRAFT WAS REJECTED because it added {'; '.join(problems)}. Fix that.\n" if problems else ""))
+            data, model = _ai(WRITE_SYSTEM, prompt + (f"\nYOUR LAST DRAFT WAS REJECTED because it added {'; '.join(problems)}. Fix that.\n" if problems else ""),
+                              thinking=reply_inbox.REPLY_THINKING)
         except Exception:
             break
         body = str(data.get("body") or "").strip()
@@ -196,6 +199,17 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
             needs = [m.group(0) for m in FILL_RE.finditer(body)]
             return {"body": body, "needs_input": needs, "answered": [str(x) for x in data.get("answered") or []], "model": model,
                     "fallback": False, "notes": notes, "rule_conflicts": [str(x) for x in (plan.get("rule_conflicts") or []) if str(x).strip()][:3]}
+    # Still adding details that aren't on file: keep the AI's email and turn just those details into
+    # "[please confirm: ...]" for a person to fill (the standard pitch only when nothing usable came back).
+    if problems and body:
+        masked = outreach_ai.mask(f, allowed_contacts, body, rules)
+        for m in guard_metrics(masked, resume_text + "\n" + rules, f):
+            masked = masked.replace(re.search(r"'(.+)'", m).group(1), "[please confirm: figure]")
+        if not check_facts(masked):
+            return {"body": masked, "needs_input": [m.group(0) for m in FILL_RE.finditer(masked)],
+                    "answered": [str(x) for x in data.get("answered") or []], "model": model, "fallback": False,
+                    "notes": [f"Marked {len(problems)} detail(s) that aren't on file as [please confirm: ...] - check them"],
+                    "rule_conflicts": [str(x) for x in (plan.get("rule_conflicts") or []) if str(x).strip()][:3]}
     body = _fallback(cand, job, b, reply, tailored, skills)
     return {"body": body, "needs_input": [m.group(0) for m in FILL_RE.finditer(body)], "answered": [], "model": model, "fallback": True,
             "rejected": problems, "notes": [], "rule_conflicts": []}

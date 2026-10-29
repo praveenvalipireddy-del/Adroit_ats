@@ -860,13 +860,15 @@ def clean_suggestions(items) -> list:
     return out
 
 
-def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int, claude_model: str = "", claude_effort: str = ""):
+def _generate(client, types, system: str, prompt: str, want_json: bool, max_tokens: int, claude_model: str = "", claude_effort: str = "",
+              thinking: str = ""):
     """Gemini first when GEMINI_API_KEY is set; if it fails (or isn't set), Claude is tried second,
-    then the optional OpenRouter / Grok backups. `client` is None when no Gemini key is configured."""
+    then the optional OpenRouter / Grok backups. `client` is None when no Gemini key is configured.
+    thinking: Gemini's thinking level for this request (see _generate_gemini)."""
     gemini_error = None
     if client is not None:
         try:
-            return _generate_gemini(client, types, system, prompt, want_json, max_tokens)
+            return _generate_gemini(client, types, system, prompt, want_json, max_tokens, thinking=thinking)
         except Exception as ex:
             gemini_error = ex
             logger.warning(f"Gemini failed, trying Claude backup: {_explain_gemini_error(ex)}")
@@ -888,14 +890,23 @@ def _generate(client, types, system: str, prompt: str, want_json: bool, max_toke
     raise gemini_error or claude_error or RuntimeError("no AI provider is configured")
 
 
-def _generate_gemini(client, types, system: str, prompt: str, want_json: bool, max_tokens: int):
+GEMINI_THINKING_ROOM = 8000      # thinking counts against Gemini's output limit: room on top of the answer itself
+
+
+def _generate_gemini(client, types, system: str, prompt: str, want_json: bool, max_tokens: int, thinking: str = ""):
     """One Gemini request, made resilient: a 503 (overloaded) is retried once on the same model,
     then - like a 429 (quota) or 404 (model not on this key) - the next model in the chain is tried.
     A bad API key or a blocked prompt fails the same on every model, so it raises straight away.
+    thinking ("low" / "high"): the model reasons before answering (inbox replies, requirement emails); a
+    model that doesn't take a thinking level is asked again without one.
     Returns (text, truncated, model_used); raises the FIRST error if every model failed - unless an
     xAI (Grok) key is configured, in which case that is tried once as a paid backup first."""
     kwargs = {"response_mime_type": "application/json"} if want_json else {}
-    gen_config = types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens, temperature=0.3, **kwargs)
+    plain_config = types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens, temperature=0.3, **kwargs)
+    gen_config = plain_config
+    if thinking:
+        gen_config = types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens + GEMINI_THINKING_ROOM,
+                                                 temperature=0.3, thinking_config=types.ThinkingConfig(thinking_level=thinking), **kwargs)
     chain = _model_chain()
     started = time.monotonic()
     first_error = None
@@ -903,7 +914,13 @@ def _generate_gemini(client, types, system: str, prompt: str, want_json: bool, m
     for model in chain:
         for attempt in range(2):
             try:
-                response = client.models.generate_content(model=model, contents=prompt, config=gen_config)
+                try:
+                    response = client.models.generate_content(model=model, contents=prompt, config=gen_config)
+                except Exception as ex:
+                    if gen_config is plain_config or "thinking" not in str(ex).lower():
+                        raise
+                    # this model has no thinking level (an older / lite model): the same request without one
+                    response = client.models.generate_content(model=model, contents=prompt, config=plain_config)
                 text = (response.text or "").strip()
                 truncated = False
                 try:

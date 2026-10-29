@@ -235,7 +235,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.8" in page.content(), "cache-buster not bumped to 5.99.8")
+        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openAiCopilotModal({cid}, {job_id}, {{ jdText: {json.dumps(JD)}, versionId: {vid} }})")
         page.wait_for_function("document.getElementById('copilot-body').value.includes('Infrastructure challenge')", timeout=15000)

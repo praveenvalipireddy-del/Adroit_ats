@@ -25,14 +25,18 @@ ANSWER = json.dumps({"category": "interview", "reason": "asks for a call"})
 gemini_fail = {"on": False}
 
 
-def fake_gemini(client, types, system, prompt, want_json, max_tokens):
+thinking_seen = []
+
+
+def fake_gemini(client, types, system, prompt, want_json, max_tokens, thinking=""):
     calls.append("gemini")
+    thinking_seen.append(thinking)
     if gemini_fail["on"]:
         raise RuntimeError("503 UNAVAILABLE overloaded")
     return ANSWER, False, "gemini-3.5-flash-lite"
 
 
-def fake_chain(client, types, system, prompt, want_json, max_tokens):
+def fake_chain(client, types, system, prompt, want_json, max_tokens, thinking="", **_k):
     calls.append("chain")
     return ANSWER, False, "claude-haiku-5-5"
 
@@ -46,6 +50,7 @@ os.environ.pop("REPLY_AI_PROVIDER", None)
 
 c = reply_inbox.classify({"subject": "Interview", "from_email": "ta@x.example", "body": "Can we talk tomorrow?"})
 check(calls == ["gemini"] and c["category"] == "interview" and c["model"] == "gemini-3.5-flash-lite", f"default: Gemini only: {calls} {c}")
+check(thinking_seen == ["high"], f"inbox work: Gemini thinks first (level high): {thinking_seen}")
 
 calls.clear()
 gemini_fail["on"] = True

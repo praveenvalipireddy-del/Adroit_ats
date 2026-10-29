@@ -74,6 +74,17 @@ Return ONLY JSON:
  "recruiter_name": "", "recruiter_email": "only an address that appears in the email", "job_description": "the job details, cleaned"}"""
 
 
+# A subject naming a role is never skipped for a word like "payment" or "order" ("Payments Engineer", "Order Management
+# Lead - C2C") - the AI reads it. The skip words are for receipts, OTPs and confirmations only.
+_JOB_SUBJECT = re.compile(r"\b(developer|engineer|architect|analyst|consultant|administrator|admin|lead|manager|tester|"
+                          r"scientist|designer|specialist|programmer|devops|sre|dba|requirement|position|opening|role|"
+                          r"c2c|w2|1099|corp[- ]to[- ]corp|contract|hiring|urgent need|immediate need|job)\b", re.I)
+
+
+def _subject_skip(subject: str) -> bool:
+    return bool(_SKIP_SUBJECT.search(subject or "")) and not _JOB_SUBJECT.search(subject or "")
+
+
 def _skip_reason(p: Dict) -> str:
     sender = p.get("from_email") or ""
     domain = sender.rsplit("@", 1)[-1].lower()
@@ -87,13 +98,13 @@ def _skip_reason(p: Dict) -> str:
     if any(domain == d or domain.endswith("." + d) for d in _RELAY_BOARDS):
         if _BOARD_AUTOMATED_LOCAL.match(local):
             return f"job board / service notification ({local}@{domain})"
-        if _SKIP_SUBJECT.search(subject):
+        if _subject_skip(subject):
             return "receipt / verification / application confirmation"
         return ""
 
     if any(domain == d or domain.endswith("." + d) for d in _SKIP_DOMAINS):
         return f"job board / service notification ({domain})"
-    if _SKIP_SUBJECT.search(subject):
+    if _subject_skip(subject):
         return "receipt / verification / application confirmation"
     return ""
 

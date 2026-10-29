@@ -186,13 +186,14 @@ a1 = next(a for a in apps if a["id"] == app_id)
 check(a1["stage"] == "Interviewing" and a1["reply_count"] == 1 and a1["replies_open"] == 1, f"status Interview, badge counts: {a1['stage']} {a1['reply_count']} {a1['replies_open']}")
 check(len(client.get(f"/api/replies?candidate_id={cid}&open=1").get_json()["replies"]) == 1, "open filter")
 
-# ---- AI chat on the reply; invented rate refused
+# ---- AI chat on the reply; an invented rate is replaced by [please confirm: rate]
 ai_draft["body"] = "Hi Priya,\n\nHe is available Tuesday 2-5 PM IST for a call.\n\nBest regards,\nArun Replytest"
 out = client.post(f"/api/replies/{iv['id']}/ai", json={"instruction": "Say he can talk Tuesday 2-5 PM IST", "current_body": iv["draft_body"]}).get_json()
 check(out["applied"] and "Tuesday" in out["body"], f"AI edit applied: {out}")
 ai_draft["body"] = "Hi Priya,\n\nHis rate is $95/hr.\n\nBest regards,\nArun Replytest"
 out = client.post(f"/api/replies/{iv['id']}/ai", json={"instruction": "answer her", "current_body": "x"}).get_json()
-check(not out["applied"] and "$95/hr" in out["note"] and out["body"] == "x", f"invented rate refused: {out}")
+check(out["applied"] and "$95" not in out["body"] and "[please confirm: rate]" in out["body"]
+      and "[please confirm: rate]" in out["needs_info"], f"invented rate never reaches the draft - marked to confirm: {out}")
 ai_draft["body"] = None
 
 # ---- save in the same Gmail thread
@@ -272,7 +273,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.8" in page.content(), "cache-buster not bumped to 5.99.8")
+        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openTracker({cid})")
         page.wait_for_selector(f".trk-item[data-app-id='{app_id}']", timeout=10000)

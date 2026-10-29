@@ -166,7 +166,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.8" in page.content(), "cache-buster not bumped to 5.99.8")
+        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
         page.click("a.nav-item[data-tab=resumebot]")
         page.select_option("#resumebot-consultant-select", str(cid))

@@ -42,7 +42,7 @@ REC = uid(models.create_user("Sam Speedtest", EMAIL, PW, role="Recruiter", regio
 models.create_candidate("Kim Speedfixture", "kim.speed@example.invalid", title="Data Analyst", country="United States", assigned_user_id=REC)
 
 c = app_module.app.test_client()
-r = c.get("/static/js/app.js?v=5.99.8")
+r = c.get("/static/js/app.js?v=5.99.9")
 check(r.status_code == 200 and "immutable" in r.headers.get("Cache-Control", "") and "max-age=31536000" in r.headers.get("Cache-Control", ""),
       f"versioned app.js cached for a year: {r.headers.get('Cache-Control')}")
 r = c.get("/static/js/app.js")
@@ -71,7 +71,7 @@ try:
         page.reload(wait_until="networkidle")
         page.wait_for_selector(".cons-card")
         html = page.content()
-        check(f"style.css?v={v}" in html and "app.js?v=5.99.8" in html, "versioned css + js on the page")
+        check(f"style.css?v={v}" in html and "app.js?v=5.99.9" in html, "versioned css + js on the page")
         check(not any("/api/jobs/search" in u for u in urls), f"no jobs search on page open: {[u for u in urls if '/api/' in u]}")
         check(not any("/static/vendor/" in u for u in urls), "no Word-preview libraries on page open")
         check(not any("unsplash" in u for u in urls), "no stock photos")

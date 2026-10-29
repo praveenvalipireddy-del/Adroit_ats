@@ -52,7 +52,10 @@ updated resume, or more documents), rejection (not selected, position filled or 
 auto_reply (out-of-office, automatic acknowledgement, no human content), other (anything else)."""
 
 REPLY_SYSTEM = """You write the consultant's reply to a recruiter's email about a job application.
-Use ONLY the facts in FACTS and anything the recruiter-side user says in INSTRUCTION. Never invent or
+First work out exactly what the recruiter is asking for or proposing - every question, document and next
+step in their email, read against CONVERSATION (the application email we sent and the earlier messages in
+this thread) - and answer each one, in their order. Facts about the consultant's work may come from RESUME.
+Use ONLY the facts in FACTS, RESUME and anything the recruiter-side user says in INSTRUCTION. Never invent or
 agree to a rate, years of experience, visa / work authorization, availability, notice period, location
 or interview time that is not given. If the recruiter asks for something not in FACTS, do not make it
 up: leave it out and list it in "needs_info". If FACTS.us_based is false, never mention C2C, W2, H1B,
@@ -178,6 +181,25 @@ def _claim(conn, app_id: int, cand_id: int, p: Dict) -> Optional[int]:
     return new_id
 
 
+FREE_MAIL = {"gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.in", "ymail.com", "outlook.com", "hotmail.com", "live.com",
+             "msn.com", "icloud.com", "aol.com", "protonmail.com", "proton.me", "rediffmail.com", "zoho.com"}
+_RE_SUBJECT = re.compile(r"^\s*((re|aw|sv|antw)\s*(\[\d+\])?\s*:\s*)+", re.I)
+_STOP = {"the", "and", "for", "with", "job", "role", "position", "senior", "junior", "lead", "remote", "hybrid", "onsite",
+         "contract", "full", "time", "urgent", "requirement", "opening", "need", "needed", "hiring",
+         # role nouns every title shares - "Re: Python Developer" is not about the Java Developer job
+         "developer", "engineer", "analyst", "consultant", "architect", "manager", "administrator", "specialist", "sr.", "jr."}
+
+
+def _title_words(text: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9+#.]{3,}", (text or "").lower()) if w not in _STOP}
+
+
+def colleague_reply(p: Dict, app_row: Dict) -> bool:
+    """A message from someone else at the recruiter's company counts as a reply to this application only when it
+    answers a thread ("Re: ...") whose subject shares a real word with the job title - not their other emails."""
+    return bool(_RE_SUBJECT.match(p.get("subject") or "") and _title_words(p.get("subject")) & _title_words(app_row.get("job_title")))
+
+
 def sync_candidate(conn, cand: Dict, user_id: Optional[int], process: bool = True) -> Dict:
     account, password = _creds(cand)
     rows = [r for r in at.list_for(conn, [cand["id"]]) if r["stage"] in WATCH and "@" in (r["recruiter_email"] or "")]
@@ -196,11 +218,18 @@ def sync_candidate(conn, cand: Dict, user_id: Optional[int], process: bool = Tru
             addr = r["recruiter_email"].strip().replace('"', "")
             typ, data = mail.search(None, "FROM", f'"{addr}"', "SINCE", since)
             ids = data[0].split()[-MAX_PER_APP:] if typ == "OK" and data and data[0] else []
-            if not ids:
+            # a colleague at the same company answering the thread (the recruiter's manager, the account manager...)
+            domain = addr.rsplit("@", 1)[-1].lower()
+            colleague_ids = []
+            if domain not in FREE_MAIL:
+                typ, data = mail.search(None, "FROM", f'"@{domain}"', "SINCE", since)
+                colleague_ids = [m for m in (data[0].split() if typ == "OK" and data and data[0] else []) if m not in ids][-MAX_PER_APP:]
+            if not ids and not colleague_ids:
                 continue
-            replied.append({"id": r["id"], "job_title": r["job_title"], "from": addr})
+            if ids:
+                replied.append({"id": r["id"], "job_title": r["job_title"], "from": addr})
             read_any = False
-            for mid in ids:
+            for mid in ids + colleague_ids:
                 try:
                     typ, msgdata = mail.fetch(mid, "(BODY.PEEK[])")       # PEEK: the mail stays unread in Gmail
                     raw = next(x[1] for x in msgdata if isinstance(x, tuple))
@@ -208,13 +237,17 @@ def sync_candidate(conn, cand: Dict, user_id: Optional[int], process: bool = Tru
                 except Exception as ex:
                     logger.info(f"Could not read message {mid!r} for application {r['id']}: {ex}")
                     continue
+                if mid in colleague_ids and not colleague_reply(p, r):
+                    continue
+                if not any(x["id"] == r["id"] for x in replied):
+                    replied.append({"id": r["id"], "job_title": r["job_title"], "from": p.get("from_email") or addr})
                 read_any = True
                 p["message_id"] = p["message_id"] or f"<no-id-{cand['id']}-{r['id']}-{p['received_at']}>"
                 rid = _claim(conn, r["id"], cand["id"], p)
                 if rid:
                     new_ids.append(rid)
-            if not read_any:
-                unread_hits.append(r)
+            if ids and not read_any:
+                unread_hits.append(r)       # the recruiter's own mail was found but couldn't be read
     finally:
         try:
             mail.logout()
@@ -249,18 +282,24 @@ def _move(cur, app_id: int, current: str, new: str, user_id, detail: str):
 
 # ---------------------------------------------------------------- AI
 
-def _ai(system: str, prompt: str):
+# Inbox work is judgment, not lookup (is this a real requirement? what is the recruiter really asking?), so the
+# model thinks before answering. REPLY_AI_THINKING=low|high (default high); empty turns it off.
+REPLY_THINKING = os.getenv("REPLY_AI_THINKING", "high").strip().lower()
+
+
+def _ai(system: str, prompt: str, max_tokens: int = 3000):
     """Replies, reply drafts and requirement emails use Gemini first (REPLY_AI_PROVIDER=gemini, the
     default - its free tier keeps this high-volume work at no cost); if Gemini fails, the normal chain
     (Claude, then the backups) answers. REPLY_AI_PROVIDER=claude uses the normal chain directly."""
     client, types = resume_bot._gemini_client() if resume_bot.gemini_configured() else (None, None)
     if client is not None and os.getenv("REPLY_AI_PROVIDER", "gemini").strip().lower() == "gemini":
         try:
-            raw, _, model = resume_bot._generate_gemini(client, types, system, prompt, want_json=True, max_tokens=1500)
+            raw, _, model = resume_bot._generate_gemini(client, types, system, prompt, want_json=True, max_tokens=max_tokens,
+                                                        thinking=REPLY_THINKING)
             return resume_bot._parse_json_object(raw) or {}, model
         except Exception as ex:
             logger.warning(f"Gemini failed for a reply task, using the backup AI: {resume_bot._explain_gemini_error(ex)}")
-    raw, _, model = resume_bot._generate(client, types, system, prompt, want_json=True, max_tokens=1500)
+    raw, _, model = resume_bot._generate(client, types, system, prompt, want_json=True, max_tokens=max_tokens, thinking=REPLY_THINKING)
     return resume_bot._parse_json_object(raw) or {}, model
 
 
@@ -275,31 +314,84 @@ def classify(reply: Dict) -> Dict:
     return {"category": cat if cat in CATEGORIES else "other", "reason": str(data.get("reason") or "")[:300], "model": model}
 
 
+def conversation(cand: Dict, reply: Dict) -> Dict:
+    """What the AI needs to understand a reply: {'text': the application email we sent + the earlier messages
+    in this thread, 'resume': the resume that was sent}. Never raises - missing pieces are just left out."""
+    import models
+    out = {"text": "", "resume": ""}
+    try:
+        conn = models.get_db_connection()
+        try:
+            cur = conn.cursor()
+            parts = []
+            if reply.get("job_id"):
+                cur.execute("""SELECT final_body, ai_body FROM email_examples WHERE candidate_id = ? AND job_id = ?
+                               ORDER BY id DESC LIMIT 1""", (cand.get("id"), reply["job_id"]))
+                row = cur.fetchone()
+                sent = row and (row[0] or row[1])
+                if sent:
+                    parts.append(f"OUR APPLICATION EMAIL:\n{sent[:2500]}")
+            if reply.get("application_id"):
+                cur.execute("""SELECT id, from_email, received_at, body, draft_body, sent_at FROM application_replies
+                               WHERE application_id = ? AND id <> ? ORDER BY received_at, id""",
+                            (reply["application_id"], reply.get("id") or 0))
+                for r in cur.fetchall()[-6:]:
+                    if (r[2] or "") > (reply.get("received_at") or "~"):
+                        continue                                    # only what came before this email
+                    parts.append(f"RECRUITER ({r[1]}, {r[2]}):\n{(r[3] or '')[:1500]}")
+                    if r[5] and r[4]:
+                        parts.append(f"OUR ANSWER ({r[5]}):\n{r[4][:1500]}")
+            out["text"] = "\n\n".join(parts)
+            found = _resume_for(conn, cand, reply) if cand.get("id") else None
+            if found:
+                out["resume"] = resume_bot.extract_text_from_file_bytes(found[1], found[0])[:8000]
+        finally:
+            conn.close()
+    except Exception as ex:
+        logger.info(f"Conversation context incomplete for reply {reply.get('id')}: {ex}")
+    return out
+
+
 def draft_reply(cand: Dict, job: Dict, reply: Dict, instruction: str = "", current: str = "") -> Dict:
-    """{body, needs_info, note, applied, model}. A draft that would add facts not on file is refused."""
+    """{body, needs_info, note, applied, model}. Details that aren't on file never reach a draft: the AI is asked
+    once more without them, then any that are left become "[please confirm: ...]" for a person to fill."""
     if not resume_bot.ai_configured():
         return {"body": current, "needs_info": [], "applied": False, "model": "",
                 "note": "The AI isn't set up on the server (no ANTHROPIC_API_KEY or GEMINI_API_KEY) - write the reply yourself."}
     f = outreach_ai.facts(cand, job)
-    prompt = (f"FACTS:\n{json.dumps(f, indent=1, default=str)}\n\nRECRUITER'S EMAIL (from {reply.get('from_email')}, subject "
+    ctx = conversation(cand, reply)
+    prompt = (f"FACTS:\n{json.dumps(f, indent=1, default=str)}\n\n"
+              f"CONVERSATION:\n{ctx['text'] or '(nothing earlier on file)'}\n\nRESUME:\n{ctx['resume'] or '(not on file)'}\n\n"
+              f"RECRUITER'S EMAIL (from {reply.get('from_email')}, subject "
               f"{reply.get('subject')!r}):\n{(reply.get('body') or '')[:6000]}\n\nCURRENT DRAFT:\n{current or '(none)'}\n\n"
               f"INSTRUCTION:\n{instruction or 'Write a short, polite reply that answers what the recruiter asked, using only the facts.'}\n")
-    try:
-        data, model = _ai(REPLY_SYSTEM, prompt)
-    except Exception as ex:
-        return {"body": current, "needs_info": [], "applied": False, "model": "",
-                "note": f"The AI couldn't answer ({resume_bot._explain_gemini_error(ex)})."}
-    body = str(data.get("body") or "").strip()
-    needs = [str(x) for x in (data.get("needs_info") or []) if str(x).strip()][:5]
-    if not body:
-        return {"body": current, "needs_info": needs, "applied": False, "model": model, "note": "The AI's answer couldn't be read - try again."}
-    # Allowed sources: the facts, the current draft, the instruction and the recruiter's own address.
+    # Allowed sources: the facts, the resume, the current draft, the instruction and the recruiter's own address.
     # NOT the recruiter's email text - agreeing to a rate they proposed must come from a person.
-    problems = outreach_ai.guard(f, (current or "") + "\n" + (reply.get("from_email") or ""), body, instruction)
-    if problems:
+    allowed = (current or "") + "\n" + (reply.get("from_email") or "") + "\n" + ctx["resume"]
+    problems: List[str] = []
+    body, needs, model, data = "", [], "", {}
+    for _ in range(2):
+        try:
+            data, model = _ai(REPLY_SYSTEM, prompt + (f"\nYOUR LAST DRAFT WAS REJECTED because it added {'; '.join(problems)}. "
+                                                      "Leave those out (list them in needs_info).\n" if problems else ""))
+        except Exception as ex:
+            return {"body": current, "needs_info": [], "applied": False, "model": "",
+                    "note": f"The AI couldn't answer ({resume_bot._explain_gemini_error(ex)})."}
+        body = str(data.get("body") or "").strip()
+        needs = [str(x) for x in (data.get("needs_info") or []) if str(x).strip()][:5]
+        if not body:
+            return {"body": current, "needs_info": needs, "applied": False, "model": model, "note": "The AI's answer couldn't be read - try again."}
+        problems = outreach_ai.guard(f, allowed, body, instruction)
+        if not problems:
+            return {"body": body, "needs_info": needs, "applied": True, "model": model, "note": str(data.get("reply") or "").strip()}
+    masked = outreach_ai.mask(f, allowed, body, instruction)
+    if outreach_ai.guard(f, allowed, masked, instruction):
         return {"body": current, "needs_info": needs, "applied": False, "model": model,
                 "note": "Not drafted because it would add " + "; ".join(problems) + ". Tell the AI the detail (or add it to the profile) and ask again."}
-    return {"body": body, "needs_info": needs, "applied": True, "model": model, "note": str(data.get("reply") or "").strip()}
+    confirm = list(dict.fromkeys(re.findall(r"\[please confirm: [^\]]+\]", masked)))
+    return {"body": masked, "needs_info": (needs + confirm)[:8], "applied": True, "model": model,
+            "note": (str(data.get("reply") or "").strip() + " " if data.get("reply") else "")
+                    + f"Marked {len(problems)} detail(s) that aren't on file as [please confirm: ...] - fill them before sending."}
 
 
 # ---------------------------------------------------------------- processing / settings

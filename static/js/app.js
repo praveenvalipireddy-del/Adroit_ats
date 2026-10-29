@@ -1979,7 +1979,7 @@ function initModals() {
             const notes = '';
             const submitBtn = document.getElementById('btn-submit-paste-draft');
             const shown = pdBox.visible() ? pdBox.values() : null;
-            if (shown && /\[please (fill|add):/i.test(shown.body) && !confirm('The email still has [please fill / add] parts. Create the draft anyway and fill them in Gmail?')) return;
+            if (shown && /\[please (fill|add|confirm):/i.test(shown.body) && !confirm('The email still has [please fill / add / confirm] parts. Create the draft anyway and fill them in Gmail?')) return;
 
             if (!candId) {
                 showToast('Please select a consultant first', 'warning');
@@ -3636,7 +3636,7 @@ async function submitCopilotDraftToGmail() {
     const body = bodyEl ? bodyEl.value.trim() : '';
     const saveBtn = document.getElementById('btn-copilot-save-draft');
 
-    if (/\[please (fill|add):/i.test(body) && !confirm('The email still has [please fill / add] parts. Save it to Gmail anyway and fill them there?')) return;
+    if (/\[please (fill|add|confirm):/i.test(body) && !confirm('The email still has [please fill / add / confirm] parts. Save it to Gmail anyway and fill them there?')) return;
     if (!toEmail || !toEmail.includes('@')) {
         showToast('Please enter a valid recipient recruiter email', 'warning');
         if (toEmailEl) toEmailEl.focus();
@@ -6220,7 +6220,7 @@ async function jobOptimizeSaveAndDraft() {
     const body = $('do-email-body').value.trim();
     if (!doBox.visible() || !body) { showToast('Wait for the email to be written (below the resumes), then save.', 'warning'); return; }
     if (!to || !to.includes('@')) { showToast('Add the recipient email (To) in the email section first.', 'warning'); $('do-email-to').focus(); return; }
-    if (/\[please (fill|add):/i.test(body) && !confirm('The email still has [please fill / add] parts. Create the draft anyway and fill them in Gmail?')) return;
+    if (/\[please (fill|add|confirm):/i.test(body) && !confirm('The email still has [please fill / add / confirm] parts. Create the draft anyway and fill them in Gmail?')) return;
     $('btn-do-save').disabled = true;
     try {
         const req = optPanel.requirement;

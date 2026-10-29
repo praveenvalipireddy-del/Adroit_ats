@@ -172,7 +172,8 @@ check("C2C" not in body and "authorized to work" not in body, "India consultant:
 check(body.startswith("Hi,") and "Hi Devops Engineer" not in body, f"sender name 'Devops Engineer' is a role, not a person: {body[:40]!r}")
 check("Thank you for sharing the DevOps SRE Engineer requirement at Virtusa" in body and "came across your opening" not in body,
       f"answers their email: {body[:200]!r}")
-check("AWS and Kubernetes" in body and "updated resume, tailored to this requirement" in body, f"skills from the match + tailored resume: {body!r}")
+check("AWS and Kubernetes" in body and "resume attached" in body and "tailored" not in body and "updated resume" not in body,
+      f"skills from the match; the resume is attached, never claimed 'updated for this role': {body!r}")
 rows = {r["message_id"]: r for r in iq.list_for(conn, [cid])}
 r1 = rows["<req1@virtusa>"]
 check(r1["status"] == "drafted" and r1["match_pct"] == 78 and r1["resume_version_id"] and r1["job_title"] == "DevOps SRE Engineer", f"row: {r1}")
@@ -308,7 +309,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
+        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openTracker({cid})")
         page.click("#ai-tab-reqs")

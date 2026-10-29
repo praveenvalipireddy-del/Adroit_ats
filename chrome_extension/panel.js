@@ -96,7 +96,7 @@ async function loadProfile() {
     $('resume-name').textContent = p.resume_filename || 'No resume on file - upload one in Job Hunt';
     const rows = [['Name', p.full_name], ['Email', p.email], ['Phone', p.phone], ['LinkedIn', p.linkedin_url], ['Location', p.location],
       ['Work authorization', p.visa_status], ['Authorized to work', p.work_authorized], ['Needs sponsorship', p.needs_sponsorship],
-      ['Experience', p.years_experience ? p.years_experience + ' years' : ''], ['Rate / salary', p.expected_salary], ['Notice period', p.notice_period],
+      ['Experience', p.years_experience ? p.years_experience + ' years' : ''], ['Rate / salary', p.expected_salary], ['Notice period', p.notice_period], ['Current CTC', p.current_ctc], ['F2F interview', p.f2f_ready],
       ['Relocate', p.willing_to_relocate], ['Degree', [p.highest_degree, p.field_of_study].filter(Boolean).join(', ')], ['University', p.university]];
     $('info-box').innerHTML = rows.map(([k, v]) => `<div class="kv"><span>${k}</span><b>${esc(v || '—')}</b></div>`).join('') +
       (d.missing && d.missing.length ? `<p class="warn">Not filled in Job Hunt yet: ${esc(d.missing.join(', '))}. Those questions will be left for you.</p>` : '') +

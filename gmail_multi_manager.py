@@ -333,8 +333,8 @@ def generate_consultant_pitch(candidate: Dict, job: Dict, custom_notes: str = ""
         all_skills = [s.strip() for s in (candidate.get("primary_skills") or "").split(",") if s.strip()][:4]
         fit = f"My core skills include {', '.join(all_skills)}." if all_skills else ""
 
-    closing = ("I have attached my updated resume, tailored to this requirement, for your review." if context.get("tailored")
-               else "Please find my resume attached for your review.") + " I am available for an interview at your convenience"
+    # the same line whether or not the resume was tailored - recruiters don't want "updated for this role" claims
+    closing = "Please find my resume attached for your review." + " I am available for an interview at your convenience"
     closing += " and open to contract (C2C / W2) opportunities." if us_based else " and happy to share any further details you need."
 
     signature = [name] + ([title] if title else []) + ([f"Phone: {phone}"] if phone else []) \

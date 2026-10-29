@@ -473,8 +473,10 @@ const AF_FIELDS = [
     ['work_authorized', "Authorized to work in the job's country?", 'yesno', ''],
     ['needs_sponsorship', 'Will need visa sponsorship?', 'yesno', ''],
     ['willing_to_relocate', 'Willing to relocate?', 'yesno', ''],
-    ['notice_period', 'Notice period / earliest start', 'text', 'e.g. 2 weeks / Immediate'],
-    ['expected_salary', 'Expected salary / rate (if not the target rate)', 'text', ''],
+    ['notice_period', 'Notice period / earliest start', 'text', 'e.g. 30 days / Immediate'],
+    ['current_ctc', 'Current CTC / salary', 'text', 'e.g. 18 LPA'],
+    ['expected_salary', 'Expected CTC / salary / rate (if not the target rate)', 'text', 'e.g. 25 LPA'],
+    ['f2f_ready', 'Ready for a face-to-face (F2F) interview?', 'yesno', ''],
     ['highest_degree', 'Highest degree', 'text', "e.g. Master's"],
     ['field_of_study', 'Field of study', 'text', 'e.g. Computer Science'],
     ['university', 'University / college', 'text', ''],
@@ -3596,12 +3598,13 @@ async function sendCopilotInstruction() {
             const changes = (data.changes || []).length ? `<ul style="margin:6px 0 0 18px; padding:0;">${data.changes.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>` : '';
             const needs = (data.needs_info || []).length ? `<div style="margin-top:6px; padding:6px 8px; border-radius:8px; background:#fffbeb; border:1px solid #fde68a; color:#92400e;">❓ ${data.needs_info.map(escapeHtml).join('<br>❓ ')}</div>` : '';
             const tone = data.applied ? '#f1f5f9' : '#fef2f2';
+            const ruleId = data.save_rule ? await autoRemember(parseInt(currentCopilotCandId), 'email', data.save_rule) : null;
             if (msgContainer) {
                 msgContainer.innerHTML += `
                     <div class="copilot-reply" style="display: flex; gap: 10px; align-items: flex-start;">
                         <div style="width: 28px; height: 28px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0;">🤖</div>
                         <div style="background: ${tone}; color: #1e293b; padding: 10px 14px; border-radius: 12px; font-size: 0.85rem; max-width: 88%; line-height: 1.5;">
-                            ${escapeHtml(data.reply || '')}${changes}${needs}${chatSuggestionsHtml(data.suggestions, 'cp-sugg')}${chatRuleHtml(data.save_rule, 'email')}
+                            ${escapeHtml(data.reply || '')}${changes}${needs}${chatSuggestionsHtml(data.suggestions, 'cp-sugg')}${chatRuleHtml(data.save_rule, 'email', ruleId, parseInt(currentCopilotCandId))}
                         </div>
                     </div>
                 `;
@@ -5558,9 +5561,41 @@ async function saveRule(candId, kind, text) {
     return d.rules;
 }
 
-function chatRuleHtml(rule, kind) {
-    return rule ? `<div style="margin-top:6px;"><button type="button" class="btn btn-secondary btn-xs chat-save-rule" data-kind="${kind}" data-rule="${escapeHtml(rule)}" title="${escapeHtml(rule)}">📌 Save as a rule for every ${kind}</button></div>` : '';
+// A general preference the recruiter tells a chat ("don't mention the resume was updated") is remembered as a
+// consultant rule straight away - with Undo, for when it was meant for this one email only.
+async function autoRemember(candId, kind, rule) {
+    if (!candId || !rule) return null;
+    try {
+        const res = await fetch(`/api/consultants/${candId}/rules`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind, text: rule }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) return /already saved/i.test(d.error || '') ? 'existing' : null;
+        rules.candId = candId;
+        rules.list = d.rules;
+        rules.onChange.forEach(fn => fn());
+        const ids = (d.rules || []).filter(r => r.kind === kind).map(r => r.id);
+        return ids.length ? Math.max(...ids) : null;             // the rule just added is the newest one
+    } catch (e) { return null; }
 }
+
+function chatRuleHtml(rule, kind, savedId, candId) {
+    if (!rule) return '';
+    if (savedId === 'existing') return `<div style="margin-top:6px; font-size:0.8rem; color:#166534;">📌 Already a rule for every ${kind}: “${escapeHtml(rule)}”</div>`;
+    if (savedId) return `<div class="chat-rule-saved" style="margin-top:6px; font-size:0.8rem; color:#166534;">📌 Remembered for every ${kind}: “${escapeHtml(rule)}” `
+        + `<button type="button" class="btn btn-secondary btn-xs chat-rule-undo" data-cand="${candId}" data-id="${savedId}">Undo</button></div>`;
+    return `<div style="margin-top:6px;"><button type="button" class="btn btn-secondary btn-xs chat-save-rule" data-kind="${kind}" data-rule="${escapeHtml(rule)}" title="${escapeHtml(rule)}">📌 Save as a rule for every ${kind}</button></div>`;
+}
+
+document.addEventListener('click', async (e) => {
+    const b = e.target.closest && e.target.closest('.chat-rule-undo');
+    if (!b || b.disabled) return;
+    b.disabled = true;
+    const res = await fetch(`/api/consultants/${b.dataset.cand}/rules/${b.dataset.id}`, { method: 'DELETE' });
+    if (res.ok) {
+        b.closest('.chat-rule-saved').innerHTML = '↩ Not remembered - this was for this email only.';
+        if (rules.candId === parseInt(b.dataset.cand)) { await rulesLoad(rules.candId); rules.onChange.forEach(fn => fn()); }
+    } else { b.disabled = false; showToast('Could not undo - remove it under Rules.', 'warning'); }
+});
 
 function chatSuggestionsHtml(list, cls) {
     if (!list || !list.length) return '';
@@ -5803,8 +5838,10 @@ function makeResumeWorkspace(prefix, host) {
             }
             const list = (d.applied || []).map(a => `<li>${a.op === 'delete' ? 'Removed' : a.op === 'insert_after' ? 'Added' : 'Changed'}: ${escapeHtml((a.after || a.before || '').slice(0, 110))}</li>`).join('');
             const needs = (d.needs_info || []).length ? `<div>❓ ${d.needs_info.map(escapeHtml).join('<br>❓ ')}</div>` : '';
+            const ruleCand = host.candId();
+            const ruleId = d.save_rule ? await autoRemember(ruleCand, 'resume', d.save_rule) : null;
             const html = escapeHtml(d.reply || '') + (list ? `<ul style="margin:4px 0 0 16px; padding:0;">${list}</ul>` : '') + needs
-                + chatSuggestionsHtml(d.suggestions, 'rv-sugg') + chatRuleHtml(d.save_rule, 'resume');
+                + chatSuggestionsHtml(d.suggestions, 'rv-sugg') + chatRuleHtml(d.save_rule, 'resume', ruleId, ruleCand);
             const who = d.changed || !(d.skipped || []).length ? 'ok' : 'warn';      // advice is not a warning
             bubble(html, who);
             chatMem.push(key, { role: 'assistant', html, who,
@@ -6105,7 +6142,9 @@ function emailBox(prefix, ctx) {
             const d = await res.json().catch(() => ({}));
             if (!res.ok || !d.success) { showToast(d.error || 'The AI could not answer.', 'error'); return; }
             const extraQ = (d.needs_info || []).length ? `<div>❓ ${d.needs_info.map(escapeHtml).join('<br>❓ ')}</div>` : '';
-            chatMem.push(key, { role: 'assistant', html: escapeHtml(d.reply || '') + extraQ + chatSuggestionsHtml(d.suggestions, 'em-sugg') + chatRuleHtml(d.save_rule, 'email'),
+            const ruleCand = parseInt(c.candidate_id);
+            const ruleId = d.save_rule ? await autoRemember(ruleCand, 'email', d.save_rule) : null;
+            chatMem.push(key, { role: 'assistant', html: escapeHtml(d.reply || '') + extraQ + chatSuggestionsHtml(d.suggestions, 'em-sugg') + chatRuleHtml(d.save_rule, 'email', ruleId, ruleCand),
                 text: [d.reply || '', ...(d.changes || []).map(x => 'Changed: ' + x), ...(d.suggestions || []).map(s => 'Suggested: ' + s.label)].join(' | ') });
             box.showChat();
             if (d.applied) {
@@ -7248,8 +7287,8 @@ function consPaneProfile(c, body) {
                 <div class="cons-muted">${c.gmail_connected ? '● Connected: ' + escapeHtml(c.gmail_account || '') : 'Not connected - emails can\'t be drafted or sent yet.'}</div>
                 <div class="cons-job-acts">${c.gmail_connected ? gmailManageButtons(c) : `<button type="button" class="btn btn-primary btn-sm" id="cons-prof-gmail">🔑 Connect with App Password</button>`}</div>
             </div>
-            <div class="cons-panel"><div class="cons-panel-h"><h3>Autofill answers <small>(Chrome extension)</small></h3><button type="button" class="btn btn-secondary btn-sm" id="cons-prof-af">Edit</button></div>
-                ${answered.length ? answered.map(([k, label]) => kv(label, a[k])).join('') : '<div class="cons-muted">Not filled yet - visa, sponsorship and notice-period questions will be left for you.</div>'}
+            <div class="cons-panel"><div class="cons-panel-h"><h3>Application answers <small>(emails + Chrome extension)</small></h3><button type="button" class="btn btn-secondary btn-sm" id="cons-prof-af">Edit</button></div>
+                ${answered.length ? answered.map(([k, label]) => kv(label, a[k])).join('') : '<div class="cons-muted">Not filled yet - notice period, CTC, F2F, visa and sponsorship questions will be left for you.</div>'}
             </div>
             ${(window.CURRENT_USER || {}).admin ? `<div class="cons-job-acts"><button type="button" class="btn-trigger-reassign btn btn-secondary btn-sm" data-id="${c.id}" data-name="${escapeHtml(c.name)}">Assign to another recruiter</button>
                 <button type="button" class="btn btn-secondary btn-sm" id="cons-prof-delete" style="color:#ef4444;">🗑️ Delete consultant</button></div>`

@@ -38,7 +38,9 @@ AUTOFILL_FIELDS = {
     "needs_sponsorship": ("Will need visa sponsorship? (Yes / No)", 10),
     "willing_to_relocate": ("Willing to relocate? (Yes / No)", 10),
     "notice_period": ("Notice period / earliest start", 100),
-    "expected_salary": ("Expected salary / rate (if different from the target rate)", 100),
+    "current_ctc": ("Current CTC / salary", 100),
+    "expected_salary": ("Expected CTC / salary / rate (if different from the target rate)", 100),
+    "f2f_ready": ("Ready for a face-to-face (F2F) interview? (Yes / No)", 10),
     "highest_degree": ("Highest degree (e.g. Master's)", 100),
     "field_of_study": ("Field of study", 150),
     "university": ("University / college", 200),
@@ -50,7 +52,7 @@ AUTOFILL_FIELDS = {
     "disability": ("Disability status (voluntary)", 100),
     "notes_for_ai": ("Anything else the AI may use for questions (facts only)", 1500),
 }
-YES_NO_KEYS = ("work_authorized", "needs_sponsorship", "willing_to_relocate")
+YES_NO_KEYS = ("work_authorized", "needs_sponsorship", "willing_to_relocate", "f2f_ready")
 DECLINE = "Decline to self-identify"
 
 

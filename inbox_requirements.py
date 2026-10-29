@@ -341,7 +341,7 @@ def _handle(conn, rid: int, cand: Dict, p: Dict, full_text: str, user_id: Option
     their_subject = p["subject"] if p["subject"].lower().startswith("re:") else f"Re: {p['subject']}"
     plan = application_brief.build(cand, models.get_job_by_id(job_id) or {}, jd, version_id=version_id, reply=True,
                                    skills=res.get("mandatory_matched_skills") or [], default_to=data["recruiter_email"],
-                                   default_subject=their_subject)
+                                   default_subject=their_subject, brief_text=full_text)
     # Answer in their thread - unless the JD says to apply to a different address (then it's a new email).
     thread_emails = [e for e in dict.fromkeys((data["recruiter_email"], p["from_email"], p.get("reply_to") or "")) if e]
     in_thread = plan["to"].lower() in thread_emails

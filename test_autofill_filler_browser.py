@@ -49,6 +49,10 @@ FORM = """<!doctype html><html><head><title>Apply - Sample Fixture Co</title>
    <select id="yrs"><option value="">--</option><option>0-2 years</option><option>3-5 years</option><option>6-9 years</option><option>10+ years</option></select></div>
  <fieldset><legend>Are you willing to relocate?</legend>
    <label><input type="radio" name="reloc" value="y"> Yes</label><label><input type="radio" name="reloc" value="n"> No</label></fieldset>
+ <div class="field"><label for="cctc">Current CTC</label><input id="cctc"></div>
+ <div class="field"><label for="ectc">Expected CTC</label><input id="ectc"></div>
+ <div class="field"><label for="f2f">Are you available for a face-to-face interview?</label>
+   <select id="f2f"><option value="">Select...</option><option>Yes</option><option>No</option></select></div>
  <div class="field"><label for="gender">Gender</label>
    <select id="gender"><option value="">Please select</option><option>Male</option><option>Female</option><option>Decline To Self Identify</option></select></div>
  <div class="field"><label for="why">Why do you want to work at Sample Fixture Co? *</label><textarea id="why" required></textarea></div>
@@ -67,6 +71,7 @@ FORM = """<!doctype html><html><head><title>Apply - Sample Fixture Co</title>
 PROFILE = {"full_name": "Karun Fixture", "first_name": "Karun", "last_name": "Fixture", "email": "karun.fixture@example.invalid",
            "phone": "+1 469 555 0100", "linkedin_url": "https://www.linkedin.com/in/karun-fixture", "city": "Dallas",
            "work_authorized": "Yes", "needs_sponsorship": "No", "willing_to_relocate": "Yes", "years_experience": "6",
+           "current_ctc": "18 LPA", "expected_salary": "25 LPA", "f2f_ready": "Yes",
            "gender": "Decline to self-identify", "race": "Decline to self-identify", "resume_filename": "Karun_Fixture.docx"}
 RESUME = {"filename": "Karun_Fixture.docx", "mime": "application/octet-stream", "base64": base64.b64encode(b"fixture resume bytes").decode()}
 
@@ -100,6 +105,8 @@ with sync_playwright() as p:
     check(r["resumeAttached"] and page.eval_on_selector("#resume", "e => e.files.length && e.files[0].name") == "Karun_Fixture.docx",
           "resume attached to the resume upload")
     check(page.eval_on_selector("#cover", "e => e.files.length") == 0, "cover letter upload left alone")
+    check(v("#cctc") == "18 LPA" and v("#ectc") == "25 LPA", f"current CTC and expected CTC go to their own fields: {v('#cctc')} / {v('#ectc')}")
+    check(page.eval_on_selector("#f2f", "e => e.selectedOptions[0].text") == "Yes", "F2F interview question answered")
     check(v("#city") == "Already typed", "a field with a value is never overwritten")
     check(not page.eval_on_selector("#consent", "e => e.checked"), "consent box never ticked")
     check(v("#hid") == "keep", "hidden field untouched")

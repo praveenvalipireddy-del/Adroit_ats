@@ -32,7 +32,7 @@ Return ONLY JSON:
 {"apply_to_email": "address the JD says to send applications to, else empty",
  "required_subject": "the exact subject line the JD requires, else empty",
  "questions": ["each thing the JD asks the applicant to write about, e.g. 'a short note about an infrastructure challenge you solved and its impact'"],
- "required_details": ["each detail the JD asks for, e.g. 'notice period', 'current CTC', 'expected CTC', 'portfolio link'"],
+ "required_details": ["each detail the JD asks applicants to write, e.g. 'notice period', 'current CTC', 'expected CTC', 'portfolio link' - not documents to attach such as the resume"],
  "experience_min": number or null, "experience_max": number or null,
  "must_have_skills": ["the key required skills/tools, max 8"]}
 Do not invent instructions the JD does not contain."""
@@ -64,7 +64,9 @@ PLAN (when given) is your own plan for this email - follow it.
 Return ONLY JSON: {"body": "...", "answered": ["each question you answered"], "needs_input": ["each [please ...] you left"]}"""
 
 PLAN_SYSTEM = """Before writing a job application email for an IT consultant, THINK and make a plan. Read the JOB
-DESCRIPTION, the RESUME that will be attached, FACTS and CONSULTANT RULES.
+DESCRIPTION, the RESUME that will be attached, FACTS, SOURCE and CONSULTANT RULES.
+- SOURCE says where this job really came from and how to open: it is a fact. A rule that names a site or gives
+  example wording ("say we found it on LinkedIn") shows the INTENT (mention the source) - apply it with SOURCE.
 - What does this job really need? (the 3-5 things that decide who gets a call)
 - Which of those does the RESUME prove, and with which real project / employer? Never claim what it doesn't show.
 - What does EACH consultant rule mean in practice for this email? (a rule is a rough note of intent, not text to paste;
@@ -91,6 +93,9 @@ def _ai(system: str, prompt: str, thinking: str = "low"):
     return resume_bot._parse_json_object(raw) or {}, model
 
 
+_DOCUMENT = re.compile(r"\b(resumes?|cvs?|curriculum vitae|cover letter)\b", re.I)
+
+
 def brief(jd_text: str) -> Dict:
     """What the JD asks. {} when the AI can't run (the caller falls back to the standard pitch)."""
     jd = (jd_text or "").strip()
@@ -108,7 +113,9 @@ def brief(jd_text: str) -> Dict:
         "apply_to_email": to if to and to in low else "",
         "required_subject": subj if subj and subj.lower() in low else "",
         "questions": [str(q).strip() for q in (data.get("questions") or []) if str(q).strip()][:4],
-        "required_details": [str(q).strip() for q in (data.get("required_details") or []) if str(q).strip()][:6],
+        # documents are attached, not details to write ("resume" -> never a "[please fill: resume]")
+        "required_details": [str(q).strip() for q in (data.get("required_details") or [])
+                             if str(q).strip() and not _DOCUMENT.search(str(q))][:6],
         "experience_min": as_int(data.get("experience_min")), "experience_max": as_int(data.get("experience_max")),
         "must_have_skills": [str(s).strip() for s in (data.get("must_have_skills") or []) if str(s).strip()][:8],
         "model": model,
@@ -149,14 +156,19 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
     if not resume_bot.ai_configured() or not resume_text.strip():
         return {"body": _fallback(cand, job, b, reply, tailored, skills), "needs_input": [], "answered": [], "model": "", "fallback": True,
                 "notes": [], "rule_conflicts": []}
-    opening = ("This email ANSWERS the vendor's requirement email - open by thanking them for sharing it."
+    opening = ("This email ANSWERS the vendor's requirement email - they sent this job to the consultant, so open by "
+               "thanking them for sharing it, and never say the job was found on LinkedIn or any job site (a consultant "
+               "rule about where the job was found does not apply to a reply)."
                if reply else "This is a new application email.")
+    opening += (" Answer every detail BRIEF.required_details lists (e.g. expected CTC, notice period, F2F) as its own line, "
+                "from FACTS or as [please fill: ...].\n" + source_note(job, reply))
     import consultant_rules
     import email_memory
     rules = consultant_rules.prompt_block(cand.get("id"), "email")
     memory = email_memory.prompt_block(cand.get("id"))
     prompt = (rules + memory + f"GREETING: {_greeting(job)}\n{opening}\n"
-              f"{'The attached resume was tailored to this job - say the resume is updated for this role.' if tailored else ''}\n\n"
+              "Say the resume is attached. Don't say it was updated, tailored or customised for this role unless a consultant "
+              "rule asks for that.\n\n"
               f"FACTS:\n{json.dumps(f, indent=1, default=str)}\n\nBRIEF:\n{json.dumps({k: v for k, v in b.items() if k != 'model'}, indent=1)}\n\n"
               f"JOB DESCRIPTION:\n{(jd_text or '')[:6000]}\n\nRESUME:\n{resume_text[:12000]}\n")
     # 1. think: what the job needs, what the resume proves, what each rule means
@@ -169,7 +181,7 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
         prompt += f"\nPLAN:\n{json.dumps(plan, indent=1, default=str)[:4000]}\n"
     allowed_contacts = resume_text + "\n" + (b.get("apply_to_email") or "") + "\n" + (job.get("recruiter_email") or "")
     check_facts = lambda text: (outreach_ai.guard(f, allowed_contacts, FILL_RE.sub("", text), rules)  # noqa: E731
-                                + guard_metrics(text, resume_text + "\n" + rules, f))
+                                + guard_metrics(text, resume_text + "\n" + rules, f) + source_problems(text, job, reply))
     problems: List[str] = []
     model, body, data = "", "", {}
     for _ in range(2):
@@ -202,7 +214,7 @@ def write(cand: Dict, job: Dict, jd_text: str, resume_text: str, b: Dict, reply:
     # Still adding details that aren't on file: keep the AI's email and turn just those details into
     # "[please confirm: ...]" for a person to fill (the standard pitch only when nothing usable came back).
     if problems and body:
-        masked = outreach_ai.mask(f, allowed_contacts, body, rules)
+        masked = fix_source(outreach_ai.mask(f, allowed_contacts, body, rules), job, reply)
         for m in guard_metrics(masked, resume_text + "\n" + rules, f):
             masked = masked.replace(re.search(r"'(.+)'", m).group(1), "[please confirm: figure]")
         if not check_facts(masked):
@@ -261,6 +273,71 @@ def resume_text_for(cand: Dict, job_id: Optional[int], version_id: Optional[int]
     return "", False
 
 
+def source_note(job: Dict, reply: bool = False) -> str:
+    """Where this job really came from and how the email must open - decided from the job record, never by the AI
+    or a consultant rule (a rule that names a site is about mentioning the source, not a fact about this job)."""
+    title = (job.get("title") or "this").strip()
+    src = (job.get("source") or "").strip()
+    url = (job.get("url") or "").strip()
+    link = url if re.match(r"^https?://", url, re.I) else ""
+    if reply or src == "Email requirement" or url.startswith("email:"):
+        return ("SOURCE: the vendor emailed this requirement to the consultant. Open by thanking them for sharing the "
+                f"{title} requirement. Do not name any job site or say you came across it.")
+    if src == "Recruiter Post":
+        how = f"I came across your post on LinkedIn about the {title} requirement"
+    elif src.lower().startswith("company site"):
+        company = (job.get("company") or "the company").strip()
+        how = f"I came across the {title} opening on {company}'s careers page"
+    elif gmail_multi_manager._source_site(src):
+        how = f"I came across your {title} opening on {gmail_multi_manager._source_site(src)}"
+    else:                                           # pasted / unknown: never guess a site
+        how = f"I came across your requirement for the {title} role"
+    return (f"SOURCE: open with the meaning of \"{how}\" (in your own words) - this is the true source of this job. "
+            "If a consultant rule names a different site, the rule is about mentioning where the job came from: use this "
+            "true source instead." + (" The job link is added under the greeting automatically - don't write any link." if link else ""))
+
+
+_SITES = ("LinkedIn", "Dice", "Indeed", "Naukri", "Foundit", "Monster", "Glassdoor", "ZipRecruiter")
+_FOUND_WORDS = re.compile(r"\b(came across|come across|found|saw|seen|see|browsing|browse|spotted|noticed|posted|posting|"
+                          r"listed|listing|advertised|via|through)\b", re.I)
+
+
+def true_site(job: Dict, reply: bool = False) -> str:
+    """The job site this job really came from ("" for a vendor's email, a pasted requirement or a company careers page)."""
+    src = (job.get("source") or "").strip()
+    if reply or src == "Email requirement" or (job.get("url") or "").startswith("email:"):
+        return ""
+    return "LinkedIn" if src == "Recruiter Post" else gmail_multi_manager._source_site(src)
+
+
+def _wrong_site_sentences(body: str, job: Dict, reply: bool):
+    """(sentence, wrong site) for each sentence that says where the job was found and names a site it didn't come from.
+    A signature line ("LinkedIn: <profile>") is not a claim about the job."""
+    right = true_site(job, reply).lower()
+    out = []
+    for sent in re.split(r"(?<=[.!?])\s+|\n", body or ""):
+        if "linkedin.com/in/" in sent.lower() or re.match(r"^\s*linkedin\s*:", sent, re.I) or not _FOUND_WORDS.search(sent):
+            continue
+        for site in _SITES:
+            if re.search(rf"\b{site}\b", sent, re.I) and site.lower() != right:
+                out.append((sent, site))
+    return out
+
+
+def source_problems(body: str, job: Dict, reply: bool = False) -> List[str]:
+    right = true_site(job, reply)
+    return [f"says the job was found on {site}, but it {'came from ' + right if right else 'did not come from a job site'}"
+            for _, site in _wrong_site_sentences(body, job, reply)]
+
+
+def fix_source(body: str, job: Dict, reply: bool = False) -> str:
+    """Last resort after a retry: the wrong site name is replaced by the true one, or marked to confirm."""
+    right = true_site(job, reply)
+    for sent, site in _wrong_site_sentences(body, job, reply):
+        body = body.replace(sent, re.sub(rf"\b{site}\b", right or "[please confirm: where we found the job]", sent, flags=re.I))
+    return body
+
+
 def job_link_line(job: Dict) -> str:
     """'Position: <title> - <link>' for a job with a real web link (the vendor sees at once which opening it is).
     None for an email requirement (its url is 'email:...'), a pasted requirement without a link, or no title."""
@@ -277,7 +354,11 @@ def add_job_link(body: str, job: Dict) -> str:
     """The job link right after the greeting, unless the email already has it."""
     line = job_link_line(job)
     url = (job.get("url") or "").strip()
-    if not line or not body or url in body:
+    if not line or not body:
+        return body
+    # a bare link the AI wrote on its own line becomes the labelled "Position: <title> - <link>" line
+    body = re.sub(rf"^[ \t]*<?{re.escape(url)}>?[ \t]*\n+", "", body, flags=re.M) if url else body
+    if url in body:
         return body
     head, sep, rest = body.partition("\n\n")
     return f"{head}\n\n{line}\n\n{rest}" if sep else f"{line}\n\n{body}"
@@ -285,10 +366,12 @@ def add_job_link(body: str, job: Dict) -> str:
 
 def build(cand: Dict, job: Dict, jd_text: str, version_id: Optional[int] = None, reply: bool = False,
           skills: Optional[List[str]] = None, default_to: str = "", default_subject: str = "",
-          resume_text: Optional[str] = None, tailored: Optional[bool] = None) -> Dict:
+          resume_text: Optional[str] = None, tailored: Optional[bool] = None, brief_text: str = "") -> Dict:
     """Everything a draft needs: {to, subject, body, checklist, needs_input, brief, fallback}.
-    `resume_text` = the optimized resume as shown in the Optimize window (not saved yet)."""
-    b = brief(jd_text)
+    `resume_text` = the optimized resume as shown in the Optimize window (not saved yet).
+    `brief_text` = the vendor's whole email, when the JD was cut out of one: what they ask applicants to send
+    ("Expected CTC / Notice period / Ready for F2F") is often below the job details and must be answered."""
+    b = brief(brief_text or jd_text)
     if resume_text and resume_text.strip():
         tailored = True if tailored is None else bool(tailored)     # False: the optimizer left the resume unchanged
     else:

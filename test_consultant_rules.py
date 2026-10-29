@@ -4,7 +4,7 @@
 2. Every writer gets them: the first email (application_brief.write), the email chat (outreach_ai),
    the resume chat (/api/resume-editor/edit) and the Resume Optimizer (custom instructions) - and a fact
    written in a rule counts as the recruiter's own words for the guards.
-3. The chat offers '📌 Save as a rule' when the recruiter says "every email / always" (save_rule).
+3. A general preference told to a chat (save_rule) is remembered as a rule at once, with Undo.
 4. Edge (Resume Optimizer tab): the chat's Save-as-rule button, the '📌 Rules (n)' link, the Rules window
    (add, list, delete).
 The AI is a stub. Labelled test fixtures. Run: python test_consultant_rules.py
@@ -166,7 +166,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
+        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
         page.click("a.nav-item[data-tab=resumebot]")
         page.select_option("#resumebot-consultant-select", str(cid))
@@ -177,10 +177,17 @@ try:
         page.wait_for_function("document.getElementById('rbw-rules').innerText === '📌 Rules (1)'", timeout=10000)
         page.fill("#rbw-instr", "always keep the headline as Java Developer")
         page.click("#rbw-send")
-        page.wait_for_selector("#rbw-chat-msgs .chat-save-rule", timeout=15000)
+        # a general preference told to the chat is remembered at once (no click) - with Undo
+        page.wait_for_selector("#rbw-chat-msgs .chat-rule-undo", timeout=15000)
         check("Shorter summary" in page.inner_text("#rbw-chat-msgs") and page.locator("#rbw-chat-msgs .rv-sugg").count() == 1, "suggestion with Apply shown")
-        page.click("#rbw-chat-msgs .chat-save-rule")
+        check("Remembered for every resume" in page.inner_text("#rbw-chat-msgs"), "the chat says the preference is remembered")
         page.wait_for_function("document.getElementById('rbw-rules').innerText === '📌 Rules (2)'", timeout=10000)
+        page.click("#rbw-chat-msgs .chat-rule-undo")
+        page.wait_for_function("document.getElementById('rbw-chat-msgs').innerText.includes('Not remembered')", timeout=10000)
+        page.wait_for_function("document.getElementById('rbw-rules').innerText === '📌 Rules (1)'", timeout=10000)
+        page.fill("#rbw-instr", "always keep the headline as Java Developer")
+        page.click("#rbw-send")
+        page.wait_for_function("document.getElementById('rbw-rules').innerText === '📌 Rules (2)'", timeout=15000)
         page.click("#rbw-rules")
         page.wait_for_function("document.getElementById('modal-rules').style.display === 'flex'", timeout=5000)
         check("Rules for Ruleo Testcase" in page.inner_text("#rules-title"), "window names the consultant")

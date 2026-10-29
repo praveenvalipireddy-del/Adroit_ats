@@ -181,7 +181,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
+        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openPasteDraftModal({cid})")
         page.fill("#pd-title", "My Own Title")
@@ -225,7 +225,8 @@ try:
         page.click("#btn-do-reoptimize")
         page.wait_for_function("!document.getElementById('btn-do-save').disabled", timeout=20000)
         page.wait_for_function("document.getElementById('do-email-body').value.includes('Globex') && !document.getElementById('btn-do-email-rewrite').disabled", timeout=20000)
-        check("was tailored" in write_prompts[-1], "optimized resume: email written as tailored")
+        check("Globex" in write_prompts[-1] and "Don't say it was updated" in write_prompts[-1],
+              "optimized resume: the email is written from it, without claiming it was 'updated for this role'")
         page.fill("#do-email-body", page.input_value("#do-email-body") + "\nEDIT IN OPTIMIZE (SAVED)")
         page.click("#btn-do-save")
         page.wait_for_function("document.getElementById('modal-draft-optimize').style.display === 'none'", timeout=15000)

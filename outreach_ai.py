@@ -35,9 +35,11 @@ Follow CONSULTANT RULES (the recruiter's standing instructions for this consulta
 current message says otherwise - carry out what each rule MEANS in your own natural words; never paste a
 rule's text into the email (except words inside quotation marks). Before you answer, re-read your result as
 a senior recruiter would: correct English, nothing that reads like pasted notes, relevant to THIS job,
-every fact from FACTS / the recruiter only. If the recruiter states a standing preference for ALL of this consultant's
-emails ("every email", "always", "from now on"), apply it now AND put it, rewritten as one clear rule, in
-"save_rule" - the recruiter can then save it. Plain text only - no markdown, no asterisks. Keep the greeting,
+every fact from FACTS / the recruiter only. If the recruiter's instruction is a general writing preference - about
+style, tone, length, wording or what to leave out, not about this one job ("don't mention the resume was updated",
+"no 'hope you are doing well'", "keep it under 120 words", "always add my LinkedIn") - apply it now AND put it,
+rewritten as one clear rule, in "save_rule": it is remembered for every email of this consultant. A change that
+only concerns this job (its title, its skills, this vendor's question) is not a rule. Plain text only - no markdown, no asterisks. Keep the greeting,
 the sign-off and the signature lines (name, phone, email) unless told otherwise.
 
 Facts: use ONLY the facts given in FACTS (FACTS.resume is the resume being attached - its projects and
@@ -53,7 +55,7 @@ Return ONLY a JSON object:
  "needs_info": ["question for the recruiter, only when a fact is missing"],
  "reply": "what you did, or your answer / assessment (2-4 sentences)",
  "suggestions": [{"label": "short", "instruction": "what to apply"}],
- "save_rule": "only when the recruiter stated a preference for every email - else empty"}"""
+ "save_rule": "the recruiter's general writing preference as one clear rule - else empty"}"""
 
 REVIEW = "__review__"
 REVIEW_ASK = ("REVIEW: assess this email for this job as an experienced recruiter would - is it right for what the JD "
@@ -70,6 +72,16 @@ _PHONE = re.compile(r"\+?\d[\d\s().-]{8,}\d")
 _PLACEHOLDER = re.compile(r"\[please (?:fill|add|confirm):[^\]]*\]", re.I)
 
 
+def _answer_facts(cand: Dict) -> Dict:
+    """Notice period, current / expected CTC, F2F and relocation from the consultant's Application answers - only the
+    ones filled in (an empty one stays a [please fill] in the email, never guessed)."""
+    import autofill
+    a = autofill.load_answers(cand)
+    names = {"notice_period": "notice_period", "current_ctc": "current_ctc", "expected_salary": "expected_ctc_or_salary",
+             "f2f_ready": "ready_for_f2f_interview", "willing_to_relocate": "willing_to_relocate", "current_company": "current_company"}
+    return {name: a[key] for key, name in names.items() if a.get(key)}
+
+
 def facts(cand: Dict, job: Dict) -> Dict:
     us_based = gmail_multi_manager._is_us_based(cand)
     return {
@@ -82,6 +94,8 @@ def facts(cand: Dict, job: Dict) -> Dict:
         "us_based": us_based,
         "visa_status": (cand.get("visa_status") or "").strip() if us_based else "",
         "target_rate": (cand.get("target_rate") or "").strip(),
+        # the consultant's Application answers (also used by the Chrome extension) - what vendors ask for
+        **_answer_facts(cand),
         "phone": cand.get("phone") or "",
         "email": cand.get("gmail_account") or cand.get("email") or "",
         "job_title": job.get("title") or "",

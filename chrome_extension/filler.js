@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 2) return;
+  if (window.JH && window.JH.version === 3) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -168,6 +168,8 @@
     [/current (company|employer)|present employer|most recent (company|employer)|employer name|^company$/, 'current_company'],
     [/current (job )?title|current (role|position)|^job title|^title$|designation/, 'title'],
     [/years? of (relevant |total |professional |work )?experience|total experience|how many years/, 'years_experience'],
+    [/current (ctc|salary|compensation|pay|package)|present (ctc|salary|package)|\bcctc\b/, 'current_ctc'],
+    [/face[- ]to[- ]face|\bf2f\b|in[- ]person interview|onsite interview/, 'f2f_ready'],
     [/salary|compensation|\bctc\b|expected (pay|rate)|desired (pay|rate)|hourly rate|pay expectation|rate expectation/, 'expected_salary'],
     [/notice period|earliest start|start date|when can you (start|join)|available to (start|join)|joining date/, 'notice_period'],
     [/relocat/, 'willing_to_relocate'],
@@ -444,6 +446,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 2, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+  window.JH = { version: 3, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
     _keyFor: keyFor, _labelOf: labelOf };
 })();

@@ -95,7 +95,8 @@ check("NEVER copy a rule's own words" in block and "quotation marks" in block an
 
 # ---- 2. plan -> write -> review
 cand = models.get_candidate_by_id(cid)
-job = {"id": None, "title": "DevOps Engineer", "company": "Chinmay Finlease", "recruiter_name": "Tushar Soni"}
+job = {"id": None, "title": "DevOps Engineer", "company": "Chinmay Finlease", "recruiter_name": "Tushar Soni",
+       "source": "LinkedIn (Live 24h)"}
 out = application_brief.build(cand, job, JD, resume_text=cand["resume_text"], tailored=False)
 check(calls == ["brief", "plan", "write", "review"], f"plan -> write -> check: {calls}")
 check(out["body"] == POLISHED, f"the review's polish is used: {out['body'][:200]!r}")
@@ -105,6 +106,10 @@ review_adds_rate["on"] = True
 out = application_brief.build(cand, job, JD, resume_text=cand["resume_text"], tailored=False)
 check(out["body"] == DRAFT and "$95" not in out["body"], "a review that adds a fact (a rate) is not used - the first draft stays")
 review_adds_rate["on"] = False
+# the rule says LinkedIn, but this job came from Dice: the true source wins (asked again, then corrected in code)
+calls.clear()
+out_d = application_brief.build(cand, dict(job, source="Dice (Live 24h)"), JD, resume_text=cand["resume_text"], tailored=False)
+check("on Dice" in out_d["body"] and "on LinkedIn" not in out_d["body"], f"a rule's example site never overrides the true source: {out_d['body'][:160]!r}")
 
 # ---- 2b. the job link: right after the greeting, only for a real web link, never in a reply to their own email
 import email_memory  # noqa: E402
@@ -195,7 +200,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
+        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
         page.wait_for_function("state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openRules({cid}, 'email')")
         page.wait_for_function("document.getElementById('modal-rules').style.display === 'flex'", timeout=5000)

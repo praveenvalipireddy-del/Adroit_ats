@@ -75,7 +75,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.9" in page.content(), "cache-buster not bumped to 5.99.9")
+        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_function("document.querySelectorAll('#jobs-table-body tr.job-row').length >= 2", timeout=20000)
         # consultants arrive ~2 s later: the dropdowns must then be filled

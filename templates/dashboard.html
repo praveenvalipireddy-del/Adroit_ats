@@ -1113,8 +1113,8 @@
                         </div>
                     </div>
                     <details class="form-group af-section" id="af-section">
-                        <summary style="cursor:pointer;font-weight:600;">Autofill answers <span style="font-weight:400;color:var(--text-muted);">(for the Chrome extension - fill once)</span></summary>
-                        <small class="form-hint">Used to fill job application forms. Leave anything you don't know empty - that question is left for you, never guessed.</small>
+                        <summary style="cursor:pointer;font-weight:600;">Application answers <span style="font-weight:400;color:var(--text-muted);">(emails + Chrome extension - fill once)</span></summary>
+                        <small class="form-hint">Used in vendor emails (notice period, CTC, F2F...) and to fill job application forms. Leave anything you don't know empty - it is left for you as [please fill], never guessed.</small>
                         <div id="af-fields" class="af-grid"></div>
                     </details>
                     <div class="form-group">
@@ -1168,7 +1168,7 @@
                 </ol>
                 <button type="button" class="btn btn-primary" id="btn-ext-key" style="width:100%;">Copy connection key</button>
                 <p id="ext-key-msg" style="font-size:0.78rem;color:var(--text-muted);margin:8px 0 0;">The key works for 90 days and stops working if you change your password. Don't share it.</p>
-                <p style="font-size:0.78rem;color:var(--text-muted);margin:12px 0 0;">Fill each consultant's <b>Autofill answers</b> once (Edit profile) so visa, sponsorship and notice-period questions get answered.</p>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin:12px 0 0;">Fill each consultant's <b>Application answers</b> once (Edit profile) so visa, sponsorship and notice-period questions get answered.</p>
             </div>
         </div>
     </div>
@@ -1557,7 +1557,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.9"></script>
+    <script src="/static/js/app.js?v=5.99.10"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

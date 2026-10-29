@@ -34,6 +34,10 @@ class PgCursorWrapper:
     def description(self):
         return self._cursor.description
 
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
     def _adapt_query(self, sql):
         s = sql.strip()
         is_insert = bool(re.match(r'^\s*INSERT\s+INTO\s+', s, re.IGNORECASE))

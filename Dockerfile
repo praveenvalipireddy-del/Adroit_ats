@@ -5,6 +5,9 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=5000
+# glibc gives every thread its own memory pool and rarely hands freed memory back - with the background
+# career-site reader that kept the 512 MB instance near its limit. Two pools keep memory close to what is in use.
+ENV MALLOC_ARENA_MAX=2
 
 # Set work directory
 WORKDIR /app

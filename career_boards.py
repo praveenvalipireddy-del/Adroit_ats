@@ -1,4 +1,4 @@
-"""Jobs straight from company career portals (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable).
+"""Jobs straight from company career portals (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Phenom).
 
 Each company publishes its open jobs as a free public feed - no key, no Apify, no cost. Job Hunt keeps a
 list of companies (table career_boards) and reads their feeds:
@@ -31,7 +31,8 @@ PER_BOARD_CAP = 150       # at most this many new jobs per company per sync
 TIMEOUT = 25
 HEADERS = {"User-Agent": "Mozilla/5.0 (JobHunt career-board reader)", "Accept": "application/json"}
 PORTAL_NAMES = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "workday": "Workday",
-                "smartrecruiters": "SmartRecruiters", "workable": "Workable"}
+                "smartrecruiters": "SmartRecruiters", "workable": "Workable", "phenom": "Phenom"}
+PHENOM_MAX_PAGES = 60     # Phenom lists aren't sorted by date: read up to 6,000 postings, keep the recent ones
 
 # Verified 2026-10-27: each answered its public feed with open jobs. (ats, slug, company name)
 SEED = [
@@ -60,6 +61,50 @@ SEED = [
     ("workable", "huggingface", "Hugging Face"),
 ]
 
+# Added 2026-10-29 from career_portals_us_india.csv: each one's own careers page pointed to the portal (or the portal's
+# reported company name matched) and it answered with US / India jobs from the last 14 days.
+SEED += [
+    ("greenhouse", "abnormalsecurity", "Abnormal Security"), ("greenhouse", "airtable", "Airtable"),
+    ("greenhouse", "coreweave", "CoreWeave"), ("greenhouse", "cribl", "Cribl"), ("greenhouse", "faire", "Faire"),
+    ("greenhouse", "fivetran", "Fivetran"), ("greenhouse", "highradius", "HighRadius"), ("greenhouse", "glance", "InMobi"),
+    ("greenhouse", "mercury", "Mercury"), ("greenhouse", "razorpaysoftwareprivatelimited", "Razorpay"),
+    ("greenhouse", "scaleai", "Scale AI"), ("greenhouse", "sigmacomputing", "Sigma Computing"),
+    ("greenhouse", "togetherai", "Together AI"), ("greenhouse", "vercel", "Vercel"), ("greenhouse", "zenoti", "Zenoti"),
+    ("lever", "paytm", "Paytm"), ("lever", "zeta", "Zeta"), ("ashby", "Abridge", "Abridge"), ("ashby", "atlan", "Atlan"),
+    ("ashby", "benchling", "Benchling"), ("ashby", "cerebras", "Cerebras"), ("ashby", "claylabs", "Clay"),
+    ("ashby", "clickhouse", "ClickHouse"), ("ashby", "cognition", "Cognition"), ("ashby", "decagon", "Decagon"),
+    ("ashby", "drata", "Drata"), ("ashby", "harvey", "Harvey"), ("ashby", "ironcladhq", "Ironclad"),
+    ("ashby", "lambda", "Lambda"), ("ashby", "pinecone", "Pinecone"), ("ashby", "plaid", "Plaid"),
+    ("ashby", "replit", "Replit"), ("ashby", "runway-ml", "Runway"), ("ashby", "sarvam", "Sarvam AI"),
+    ("ashby", "Sierra", "Sierra"), ("ashby", "snowflake", "Snowflake"), ("ashby", "snyk", "Snyk"),
+    ("ashby", "supabase", "Supabase"), ("ashby", "temporal", "Temporal"), ("ashby", "vanta", "Vanta"),
+    ("ashby", "webflow", "Webflow"), ("ashby", "writer", "Writer"), ("ashby", "zapier", "Zapier"),
+    ("smartrecruiters", "Freshworks", "Freshworks"), ("smartrecruiters", "swiggy", "Swiggy"),
+    ("workday", "accenture|wd103|AccentureCareers", "Accenture"), ("workday", "att|wd1|ATTGeneral", "AT&T"),
+    ("workday", "bah|wd1|BAH_Jobs", "Booz Allen Hamilton"), ("workday", "browserstack|wd3|External", "BrowserStack"),
+    ("workday", "comcast|wd115|Comcast_Careers", "Comcast"),
+    ("workday", "crowdstrike|wd5|crowdstrikecareers", "CrowdStrike"),
+    ("workday", "fractal|wd1|Careers", "Fractal Analytics"),
+    ("workday", "kellyservices|wd503|corporatecareers-kellyservices-com", "Kelly Services"),
+    ("workday", "kyndryl|wd5|KyndrylEarlyCareers", "Kyndryl"),
+    ("workday", "paloaltonetworks|wd5|panwexternalcareers", "Palo Alto Networks"),
+    ("workday", "sprinklr|wd1|careers", "Sprinklr"),
+    ("workday", "thomsonreuters|wd5|External_Career_Site", "Thomson Reuters"),
+    ("workday", "uniphore|wd503|Uniphore", "Uniphore"), ("workday", "visa|wd5|Visa", "Visa"),
+    ("workable", "cynet-corp", "Cynet Systems"),
+]
+# Phenom career sites (slug = host|site country|language|category to keep, optional), verified 2026-10-29. Staffing primes
+# post their clients' contract requirements here; for big non-IT employers only the technology category is read.
+SEED += [
+    ("phenom", "careers.teksystems.com|us|en_us|", "TEKsystems"),
+    ("phenom", "careers.astoncarter.com|us|en_us|", "Aston Carter"),
+    ("phenom", "careers.actalentservices.com|us|en_us|Systems & Software", "Actalent"),
+    ("phenom", "careers.nttdata.com|global|en_global|", "NTT DATA"),
+    ("phenom", "careers.cisco.com|global|en_global|", "Cisco"),
+    ("phenom", "jobs.cvshealth.com|us|en_us|Innovation and Technology", "CVS Health"),
+    ("phenom", "talent.lowes.com|us|en_us|Technology", "Lowe's"),
+]
+
 
 # ------------------------------------------------------------------ http (replaceable in tests)
 def _http_json(url: str, body: Optional[dict] = None):
@@ -74,18 +119,30 @@ def _http_json(url: str, body: Optional[dict] = None):
 http_json: Callable = _http_json
 
 
+def _http_text(url: str):
+    """(final url after redirects, page html) - used to recognise a Phenom careers site."""
+    r = requests.get(url, headers={**HEADERS, "Accept": "text/html"}, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.url, r.text
+
+
+http_text: Callable = _http_text
+
+
 def _parallel(urls: List[str], parse: Callable, workers: int = 3) -> list:
-    """GET each url (a few at a time, one retry) and keep only parse(answer) - the small piece we need, so a board's
-    hundreds of full posting documents are never held in memory together. None where one still failed."""
+    """GET each url - or POST, for a (url, body) pair - a few at a time with one retry, and keep only parse(answer):
+    the small piece we need, so a board's hundreds of full posting documents are never held in memory together.
+    None where one still failed."""
     from concurrent.futures import ThreadPoolExecutor
 
     def one(u):
+        url, body = u if isinstance(u, tuple) else (u, None)
         for attempt in (1, 2):
             try:
-                return parse(http_json(u))
+                return parse(http_json(url) if body is None else http_json(url, body))
             except Exception as ex:
                 if attempt == 2:
-                    logger.info(f"Career board detail skipped ({u[:80]}): {ex}")
+                    logger.info(f"Career board detail skipped ({url[:80]}): {ex}")
                     return None
                 time.sleep(1.5)
     if not urls:
@@ -223,11 +280,23 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
                      "url": url, "posted": posted, "job_type": job_type or "", "description": (description or "").strip()})
 
     if ats == "greenhouse":
-        d = http_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true")
+        # the list without descriptions (a big board's ?content=true answer is 30-70 MB in memory), then the
+        # description of only the recent US / India jobs we keep
+        import html as html_lib
+        d = http_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs")
+        picked = []
         for j in d.get("jobs", []):
-            import html as html_lib
-            keep(j.get("title"), (j.get("location") or {}).get("name"), j.get("absolute_url"),
-                 _iso(j.get("first_published") or j.get("updated_at")), "", _text(html_lib.unescape(j.get("content") or "")))
+            loc, posted = (j.get("location") or {}).get("name"), _iso(j.get("first_published") or j.get("updated_at"))
+            if j.get("id") and country_of(loc) and not (posted and posted < cutoff):
+                picked.append(({"id": j["id"], "title": j.get("title"), "location": loc, "url": j.get("absolute_url")}, posted))
+        del d
+        picked.sort(key=lambda x: x[1] or now, reverse=True)
+        picked = picked[:PER_BOARD_CAP]
+        bodies = _parallel([f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs/{j['id']}" for j, _ in picked],
+                           lambda det: _text(html_lib.unescape(det.get("content") or ""))[:20000])
+        for (j, posted), body in zip(picked, bodies):
+            if body is not None:
+                keep(j["title"], j["location"], j["url"], posted, "", body)
     elif ats == "lever":
         d = http_json(f"https://api.lever.co/v0/postings/{slug}?mode=json")
         for j in d if isinstance(d, list) else []:
@@ -237,7 +306,7 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
                              + [j.get("additionalPlain") or ""])
             keep(j.get("text"), locs, j.get("hostedUrl"), _iso(j.get("createdAt")), cat.get("commitment") or "", body, j.get("country") or "")
     elif ats == "ashby":
-        d = http_json(f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true")
+        d = http_json(f"https://api.ashbyhq.com/posting-api/job-board/{slug}")
         for j in d.get("jobs", []):
             if j.get("isListed") is False:
                 continue
@@ -319,6 +388,33 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
             body = "\n".join(_text(det.get(k)) for k in ("description", "requirements", "benefits") if det.get(k))
             keep(j.get("title"), ", ".join(x for x in (loc.get("city"), loc.get("region"), loc.get("country")) if x),
                  f"https://apply.workable.com/{slug}/j/{j.get('shortcode')}/", posted, j.get("type") or "", body, loc.get("countryCode") or "")
+    elif ats == "phenom":
+        host, site_country, lang, category = (slug.split("|") + [""] * 4)[:4]
+        base = f"https://{host}/{site_country}/{lang.split('_')[0]}"
+        search = {"lang": lang, "deviceType": "desktop", "country": site_country, "pageName": "search-results", "ddoKey": "refineSearch",
+                  "sortBy": "", "subsearch": "", "jobs": True, "counts": False, "all_fields": [], "size": 100, "clearAll": False,
+                  "jdsource": "facets", "isSliderEnable": False, "pageId": "page20", "siteType": "external", "keywords": "", "global": True,
+                  "selected_fields": {"category": [category]} if category else {}, "locationData": {}}
+        picked = []
+        for page in range(PHENOM_MAX_PAGES):        # the list isn't sorted by date: read it all, keep the recent US / India ones
+            d = http_json(f"https://{host}/widgets", {**search, "from": page * 100})
+            rows = ((d.get("refineSearch") or {}).get("data") or {}).get("jobs") or []
+            for j in rows:
+                loc = j.get("cityStateCountry") or j.get("location") or ""
+                posted = _iso(str(j.get("postedDate") or "").replace("+0000", "+00:00"))
+                if j.get("jobSeqNo") and j.get("jobId") and country_of(loc) and not (posted and posted < cutoff):
+                    picked.append(({"seq": j["jobSeqNo"], "id": j["jobId"], "title": j.get("title"), "location": loc,
+                                    "type": j.get("type") or ""}, posted))
+            if len(rows) < 100:
+                break
+        picked.sort(key=lambda x: x[1] or now, reverse=True)
+        picked = picked[:PER_BOARD_CAP]
+        detail = {"lang": lang, "deviceType": "desktop", "country": site_country, "pageName": "job", "ddoKey": "jobDetail"}
+        bodies = _parallel([(f"https://{host}/widgets", {**detail, "jobSeqNo": j["seq"]}) for j, _ in picked],
+                           lambda det: _text((((det.get("jobDetail") or {}).get("data") or {}).get("job") or {}).get("description"))[:20000])
+        for (j, posted), body in zip(picked, bodies):
+            if body is not None:
+                keep(j["title"], j["location"], f"{base}/job/{j['id']}", posted, j["type"], body)
     else:
         raise ValueError(f"Unknown portal {ats}")
     jobs.sort(key=lambda x: x["posted"] or now, reverse=True)
@@ -344,17 +440,41 @@ def _careers_url(ats: str, slug: str) -> str:
     if ats == "workday":
         t, wd, site = slug.split("|")
         return f"https://{t}.{wd}.myworkdayjobs.com/{site}"
+    if ats == "phenom":
+        host, site_country, lang = slug.split("|")[:3]
+        return f"https://{host}/{site_country}/{lang.split('_')[0]}"
     return {"greenhouse": f"https://job-boards.greenhouse.io/{slug}", "lever": f"https://jobs.lever.co/{slug}",
             "ashby": f"https://jobs.ashbyhq.com/{slug}", "smartrecruiters": f"https://jobs.smartrecruiters.com/{slug}",
             "workable": f"https://apply.workable.com/{slug}/"}.get(ats, "")
 
 
+def phenom_board(url: str) -> Optional[Dict]:
+    """A Phenom careers site (any domain - e.g. careers.teksystems.com/us/en): its page names the site's country and
+    language. None when the page isn't a Phenom site."""
+    url = (url or "").strip()
+    if not re.match(r"^https?://", url):
+        url = "https://" + url
+    try:
+        final_url, html = http_text(url)
+    except Exception:
+        return None
+    if "phApp" not in html:
+        return None
+    lang = re.search(r'"locale"\s*:\s*"([a-z]{2}_[a-z]+)"', html)
+    country = re.search(r'"country"\s*:\s*"([a-z]+)"', html)
+    host = urlparse(final_url).hostname or ""
+    if not (lang and country and host):
+        return None
+    slug = f"{host}|{country.group(1)}|{lang.group(1)}|"
+    return {"ats": "phenom", "slug": slug, "careers_url": _careers_url("phenom", slug)}
+
+
 def add_board(conn, url: str, company: str = "", found_via: str = "added by hand", check: bool = True) -> Dict:
     """Add a company by any of its careers / job links. With check, the feed must answer first."""
-    b = parse_board_url(url)
+    b = parse_board_url(url) or (phenom_board(url) if check else None)
     if not b:
         return {"status": "unsupported", "error": "That link isn't on a supported careers portal (Greenhouse, Lever, Ashby, Workday, "
-                                                  "SmartRecruiters, Workable)."}
+                                                  "SmartRecruiters, Workable, Phenom)."}
     cur = conn.cursor()
     cur.execute("SELECT id, company FROM career_boards WHERE ats = ? AND slug = ?", (b["ats"], b["slug"]))
     row = cur.fetchone()
@@ -365,10 +485,19 @@ def add_board(conn, url: str, company: str = "", found_via: str = "added by hand
         try:
             if b["ats"] == "greenhouse" and not name:
                 name = (http_json(f"https://boards-api.greenhouse.io/v1/boards/{b['slug']}") or {}).get("name") or ""
-            fetch_board(b["ats"], b["slug"], name, days=3650)       # any answer at all proves the board exists
+            if b["ats"] == "phenom":                                # one page of its list is enough proof (a full read takes a minute)
+                host, site_country, lang = b["slug"].split("|")[:3]
+                http_json(f"https://{host}/widgets", {"lang": lang, "country": site_country, "pageName": "search-results",
+                                                     "ddoKey": "refineSearch", "from": 0, "size": 1, "jobs": True, "global": True,
+                                                     "siteType": "external", "keywords": "", "selected_fields": {}})["refineSearch"]
+            else:
+                fetch_board(b["ats"], b["slug"], name, days=3650)   # any answer at all proves the board exists
         except Exception as ex:
             return {"status": "error", "error": f"The {PORTAL_NAMES[b['ats']]} careers feed for '{b['slug']}' didn't answer ({str(ex)[:120]})."}
-    name = name or b["slug"].split("|")[0].replace("-", " ").title()
+    first = b["slug"].split("|")[0]
+    if b["ats"] == "phenom":                                        # careers.teksystems.com -> Teksystems
+        first = first.split(".")[-2] if first.count(".") >= 1 else first
+    name = name or first.replace("-", " ").title()
     cur.execute("INSERT INTO career_boards (ats, slug, company, careers_url, found_via, active) VALUES (?, ?, ?, ?, ?, 1)",
                 (b["ats"], b["slug"], name, b["careers_url"], found_via))
     conn.commit()
@@ -450,7 +579,7 @@ def sync_board(conn, board: Dict, now: Optional[datetime] = None, fetched: Optio
         return {"company": board.get("company"), "jobs": 0, "new": 0, "error": str(ex)[:200]}
 
 
-PARALLEL_BOARDS = 3          # the server has 512 MB: three companies' postings in memory at a time
+PARALLEL_BOARDS = 2          # the server has 512 MB: two companies' postings in memory at a time
 KEEP_DAYS = 30               # company-site jobs older than this are removed (unless an application uses them)
 
 
@@ -458,8 +587,9 @@ def prune_old(conn, now: Optional[datetime] = None) -> int:
     """Remove company-site jobs posted more than KEEP_DAYS ago that no application points to (keeps the table small)."""
     cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
     cur = conn.cursor()
-    cur.execute("""DELETE FROM jobs WHERE source LIKE 'Company site%' AND scraped_at < ?
-                   AND id NOT IN (SELECT job_id FROM applications)""", (cutoff,))
+    # the LIKE pattern is a parameter: a literal % next to parameters breaks the query on Postgres (psycopg2)
+    cur.execute("""DELETE FROM jobs WHERE source LIKE ? AND scraped_at < ?
+                   AND id NOT IN (SELECT job_id FROM applications)""", ("Company site%", cutoff))
     n = cur.rowcount or 0
     conn.commit()
     return n

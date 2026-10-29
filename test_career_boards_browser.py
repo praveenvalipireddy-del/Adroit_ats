@@ -69,21 +69,32 @@ check(C("New York, NY; Bengaluru, India") == "United States" and C("Bengaluru, I
 
 # ---- 3. feeds (stubbed)
 FEEDS = {
-    "https://boards-api.greenhouse.io/v1/boards/fixturegh/jobs?content=true": {"jobs": [
-        {"title": "Data Analyst (Fixture GH)", "location": {"name": "Dallas, TX"}, "absolute_url": "https://job-boards.greenhouse.io/fixturegh/jobs/1",
-         "first_published": iso(NOW - timedelta(hours=5)), "content": "&lt;p&gt;We need &lt;b&gt;SQL&lt;/b&gt; and Power BI. Labelled fixture.&lt;/p&gt;"},
-        {"title": "Old Analyst (Fixture GH)", "location": {"name": "Dallas, TX"}, "absolute_url": "https://job-boards.greenhouse.io/fixturegh/jobs/2",
-         "first_published": iso(NOW - timedelta(days=40)), "content": "old"},
-        {"title": "Paris Analyst (Fixture GH)", "location": {"name": "Paris, France"}, "absolute_url": "https://job-boards.greenhouse.io/fixturegh/jobs/3",
-         "first_published": iso(NOW - timedelta(hours=2)), "content": "elsewhere"}]},
+    "https://boards-api.greenhouse.io/v1/boards/fixturegh/jobs": {"jobs": [
+        {"id": 1, "title": "Data Analyst (Fixture GH)", "location": {"name": "Dallas, TX"}, "absolute_url": "https://job-boards.greenhouse.io/fixturegh/jobs/1",
+         "first_published": iso(NOW - timedelta(hours=5))},
+        {"id": 2, "title": "Old Analyst (Fixture GH)", "location": {"name": "Dallas, TX"}, "absolute_url": "https://job-boards.greenhouse.io/fixturegh/jobs/2",
+         "first_published": iso(NOW - timedelta(days=40))},
+        {"id": 3, "title": "Paris Analyst (Fixture GH)", "location": {"name": "Paris, France"}, "absolute_url": "https://job-boards.greenhouse.io/fixturegh/jobs/3",
+         "first_published": iso(NOW - timedelta(hours=2))}]},
+    # only the recent US job's description is fetched - the old and the Paris job never are
+    "https://boards-api.greenhouse.io/v1/boards/fixturegh/jobs/1": {"content": "&lt;p&gt;We need &lt;b&gt;SQL&lt;/b&gt; and Power BI. Labelled fixture.&lt;/p&gt;"},
     "https://boards-api.greenhouse.io/v1/boards/fixturegh": {"name": "Fixture GH Inc"},
     "https://api.lever.co/v0/postings/fixturelever?mode=json": [
         {"text": "Java Developer (Fixture Lever)", "categories": {"location": "Bengaluru, Karnataka", "commitment": "Full-time"},
          "hostedUrl": "https://jobs.lever.co/fixturelever/abc", "createdAt": int((NOW - timedelta(days=3)).timestamp() * 1000),
          "descriptionPlain": "Java and Spring Boot. Labelled fixture.", "lists": [{"text": "Requirements", "content": "<li>5 years Java</li>"}]}],
-    "https://api.ashbyhq.com/posting-api/job-board/fixtureashby?includeCompensation=true": {"jobs": [
+    "https://api.ashbyhq.com/posting-api/job-board/fixtureashby": {"jobs": [
         {"title": "Contract SQL Analyst (Fixture Ashby)", "location": "New York, NY", "jobUrl": "https://jobs.ashbyhq.com/fixtureashby/1",
          "publishedAt": iso(NOW - timedelta(hours=1)), "employmentType": "Contract", "descriptionPlain": "SQL reporting. Labelled fixture."}]},
+    # Phenom: a 100-row page would ask for the next; this one is short, so it is the whole list
+    ("phenom-list", 0): {"refineSearch": {"data": {"jobs": [
+        {"jobSeqNo": "FXUS1ENUS", "jobId": "JP-1", "title": "Java Developer (Fixture Phenom)", "cityStateCountry": "Dallas, Texas, USA",
+         "postedDate": NOW.strftime("%Y-%m-%dT%H:%M:%S.000+0000"), "type": "Contractor"},
+        {"jobSeqNo": "FXUS2ENUS", "jobId": "JP-2", "title": "Old Role (Fixture Phenom)", "cityStateCountry": "Dallas, Texas, USA",
+         "postedDate": (NOW - timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%S.000+0000"), "type": "Contractor"},
+        {"jobSeqNo": "FXCA3ENUS", "jobId": "JP-3", "title": "Toronto Role (Fixture Phenom)", "cityStateCountry": "Toronto, Ontario, Canada",
+         "postedDate": NOW.strftime("%Y-%m-%dT%H:%M:%S.000+0000"), "type": "Contractor"}]}}},
+    ("phenom-detail", "FXUS1ENUS"): {"jobDetail": {"data": {"job": {"description": "<p>Java, Spring and Kafka. Labelled fixture.</p>"}}}},
     "https://fixturewd.wd5.myworkdayjobs.com/wday/cxs/fixturewd/Ext/jobs": {"total": 2, "jobPostings": [
         {"title": "Cloud Engineer (Fixture WD)", "externalPath": "/job/Austin/Cloud_1", "postedOn": "Posted Today", "locationsText": "Austin, TX"},
         {"title": "Stale (Fixture WD)", "externalPath": "/job/Austin/Old_2", "postedOn": "Posted 30+ Days Ago", "locationsText": "Austin, TX"}]},
@@ -95,13 +106,19 @@ calls = []
 
 
 def fake_http(url, body=None):
-    calls.append(url)
+    calls.append(url if body is None or url != "https://fixtureph.example.com/widgets" else f"{url}#{body.get('ddoKey')}:{body.get('jobSeqNo') or body.get('from')}")
+    if url == "https://fixtureph.example.com/widgets":
+        key = ("phenom-list", body["from"]) if body["ddoKey"] == "refineSearch" else ("phenom-detail", body["jobSeqNo"])
+        if body["ddoKey"] == "refineSearch" and body.get("selected_fields") != {"category": ["Systems & Software"]}:
+            raise RuntimeError("the category to keep must be sent to Phenom")
+        return FEEDS[key]
     if url not in FEEDS:
         raise RuntimeError(f"404 (fixture) {url}")
     return FEEDS[url]
 
 
 cb.http_json = fake_http
+cb.http_text = lambda url: (url, "<html>not a careers portal (fixture)</html>")   # never the real internet in tests
 gh = cb.fetch_board("greenhouse", "fixturegh", "Fixture GH Inc")
 check([j["title"] for j in gh] == ["Data Analyst (Fixture GH)"], f"greenhouse: recent US job only: {[j['title'] for j in gh]}")
 check(gh and "SQL" in gh[0]["description"] and "<b>" not in gh[0]["description"] and gh[0]["country"] == "United States", f"greenhouse text: {gh}")
@@ -111,6 +128,21 @@ wd = cb.fetch_board("workday", "fixturewd|wd5|Ext", "Fixture WD")
 check([j["title"] for j in wd] == ["Cloud Engineer (Fixture WD)"] and wd[0]["country"] == "United States" and "Terraform" in wd[0]["description"],
       f"workday: today's job read, 30+ days skipped: {wd}")
 check(not any("Old_2" in u for u in calls), "an old Workday posting's details are never fetched")
+check(not any(u.endswith("/fixturegh/jobs/2") or u.endswith("/fixturegh/jobs/3") for u in calls),
+      "greenhouse: an old or non-US/India posting's description is never fetched")
+ph = cb.fetch_board("phenom", "fixtureph.example.com|us|en_us|Systems & Software", "Fixture Phenom")
+check([j["title"] for j in ph] == ["Java Developer (Fixture Phenom)"] and ph[0]["country"] == "United States" and ph[0]["job_type"] == "Contractor"
+      and "Kafka" in ph[0]["description"] and "<p>" not in ph[0]["description"]
+      and ph[0]["url"] == "https://fixtureph.example.com/us/en/job/JP-1", f"phenom: recent US job only, with its description: {ph}")
+check(not any(c.endswith(":FXUS2ENUS") or c.endswith(":FXCA3ENUS") for c in calls), "phenom: an old or Canada posting's description is never fetched")
+check(cb._careers_url("phenom", "careers.teksystems.com|us|en_us|") == "https://careers.teksystems.com/us/en", "phenom careers link")
+_plain = cb.http_text
+cb.http_text = lambda url: ("https://careers.fixturephenom.com/us/en", '<script>var phApp = {"locale":"en_us","country":"us"};</script>')
+pb = cb.phenom_board("careers.fixturephenom.com")
+check(pb == {"ats": "phenom", "slug": "careers.fixturephenom.com|us|en_us|", "careers_url": "https://careers.fixturephenom.com/us/en"},
+      f"a pasted Phenom careers link is recognised from its page: {pb}")
+cb.http_text = _plain
+check(cb.phenom_board("https://example.com/careers") is None, "a page that isn't Phenom is not taken for one")
 
 # ---- 4 + 5. the list, sync, discovery
 conn = models.get_db_connection()
@@ -139,7 +171,7 @@ cur.execute("SELECT last_error FROM career_boards WHERE slug = 'brokenfixture'")
 check("404" in (cur.fetchone()[0] or ""), "the failing board records its error")
 cur.execute("SELECT source, scraped_at, job_type, country, full_description FROM jobs WHERE url = 'https://jobs.lever.co/fixturelever/abc'")
 row = cur.fetchone()
-posted = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+posted = (row[1] if isinstance(row[1], datetime) else datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S")).replace(tzinfo=timezone.utc)  # Postgres: a datetime
 check(row[0] == "Company site (Lever)" and abs((NOW - posted) - timedelta(days=3)) < timedelta(minutes=5) and row[3] == "India",
       f"saved with the posting time: {tuple(row)}")
 old = (NOW - timedelta(days=45)).strftime("%Y-%m-%d %H:%M:%S")
@@ -147,7 +179,10 @@ for url in ("https://jobs.lever.co/fixturelever/old-unused", "https://jobs.lever
     cur.execute("""INSERT INTO jobs (title, company, location, source, url, description, country, status, scraped_at)
                    VALUES ('Old (fixture)', 'X', 'Pune, India', 'Company site (Lever)', ?, 'old', 'India', 'Open', ?)""", (url, old))
 cur.execute("SELECT id FROM jobs WHERE url = 'https://jobs.lever.co/fixturelever/old-applied'")
-cur.execute("INSERT INTO applications (job_id, candidate_id, stage) VALUES (?, 999, 'Applied')", (cur.fetchone()[0],))
+_job_id = cur.fetchone()[0]
+conn.commit()                                                                   # SQLite: one writer at a time
+_cand = models.create_candidate("Fixture Consultant (career boards)", "fixture.cb@example.com")   # Postgres checks the link
+cur.execute("INSERT INTO applications (job_id, candidate_id, stage) VALUES (?, ?, 'Applied')", (_job_id, _cand))
 conn.commit()
 check(cb.prune_old(conn) == 1, "old company-site jobs removed")
 cur.execute("SELECT url FROM jobs WHERE title = 'Old (fixture)'")
@@ -256,5 +291,5 @@ if failures:
         print("  -", f)
     print("screenshots:", shots)
     sys.exit(1)
-print(f"PASS: company career sites (links, countries, 4 portals' feeds, sync with posting times, discovery, starter list, routes) + "
+print(f"PASS: company career sites (links, countries, 5 portals' feeds, sync with posting times, discovery, starter list, routes) + "
       f"Jobs cards (ring, details, Save, side panel, add company) + table view kept. Screenshots: {shots}")

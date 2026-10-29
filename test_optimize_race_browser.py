@@ -1,6 +1,6 @@
 """Browser test (Playwright + Microsoft Edge): a slow optimize answer never lands in another job's window.
 
-Reproduces the bug from the screenshot: optimizing job A (an AWS JD) takes a while; the window is closed
+Reproduces the bug from the screenshot: the match check for job A (an AWS JD) takes a while; the window is closed
 and job B (an Azure posting whose description couldn't be read) is opened; A's answer arrives late. It
 must NOT fill B's window (status, optimized text, cloud check, Save) - B still asks for its JD and nothing
 can be saved under B - and A's result is kept for A: reopening A shows it without running the AI again.
@@ -30,6 +30,7 @@ import app as app_module  # noqa: E402
 import docx_editor  # noqa: E402
 import models  # noqa: E402
 import resume_bot as rb  # noqa: E402
+import _optimize_steps  # noqa: E402
 import resume_versions  # noqa: E402
 
 failures, ai_calls = [], []
@@ -104,18 +105,19 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
         page.wait_for_function("typeof openOptimizePanel === 'function'", timeout=15000)
         # job A starts optimizing (slow)...
         page.evaluate(f"openOptimizePanel({{ mode: 'job', candId: {cid}, jobId: {ja}, title: 'A', jdText: {json.dumps(JD_A)} }})")
-        page.wait_for_function("document.getElementById('do-status').innerText.includes('Optimizing')", timeout=10000)
+        page.wait_for_function("document.getElementById('do-status').innerText.includes('Checking the match')", timeout=10000)
         # ...the window is closed and job B (JD not readable) is opened
         page.click("#btn-close-draft-optimize")
         page.evaluate(f"openOptimizePanel({{ mode: 'job', candId: {cid}, jobId: {jb}, title: 'B', jdText: '', summary: 'Lead Engineer Azure Racetest - Epam' }})")
         page.evaluate("document.getElementById('do-status').innerHTML = 'B: paste the job description'")
         page.wait_for_timeout(8000)          # A's answer arrives meanwhile
         check(page.inner_text("#do-status") == "B: paste the job description", f"B's status untouched: {page.inner_text('#do-status')!r}")
-        check(page.input_value("#do-optimized") == "" and not page.is_visible("#do-cloud"), "A's resume / cloud check not shown in B")
+        check(page.input_value("#do-optimized") == "" and not page.is_visible("#do-cloud") and page.inner_text("#do-step1") == "",
+              "A's match check / resume / cloud check not shown in B")
         check(page.is_disabled("#btn-do-save"), "nothing can be saved under B")
         page.screenshot(path=shot)
         check(resume_versions.list_for(cid) == [], "no version saved")
@@ -123,9 +125,9 @@ try:
         ai_calls.clear()
         page.click("#btn-close-draft-optimize")
         page.evaluate(f"openOptimizePanel({{ mode: 'job', candId: {cid}, jobId: {ja}, title: 'A', jdText: {json.dumps(JD_A)} }})")
-        page.wait_for_function("document.getElementById('do-status').innerText.includes('earlier result')", timeout=10000)
-        check("on AWS" in page.input_value("#do-optimized") and "rewrite" not in ai_calls and "analysis" not in ai_calls,
-              f"A's late result kept for A, no new optimizer run: {ai_calls}")
+        page.wait_for_function(_optimize_steps.READY, timeout=10000)
+        check("Match " in page.inner_text("#do-status") and "rewrite" not in ai_calls and "analysis" not in ai_calls,
+              f"A's late match check kept for A (server cache), no new AI run: {ai_calls}")
         browser.close()
 finally:
     server.shutdown()

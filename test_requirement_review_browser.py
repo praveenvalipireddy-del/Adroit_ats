@@ -38,6 +38,7 @@ import india_job_scrapers  # noqa: E402
 import models  # noqa: E402
 import resume_bot  # noqa: E402
 import us_job_scrapers  # noqa: E402
+import _optimize_steps  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
@@ -187,7 +188,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
         page.evaluate(f"openTracker({cid})")
         page.click("#ai-tab-reqs")
@@ -207,6 +208,8 @@ try:
         check(page.input_value("#do-email-body") == r1["draft_body"], "the body is exactly the prepared one")
         check(page.locator("#rv-preview .rv-changed").count() >= 1, "tailored lines highlighted")
         check("Create Draft" in page.inner_text("#btn-do-save") and "Review before the draft is created" in page.inner_text("#do-status"), "review wording")
+        check(page.evaluate("optPanel.step") == 3, "Review opens on the resume (step 3); the reply is the next step")
+        _optimize_steps.to_email(page)
         page.fill("#do-email-body", page.input_value("#do-email-body") + "\nEDITED BY RECRUITER")
         check(ai_calls == [], f"no AI call to open the review: {ai_calls}")
         page.screenshot(path=shot)
@@ -237,6 +240,7 @@ try:
         page.click(f"#rq-detail .rq-review[data-id='{r2['id']}']")
         page.wait_for_function("document.getElementById('do-status').innerText.includes('no changes were needed')", timeout=15000)
         page.wait_for_function("document.getElementById('do-email-to').value === 'sam@platform-vendor.example'", timeout=10000)
+        _optimize_steps.to_email(page)
         page.click("#btn-do-save")
         page.wait_for_function("document.getElementById('modal-draft-optimize').style.display === 'none'", timeout=15000)
         page.wait_for_timeout(1500)

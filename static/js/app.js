@@ -5207,6 +5207,13 @@ function initDraftOptimize() {
         openOptimizePanel({ mode: 'paste', candId, jdText: jd });
     });
     $('btn-do-reoptimize').addEventListener('click', () => draftOptimizeRun(false));
+    $('btn-do-next').addEventListener('click', () => {
+        if (optPanel.step === 1) optSteps(2);
+        else if (optPanel.step === 2) optApply();
+        else if (optPanel.step === 3) optSteps(4);
+    });
+    $('btn-do-back').addEventListener('click', () => { if (optPanel.step > 1) optSteps(optPanel.step - 1); });
+    $('btn-do-asis').addEventListener('click', optAsIs);
     const close = () => {
         $('modal-draft-optimize').style.display = 'none';
         if (optPanel.mode !== 'job' && doBox.visible()) pdBox.set(doBox.values(), 'Carried over from the Optimize window - check it, then Create Gmail Draft.');
@@ -5243,6 +5250,11 @@ async function openOptimizePanel(opts) {
     $('do-title').textContent = opts.title ? `⚡ Optimize Resume - ${opts.title}` : '⚡ Optimize Resume for this Requirement';
     $('btn-do-save').innerHTML = opts.requirement ? '✉️ Create Draft (reply in their thread)' : (opts.mode === 'job' ? '✉️ Save &amp; Create Draft' : '💾 Save &amp; use in this draft');
     $('btn-do-download').style.display = 'none';
+    optPanel.analysis = null;
+    optPanel.busy = false;
+    $('do-step1').innerHTML = '';
+    $('do-step2').innerHTML = '';
+    optSteps(1);
     $('modal-draft-optimize').style.display = 'flex';
     if (await optRestore(opts)) return true;
     if (opts.requirement) { await rqShowOriginal(); return true; }   // no changes were needed: the original resume goes
@@ -5300,9 +5312,10 @@ async function optRestore(opts) {
     $('btn-do-save').disabled = false;
     $('btn-do-download').style.display = '';
     $('btn-do-reoptimize').disabled = false;
+    optSteps(3);                                // an earlier result: straight to the resume
     if (($('do-jd').value || '').trim().length < 30) $('do-jd').value = opts.jdText || opts.summary || '';
     if (optPanel.requirement) {
-        $('do-status').innerHTML = `<b>Review before the draft is created</b> - the resume tailored for this requirement (changes in green) and the reply below. Edit either, then click <b>Create Draft</b>.`;
+        $('do-status').innerHTML = `<b>Review before the draft is created</b> - the resume tailored for this requirement (changes in green), then the reply (Next). Edit either, then click <b>Create Draft</b>.`;
         rqFillEmail();
     } else {
         doEmailGenerate();
@@ -5323,9 +5336,10 @@ async function rqShowOriginal() {
     pdResume.candId = optPanel.candId;
     await rv.showResult({ optimized: false, updated_resume_text: text }, () => seq !== optPanel.runSeq);
     rv.text = text;
-    $('do-status').innerHTML = '<b>Review before the draft is created</b> - no changes were needed, so the consultant\'s original resume will be attached. Check the reply below, then click <b>Create Draft</b>.';
+    $('do-status').innerHTML = '<b>Review before the draft is created</b> - no changes were needed, so the consultant\'s original resume will be attached. Check it, then the reply (Next), then click <b>Create Draft</b>.';
     $('btn-do-save').disabled = false;
     $('btn-do-reoptimize').disabled = false;
+    optSteps(3);
     rqFillEmail();
 }
 
@@ -5338,6 +5352,190 @@ function rqFillEmail() {
         checklist: items.length ? '<b style="color:#334155;">What this job asks</b><br>' + items.map(i =>
             `<span style="color:${i.ok ? '#059669' : '#b45309'};">${i.ok ? '✓' : '⚠'} ${escapeHtml(i.text)}</span>`).join('<br>') : '' },
         'Prepared from the recruiter\'s email - check and edit it. The draft gets exactly this email, as a reply in their thread.');
+}
+
+// ---- The Optimize window's steps: 1 Match check -> 2 Choose changes -> 3 Review resume -> 4 Email.
+// Steps 1-2 come from the analysis only (mode "analyze"); the resume is changed only after the recruiter
+// ticks the changes (mode "apply"); "Send resume as is" goes straight to the email with the original.
+const OPT_STEPS = ['Match check', 'Choose changes', 'Review resume', 'Email'];
+
+function optSteps(n) {
+    const $ = id => document.getElementById(id);
+    optPanel.step = n;
+    $('do-steps').innerHTML = OPT_STEPS.map((t, i) => `<li class="${i + 1 < n ? 'done' : i + 1 === n ? 'on' : ''}"${i + 1 === n ? ' aria-current="step"' : ''}>` +
+        `<span class="n">${i + 1 < n ? '✓' : i + 1}</span>${t}</li>`).join('');
+    for (let i = 1; i <= 4; i++) $(`do-step${i}`).style.display = i === n ? '' : 'none';
+    const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
+    show('btn-do-back', n === 2 || n === 4 || (n === 3 && !!optPanel.analysis));
+    show('btn-do-asis', n <= 2 && !optPanel.busy);
+    show('btn-do-next', (n === 1 && !!optPanel.analysis) || n === 2 || n === 3);
+    show('btn-do-save', n === 4);
+    if (n < 3) show('btn-do-download', false);
+    $('btn-do-back').textContent = n === 4 ? '← Back to the resume' : n === 3 ? '← Change the choices' : '← Back';
+    $('btn-do-next').disabled = false;
+    if (n === 1) $('btn-do-next').textContent = 'See suggested changes →';
+    if (n === 2) optChoicesChanged();
+    if (n === 3) $('btn-do-next').textContent = 'Next: the email →';
+}
+
+const optChecked = () => [...document.querySelectorAll('#do-step2 input[data-ch]:checked')].map(i => i.dataset.ch);
+
+function optProjected() {
+    const r = (optPanel.analysis || {}).review || { items: [], initial: 0, target: 0 };
+    const on = new Set(optChecked());
+    const counted = r.items.filter(i => i.kind !== 'missing');
+    const share = counted.length ? counted.filter(i => on.has(i.id)).length / counted.length : 0;
+    const extra = r.items.filter(i => i.kind === 'missing' && on.has(i.id)).length * 3;
+    return Math.min(98, Math.round(r.initial + (r.target - r.initial) * share + extra));
+}
+
+function optChoicesChanged() {
+    const $ = id => document.getElementById(id);
+    const n = optChecked().length;
+    const est = $('do-proj');
+    if (est) est.textContent = n ? `about ${optProjected()}%` : 'no change';
+    $('btn-do-next').textContent = n ? `Apply ${n} change${n === 1 ? '' : 's'} →` : 'Tick a change, or send as is';
+    $('btn-do-next').disabled = !n;
+}
+
+const MC_PARTS = [['mandatory_skills', 'Must-have skills', 40], ['recent_project_relevance', 'Recent projects', 25],
+                  ['domain_experience', 'Domain', 15], ['tools_frameworks_cloud', 'Tools & cloud', 10]];
+const MC_OK = { yes: ['✓', '#047857', 'matches'], partial: ['~', '#b45309', 'partly'], no: ['✗', '#b91c1c', 'gap'], info: ['•', '#64748b', ''] };
+
+function optRenderMatch(d) {
+    const pct = d.initial_match_percentage ?? 0;
+    const tone = pct >= 75 ? ['#047857', '#059669'] : pct >= 60 ? ['#b45309', '#d97706'] : ['#b91c1c', '#dc2626'];
+    const band = pct >= 85 ? 'Strong match' : pct >= 70 ? 'Good match' : pct >= 60 ? 'Fair match' : 'Low match';
+    const parts = d.match_breakdown || {};
+    const bars = MC_PARTS.filter(([k]) => parts[k] != null).map(([k, label, cap]) => {
+        const v = Math.max(0, Math.min(cap, parts[k]));
+        const w = Math.round(v / cap * 100);
+        return `<div class="mc-bar"><div class="t"><b>${label}</b><span>${Math.round(v)} / ${cap}</span></div>` +
+            `<div class="track"><div class="fill" style="width:${w}%; background:${w >= 75 ? '#059669' : w >= 50 ? '#d97706' : '#dc2626'};"></div></div></div>`;
+    }).join('');
+    const okCell = (ok) => { const [s, c, t] = MC_OK[ok] || MC_OK.info; return `<span class="mc-ok" style="color:${c};" title="${t}">${s}</span>`; };
+    const rows = (d.rows || []).map(r => `<tr><td>${okCell(r.ok)}${escapeHtml(r.label)}</td><td>${escapeHtml(r.job || '')}</td><td>${escapeHtml(r.resume || '')}</td></tr>`).join('');
+    const chip = (s, cls, mark) => `<span class="mc-chip ${cls}">${mark} ${escapeHtml(s)}</span>`;
+    const strong = d.mandatory_matched_skills || [], partial = d.partial_match_skills || [], missing = d.mandatory_missing_skills || [];
+    const skills = strong.map(s => chip(s, 'yes', '✓')).concat(partial.map(s => chip(s, 'partial', '~')), missing.map(s => chip(s, 'no', '✗'))).join('');
+    const gaps = partial.length + missing.length;
+    document.getElementById('do-step1').innerHTML = `<div class="mc-wrap">
+        <div class="mc-card"><div class="mc-h">Match with the JD</div>
+            <div class="mc-pct" style="color:${tone[0]};">${pct}%</div><div class="mc-band">${band}</div>${bars}</div>
+        <div class="mc-card" style="min-width:0;"><div class="mc-h">${gaps ? `${gaps} gap${gaps === 1 ? '' : 's'} to look at` : 'No gaps found'}</div>
+            <div style="overflow-x:auto;"><table class="mc-table"><thead><tr><th></th><th>The job asks</th><th>The resume shows</th></tr></thead><tbody>${rows}
+            <tr><td>${okCell(missing.length ? 'no' : partial.length ? 'partial' : 'yes')}Skills</td><td colspan="2"><div class="mc-chips">${skills || '—'}</div></td></tr></tbody></table></div>
+            <div style="font-size:0.78rem; color:#475569; margin-top:8px;"><b style="color:#047857;">✓</b> matches &nbsp; <b style="color:#b45309;">~</b> in the resume under other words &nbsp; <b style="color:#b91c1c;">✗</b> not in the resume</div></div>
+    </div>`;
+}
+
+function optRenderChoices(d) {
+    const r = d.review || { items: [], initial: d.initial_match_percentage || 0, target: d.initial_match_percentage || 0 };
+    const item = (i) => {
+        const why = i.kind === 'align' ? 'Reorders and rewords his summary and latest project for this job - adds no new facts.'
+            : i.kind === 'safe' ? `Found in his resume: "${escapeHtml(i.evidence)}"`
+            : i.kind === 'unproven' ? "Fits his work, but his resume doesn't say it in words - tick only if it's true."
+            : 'Must-have in the job, not in his resume - add only if he really has it (goes in Skills only).';
+        return `<label class="ch-item ${i.kind === 'missing' ? 'missing' : i.kind === 'unproven' ? '' : 'safe'}"><input type="checkbox" data-ch="${escapeHtml(i.id)}"${i.checked ? ' checked' : ''}>` +
+            `<span><b>${escapeHtml(i.label)}</b><small>${why}</small></span></label>`;
+    };
+    const group = (title, color, list) => list.length ? `<div class="ch-group" style="color:${color};">${title}</div>${list.map(item).join('')}` : '';
+    const backed = r.items.filter(i => i.kind === 'align' || i.kind === 'safe');
+    const unproven = r.items.filter(i => i.kind === 'unproven');
+    const missing = r.items.filter(i => i.kind === 'missing');
+    const box = document.getElementById('do-step2');
+    box.innerHTML = `<div class="mc-wrap" style="grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);">
+        <div style="min-width:0;"><div style="display:flex; justify-content:space-between; align-items:baseline;"><h4 style="margin:0; font-size:1.05rem;">Suggested changes</h4>
+            <span style="font-size:0.8rem; color:#64748b;">Only the ticked changes are made</span></div>
+            ${group('Backed by his resume', '#047857', backed)}${group('Not stated in his resume', '#b45309', unproven)}${group('Not in the resume - add only if he really has it', '#b91c1c', missing)}</div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+            <div class="mc-card"><div class="mc-h">Match after these changes</div>
+                <div class="ch-proj"><span style="font-size:1.6rem; color:#94a3b8;">${r.initial}%</span><span aria-hidden="true" style="color:#94a3b8;">→</span>
+                <span id="do-proj" style="font-size:1.6rem; color:#047857;"></span></div></div>
+            <div class="mc-card" style="font-size:0.82rem; color:#334155; line-height:1.5;"><b>What stays the same</b><br>Employers, dates, titles and years of experience never change. His layout and fonts stay as in his Word file.</div>
+        </div></div>`;
+    box.querySelectorAll('input[data-ch]').forEach(i => i.addEventListener('change', optChoicesChanged));
+}
+
+// "Apply N changes": the rewrite with only the ticked changes, then step 3 (the reviewed resume).
+async function optApply() {
+    const $ = id => document.getElementById(id);
+    const ids = optChecked();
+    if (!ids.length) return;
+    const jd = ($('do-jd').value || '').trim();
+    const candId = optPanel.candId;
+    const seq = ++optPanel.runSeq;
+    const key = optKey();
+    const stale = () => seq !== optPanel.runSeq;
+    optPanel.busy = true;
+    ['btn-do-next', 'btn-do-back', 'btn-do-asis', 'btn-do-reoptimize'].forEach(id => { $(id).disabled = true; });
+    const started = Date.now();
+    const tick = () => { if (!stale()) $('do-status').innerHTML = `<b>Making ${ids.length} change${ids.length === 1 ? '' : 's'} - ${Math.round((Date.now() - started) / 1000)}s.</b> Only what you ticked is changed. Nothing is saved until you click Save.`; };
+    tick();
+    const timer = setInterval(tick, 1000);
+    try {
+        const res = await fetch('/api/resume-bot/optimize', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jd_text: jd, candidate_id: candId, use_stored_file: true, mode: 'apply', approved: ids }) });
+        const data = await res.json().catch(() => ({}));
+        if (stale()) {
+            if (res.ok && data.optimized) optCache[key] = { result: data, edited: data.updated_resume_text || '', jd, docx: data.format_preserved ? (data.docx_base64 || '') : '' };
+            return;
+        }
+        if (!res.ok || data.error) throw new Error(data.error || 'The changes could not be made.');
+        await optShowResult(data, key, jd, stale);
+        optSteps(3);
+    } catch (err) {
+        if (!stale()) $('do-status').innerHTML = `<span style="color:#b91c1c;">${escapeHtml(err.message)}</span>`;
+    } finally {
+        clearInterval(timer);
+        optPanel.busy = false;
+        if (!stale()) {
+            ['btn-do-next', 'btn-do-back', 'btn-do-asis', 'btn-do-reoptimize'].forEach(id => { $(id).disabled = false; });
+            if (optPanel.step === 2) optChoicesChanged();
+        }
+    }
+}
+
+// The rewritten resume on screen (step 3) + the email written from it (step 4).
+async function optShowResult(data, key, jd, stale) {
+    const $ = id => document.getElementById(id);
+    pdResume.result = data;
+    $('do-optimized').value = data.updated_resume_text || '';
+    if (data.optimized) optCache[key] = { result: data, edited: data.updated_resume_text || '', jd, docx: data.format_preserved ? (data.docx_base64 || '') : '' };
+    await rv.showResult(data, stale);
+    renderCloudCheck($('do-cloud'), data.cloud_check);
+    const est = optPanel.analysis ? optProjected() : data.target_match_percentage;
+    $('do-status').innerHTML = (data.optimized
+        ? `<b>${(data.approved_changes || []).length || ''} change${(data.approved_changes || []).length === 1 ? '' : 's'} made</b> - match ${data.initial_match_percentage ?? '?'}% &rarr; about ${est ?? '?'}%. Changes are highlighted - edit anything, then go on to the email.`
+        : `<b>Not changed:</b> ${escapeHtml(data.not_optimized_reason || 'the resume was left as it is.')}` +
+          (data.ai_unavailable_reason ? `<div style="color:#b45309; margin-top:4px;"><b>Why the AI didn't run:</b> ${escapeHtml(data.ai_unavailable_reason)}</div>` : '')) +
+        optimizerTimingsHtml(data.timings);
+    $('do-filename').innerHTML = data.suggested_filename
+        ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b>${optPanel.mode === 'job' ? ' and attached to this job\'s draft' : ' and attached to this draft'}.` : '';
+    $('btn-do-save').disabled = !data.optimized;
+    $('btn-do-download').style.display = data.optimized ? '' : 'none';
+    if (data.optimized || (optPanel.mode !== 'job' && data.ai_powered !== false)) doEmailGenerate();
+}
+
+// "Send resume as is": the consultant's original resume is attached; straight to the email.
+async function optAsIs() {
+    const $ = id => document.getElementById(id);
+    const seq = ++optPanel.runSeq;
+    let text = ($('do-original').value || '').trim();
+    if (!text || text === 'Loading...') {
+        try { text = ((await (await fetch(`/api/consultants/${optPanel.candId}`)).json()).resume_text || '').trim(); } catch (e) { text = ''; }
+    }
+    if (seq !== optPanel.runSeq) return;
+    $('do-optimized').value = text;
+    pdResume.result = { optimized: true, requirement_original: true, updated_resume_text: text, format_preserved: false };
+    pdResume.candId = optPanel.candId;
+    await rv.showResult({ optimized: false, updated_resume_text: text }, () => seq !== optPanel.runSeq);
+    rv.text = text;
+    $('do-filename').innerHTML = "The consultant's original resume will be attached, unchanged.";
+    $('do-status').innerHTML = "<b>Sending his resume as it is</b> - check the email, then create the draft.";
+    $('btn-do-save').disabled = false;
+    if (optPanel.requirement) rqFillEmail(); else doEmailGenerate();
+    optSteps(4);
 }
 
 async function draftOptimizeRun(firstTime) {
@@ -5368,39 +5566,31 @@ async function draftOptimizeRun(firstTime) {
     if (stale()) return;
     pdResume.candId = candId;
     const started = Date.now();
-    const tick = () => { if (!stale()) $('do-status').innerHTML = `<b>Optimizing - ${Math.round((Date.now() - started) / 1000)}s.</b> The AI checks the match, then writes only the changes. Nothing is saved until you click Save.`; };
+    // Step 1: the analysis only - the resume is changed after the recruiter ticks the changes (step 2)
+    optPanel.analysis = null;
+    optSteps(1);
+    $('do-step1').innerHTML = '';
+    $('do-step2').innerHTML = '';
+    const tick = () => { if (!stale()) $('do-status').innerHTML = `<b>Checking the match - ${Math.round((Date.now() - started) / 1000)}s.</b> The AI compares the resume with the job. Nothing is changed yet.`; };
     tick();
     const timer = setInterval(tick, 1000);
     try {
+        const job = optPanel.jobId ? (state.jobs || []).find(j => j.id === optPanel.jobId) : null;
         const res = await fetch('/api/resume-bot/optimize', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jd_text: jd, candidate_id: candId, use_stored_file: true }) });
+            body: JSON.stringify({ jd_text: jd, candidate_id: candId, use_stored_file: true, mode: 'analyze',
+                                   job_id: optPanel.jobId || null, job_title: job ? job.title : '' }) });
         const data = await res.json().catch(() => ({}));
-        if (stale()) {                          // a late answer for another job / a closed window: never shown here,
-            if (res.ok && data.optimized) optCache[key] = { result: data, edited: data.updated_resume_text || '', jd,
-                docx: data.format_preserved ? (data.docx_base64 || '') : '' };   // kept for ITS job
-            return;
-        }
-        if (!res.ok || data.error) throw new Error(data.error || 'Optimization failed.');
-        pdResume.result = data;
-        $('do-optimized').value = data.updated_resume_text || '';
-        if (data.optimized) optCache[key] = { result: data, edited: data.updated_resume_text || '', jd,
-            docx: data.format_preserved ? (data.docx_base64 || '') : '' };
-        await rv.showResult(data, () => seq !== optPanel.runSeq);
-        renderCloudCheck($('do-cloud'), data.cloud_check);
-        $('do-status').innerHTML = (data.optimized
-            ? `<b>Optimized</b> - match ${data.initial_match_percentage ?? '?'}% &rarr; ${data.target_match_percentage ?? '?'}%. Review and edit on the right, then ${optPanel.mode === 'job' ? 'Download or Create Draft' : 'Save'}.`
-            : `<b>Not changed:</b> ${escapeHtml(data.not_optimized_reason || 'the resume was left as it is.')}` +
-              (data.ai_unavailable_reason ? `<div style="color:#b45309; margin-top:4px;"><b>Why the AI didn't run:</b> ${escapeHtml(data.ai_unavailable_reason)}</div>` : '')) +
-            optimizerTimingsHtml(data.timings);
-        $('do-filename').innerHTML = data.suggested_filename
-            ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b>${optPanel.mode === 'job' ? ' and attached to this job\'s draft' : ' and attached to this draft'}.` : '';
-        $('btn-do-save').disabled = !data.optimized;
-        $('btn-do-download').style.display = data.optimized ? '' : 'none';
-        // show the email before anything is drafted (from the Paste window always - written from the original
-        // resume when the optimizer left it unchanged)
-        if (data.optimized || (optPanel.mode !== 'job' && data.ai_powered !== false)) doEmailGenerate();
+        if (stale()) return;                    // a late answer for another job / a closed window: never shown here
+        if (!res.ok || data.error) throw new Error(data.error || 'The match check failed.');
+        optPanel.analysis = data;
+        optRenderMatch(data);
+        optRenderChoices(data);
+        const n = ((data.review || {}).items || []).length;
+        $('do-status').innerHTML = `<b>Match ${data.initial_match_percentage ?? '?'}%</b> - see what fits and what's missing, then look at the ${n} suggested change${n === 1 ? '' : 's'}.` +
+            (data.ai_model ? `<span style="color:#64748b;"> · ${escapeHtml(data.ai_model)}</span>` : '');
+        optSteps(1);
     } catch (err) {
-        if (!stale()) $('do-status').innerHTML = `<span style="color:#b91c1c;">${escapeHtml(err.message)}</span>`;
+        if (!stale()) $('do-status').innerHTML = `<span style="color:#b91c1c;">${escapeHtml(err.message)}</span> You can still send his resume as it is.`;
     } finally {
         clearInterval(timer);
         if (!stale()) $('btn-do-reoptimize').disabled = false;
@@ -5941,6 +6131,16 @@ async function optimizeDownload() {
 
 async function draftOptimizeSave() {
     const $ = id => document.getElementById(id);
+    if (pdResume.result && pdResume.result.requirement_original && !rv.edited && $('do-optimized').value === rv.text) {
+        // "Send resume as is": nothing to save - the draft attaches the consultant's original resume
+        const email = doBox.visible() ? doBox.values() : null;
+        pdResumeReset();
+        $('modal-draft-optimize').style.display = 'none';
+        if (email) pdBox.set(email, "Email from the Optimize window, with the consultant's original resume - check it, then Create Gmail Draft.");
+        else pdBox.generate();
+        showToast("The original resume will be attached to this draft.", 'success', 5000);
+        return;
+    }
     $('btn-do-save').disabled = true;
     try {
         const d = await optimizeEnsureSaved();
@@ -6263,7 +6463,8 @@ async function jobOptimizeSaveAndDraft() {
     $('btn-do-save').disabled = true;
     try {
         const req = optPanel.requirement;
-        const unchanged = req && pdResume.result && pdResume.result.requirement_original && !rv.edited && $('do-optimized').value === rv.text;
+        // the original resume ("Send resume as is" / a requirement that needed no changes) is attached as it is
+        const unchanged = pdResume.result && pdResume.result.requirement_original && !rv.edited && $('do-optimized').value === rv.text;
         const d = unchanged ? { id: null } : await optimizeEnsureSaved();
         $('modal-draft-optimize').style.display = 'none';
         await createJobDraft(optPanel.jobId, optPanel.candId, to, null, d.id, { subject, body, requirementId: req ? req.id : null });

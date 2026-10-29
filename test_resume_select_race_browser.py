@@ -93,7 +93,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
 
         # 1. open the optimizer on Saiteja (slow), then immediately pick Praveen
         page.click("a.nav-item[data-tab=resumebot]")

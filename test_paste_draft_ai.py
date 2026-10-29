@@ -38,6 +38,7 @@ import application_brief as ab  # noqa: E402
 import gmail_multi_manager as gm  # noqa: E402
 import models  # noqa: E402
 import resume_bot as rb  # noqa: E402
+import _optimize_steps  # noqa: E402
 
 failures = []
 
@@ -181,7 +182,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openPasteDraftModal({cid})")
         page.fill("#pd-title", "My Own Title")
@@ -212,9 +213,12 @@ try:
         page.dispatch_event("#pd-raw-text", "input")
         page.wait_for_function("document.getElementById('pd-email-body') && document.getElementById('pd-email-body').value.includes('Globex')", timeout=15000)
         page.click("#btn-pd-optimize")
-        # (a) resume left unchanged -> the email still appears, written from the ORIGINAL resume
+        # (a) "Send resume as is" after the match check -> the email appears, written from the ORIGINAL resume
+        page.wait_for_function(_optimize_steps.READY, timeout=20000)
+        page.click("#btn-do-asis")
+        page.wait_for_function("optPanel.step === 4", timeout=10000)
         page.wait_for_function("document.getElementById('do-email-body') && document.getElementById('do-email-body').value.includes('Globex')", timeout=20000)
-        check(page.is_visible("#do-email-box") and "was tailored" not in write_prompts[-1], "unchanged resume: email shown, not called 'tailored'")
+        check(page.is_visible("#do-email-box") and "was tailored" not in write_prompts[-1], "sent as is: email shown, not called 'tailored'")
         page.fill("#do-email-body", page.input_value("#do-email-body") + "\nEDIT IN OPTIMIZE (UNCHANGED)")
         page.click("#btn-close-draft-optimize")
         check(page.input_value("#pd-email-body").endswith("EDIT IN OPTIMIZE (UNCHANGED)"), "closing carries the email back to the Paste window")
@@ -223,8 +227,10 @@ try:
         page.click("#btn-pd-optimize")
         page.wait_for_selector("#modal-draft-optimize", state="visible")
         page.click("#btn-do-reoptimize")
+        _optimize_steps.through_apply(page)
         page.wait_for_function("!document.getElementById('btn-do-save').disabled", timeout=20000)
         page.wait_for_function("document.getElementById('do-email-body').value.includes('Globex') && !document.getElementById('btn-do-email-rewrite').disabled", timeout=20000)
+        _optimize_steps.to_email(page)
         check("Globex" in write_prompts[-1] and "Don't say it was updated" in write_prompts[-1],
               "optimized resume: the email is written from it, without claiming it was 'updated for this role'")
         page.fill("#do-email-body", page.input_value("#do-email-body") + "\nEDIT IN OPTIMIZE (SAVED)")

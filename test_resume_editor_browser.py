@@ -43,6 +43,7 @@ import outreach_ai  # noqa: E402
 import resume_editor  # noqa: E402
 import resume_versions as rv  # noqa: E402
 import us_job_scrapers  # noqa: E402
+import _optimize_steps  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
@@ -235,13 +236,14 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
 
         page.click("#btn-open-paste-draft-modal")
         page.select_option("#pd-consultant-select", str(cid))
         page.fill("#pd-raw-text", JD)
         page.click("#btn-pd-optimize")
+        _optimize_steps.through_apply(page)
         page.wait_for_function("!document.getElementById('btn-do-save').disabled", timeout=20000)
         page.wait_for_function("document.querySelector('#rv-preview .docx-wrapper') && document.querySelector('#rv-preview').innerText.includes('React')", timeout=15000)
         check(page.is_visible("#rv-pane-preview") and not page.is_visible("#do-optimized"), "the preview tab is shown first")
@@ -303,6 +305,7 @@ try:
 
         # ---- the email chat: Review & suggest, Apply, the conversation shown and remembered
         page.wait_for_function("document.getElementById('do-email-body') && document.getElementById('do-email-body').value", timeout=15000)
+        _optimize_steps.to_email(page)
         page.click("#btn-do-email-review")
         page.wait_for_function("document.getElementById('do-email-chat').innerText.includes('where you found the role')", timeout=15000)
         check(page.is_visible("#do-email-chat") and "LinkedIn" not in page.input_value("#do-email-body"), "email advice shown, email unchanged")
@@ -325,6 +328,7 @@ try:
         page.click("#rv-workspace .rv-chip[data-instr*='eadline']")
         page.wait_for_function("document.querySelector('#rv-preview').innerText.includes('Java Full Stack Developer')", timeout=15000)
         page.screenshot(path=shot)
+        _optimize_steps.to_email(page)
         page.click("#btn-do-save")
         page.wait_for_function("document.getElementById('pd-resume-version').innerText.includes('.docx')", timeout=10000)
         saved = rv.list_for(cid)

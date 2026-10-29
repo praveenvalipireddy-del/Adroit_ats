@@ -77,7 +77,7 @@ rb.gemini_configured = lambda: False
 rb.ai_configured = lambda: True
 
 
-def fake_optimize(resume_text, jd_text, custom_instructions="", docx_bytes=None):
+def fake_optimize(resume_text, jd_text, custom_instructions="", docx_bytes=None, **_k):
     optimize_calls.append(custom_instructions)
     return {"ai_powered": True, "initial_match_percentage": 75, "optimized": False, "match_decision": "Strong",
             "updated_resume_text": resume_text, "mandatory_matched_skills": ["Java"]}
@@ -166,7 +166,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
         page.click("a.nav-item[data-tab=resumebot]")
         page.select_option("#resumebot-consultant-select", str(cid))

@@ -1308,21 +1308,32 @@
                 <button class="modal-close" type="button" id="btn-close-draft-optimize">&times;</button>
             </div>
             <div class="modal-body">
+                <!-- 1 Match check -> 2 Choose changes -> 3 Review resume -> 4 Email (optSteps in app.js) -->
+                <ol id="do-steps" class="do-steps" aria-label="Steps"></ol>
                 <div id="do-status" role="status" aria-live="polite" style="font-size:0.85rem; color:#1e3a8a; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px 10px; margin-bottom:10px;"></div>
                 <details id="do-jd-wrap" style="display:none; margin-bottom:10px;">
-                    <summary style="cursor:pointer; font-size:0.82rem; font-weight:700; color:#475569;">Job description used (edit, then Re-optimize)</summary>
+                    <summary style="cursor:pointer; font-size:0.82rem; font-weight:700; color:#475569;">Job description used (edit, then Re-check)</summary>
                     <textarea id="do-jd" rows="7" class="form-control" style="font-size:0.8rem; margin-top:6px;"></textarea>
                 </details>
-                <div id="do-cloud" style="display:none; margin-bottom:10px; padding:10px 12px; border-radius:8px; font-size:0.85rem;"></div>
-                {{ resume_workspace("rv", "do-optimized", "do-original", "Optimized for this JD - edit anything before saving (text edits are applied to the Word file when you save)") }}
-                <div id="do-filename" style="font-size:0.82rem; color:#475569; margin-top:8px;"></div>
+                <div id="do-step1" class="do-step" style="display:none;"></div>
+                <div id="do-step2" class="do-step" style="display:none;"></div>
+                <div id="do-step3" class="do-step">
+                    <div id="do-cloud" style="display:none; margin-bottom:10px; padding:10px 12px; border-radius:8px; font-size:0.85rem;"></div>
+                    {{ resume_workspace("rv", "do-optimized", "do-original", "Optimized for this JD - edit anything before saving (text edits are applied to the Word file when you save)") }}
+                    <div id="do-filename" style="font-size:0.82rem; color:#475569; margin-top:8px;"></div>
+                </div>
                 <!-- The email "Save & Create Draft" will send (shared email component: emailBox('do')) -->
-                <div id="do-email-box" style="display:none; margin-top:14px;"></div>
+                <div id="do-step4" class="do-step">
+                    <div id="do-email-box" style="display:none; margin-top:14px;"></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" id="btn-do-discard">Discard</button>
-                <button type="button" class="btn btn-secondary" id="btn-do-reoptimize">↻ Re-optimize</button>
+                <button type="button" class="btn btn-secondary" id="btn-do-reoptimize">↻ Re-check</button>
+                <button type="button" class="btn btn-secondary" id="btn-do-back" style="display:none;">← Back</button>
+                <button type="button" class="btn btn-secondary" id="btn-do-asis" style="display:none;">Send resume as is</button>
                 <button type="button" class="btn btn-primary" id="btn-do-download" style="display:none;">⬇ Download</button>
+                <button type="button" class="btn btn-primary" id="btn-do-next" style="display:none;">Next →</button>
                 <button type="button" class="btn btn-success" id="btn-do-save">💾 Save &amp; use in this draft</button>
             </div>
         </div>
@@ -1557,7 +1568,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.10"></script>
+    <script src="/static/js/app.js?v=5.99.11"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

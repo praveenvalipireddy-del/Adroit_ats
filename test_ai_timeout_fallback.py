@@ -78,7 +78,7 @@ check(not res.get("optimized") and "took too long" in why and "45 seconds" in wh
 
 # ---- the draft panel shows the reason (front-end code)
 js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "js", "app.js"), encoding="utf-8").read()
-check("Why the AI didn't run:" in js and "data.ai_unavailable_reason" in js.split("async function draftOptimizeRun")[1], "draft panel shows the reason")
+check("Why the AI didn't run:" in js and "data.ai_unavailable_reason" in js.split("async function optShowResult")[1], "draft panel shows the reason")
 
 if failures:
     print(f"FAIL: {len(failures)} check(s) failed:")

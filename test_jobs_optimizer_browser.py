@@ -47,6 +47,7 @@ import job_description_fetch  # noqa: E402
 import models  # noqa: E402
 import resume_bot as rb  # noqa: E402
 import resume_versions  # noqa: E402
+import _optimize_steps  # noqa: E402
 import us_job_scrapers  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
@@ -176,7 +177,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
 
         # 1. Browse Jobs on Karun (not the first consultant)
         page.click("a.nav-item[data-tab=candidates]")
@@ -205,6 +206,12 @@ try:
         page.click(f"{ROW.format(pasted_id)} .btn-optimize-job")
         page.wait_for_selector("#modal-draft-optimize", state="visible", timeout=5000)
         check(page.is_visible("#tab-jobs") and not page.is_visible("#tab-resumebot"), "stays on the Jobs tab")
+        # 1 Match check -> 2 Choose changes -> Apply: nothing is rewritten before the recruiter chooses
+        page.wait_for_function(_optimize_steps.READY, timeout=20000)
+        check(page.is_visible("#do-step1") and "%" in page.inner_text("#do-step1 .mc-pct") and "the job asks" in page.inner_text("#do-step1").lower(),
+              "step 1: the match and the job-vs-resume table")
+        check("rewrite" not in ai_calls and page.input_value("#do-optimized") == "", f"nothing rewritten before choosing: {ai_calls}")
+        _optimize_steps.through_apply(page)
         page.wait_for_function("document.getElementById('do-optimized').value.includes('Power BI dashboards')", timeout=20000)
         check(page.input_value("#do-jd") == FULL_JD, "the pasted requirement's full description is used")
         check("KARUN TEST RESUME" in page.input_value("#do-original"), "Karun's resume on the left")
@@ -214,8 +221,9 @@ try:
         with page.expect_download() as dl:
             page.click("#btn-do-download")
         check(dl.value.suggested_filename == "Karun_Testcase_Power_BI.docx", f"download name: {dl.value.suggested_filename}")
-        # the email is shown IN the Optimize window before anything is drafted
+        # the email is shown IN the Optimize window (step 4) before anything is drafted
         page.wait_for_function("document.getElementById('do-email-body').value.length > 40", timeout=15000)
+        _optimize_steps.to_email(page)
         check(page.is_visible("#do-email-box") and page.input_value("#do-email-to") == "rec@example.invalid", f"email preview in the same window, To = row's recruiter: {page.input_value('#do-email-to')}")
         page.locator("#do-email-box").scroll_into_view_if_needed()
         page.screenshot(path=os.path.join(tmp_dir, "email_preview.png"))
@@ -242,6 +250,7 @@ try:
         # 3b. Dice posting -> full description read once, then optimized
         page.click(f"{ROW.format(scraped_id)} .btn-optimize-job")
         page.wait_for_function("document.getElementById('do-jd').value.startsWith('FULL DICE DESCRIPTION')", timeout=10000)
+        _optimize_steps.through_apply(page)
         page.wait_for_function("!document.getElementById('btn-do-save').disabled", timeout=20000)
         # closed with x (not saved) and reopened -> the same result and my edit come back, nothing re-run
         page.click("#rv-tab-text")
@@ -255,8 +264,8 @@ try:
         page.click(f"{ROW.format(scraped_id)} .btn-optimize-job")
         page.wait_for_function("document.getElementById('do-jd').value.startsWith('FULL DICE DESCRIPTION')", timeout=10000)
         check(len(fetch_calls) == 1, f"the posting is read once, then reused: {fetch_calls}")
-        # wait for THIS run to finish (its result shown), not just an enabled button left from before
-        page.wait_for_function("document.getElementById('do-status').innerText.includes('Optimized') && !document.getElementById('btn-do-reoptimize').disabled", timeout=20000)
+        # wait for THIS run's match check to finish, not just an enabled button left from before
+        page.wait_for_function("document.getElementById('do-status').innerText.includes('Match ') && !document.getElementById('btn-do-reoptimize').disabled", timeout=20000)
         page.click("#btn-do-discard")
 
         # 3c. posting that can't be read -> summary + reason, no optimization

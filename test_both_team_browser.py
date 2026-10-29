@@ -121,7 +121,7 @@ try:
         page = browser.new_page(viewport={"width": 1500, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, MAHESH_EMAIL, MAHESH_PW)
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
         check(page.is_visible("#view-region-switch") and not page.locator("#team-badge").count(), "the Both recruiter has the team switcher")
         page.click("a.nav-item[data-tab=candidates]")
         page.click("#cons-view-table")       # the table view (cards are the default)

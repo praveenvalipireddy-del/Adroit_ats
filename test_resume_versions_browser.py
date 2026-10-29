@@ -36,6 +36,7 @@ import models  # noqa: E402
 import resume_bot as rb  # noqa: E402
 import resume_versions as rv  # noqa: E402
 import us_job_scrapers  # noqa: E402
+import _optimize_steps  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
@@ -113,7 +114,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.10" in page.content(), "cache-buster not bumped to 5.99.10")
+        check("app.js?v=5.99.11" in page.content(), "cache-buster not bumped to 5.99.11")
         page.wait_for_function("state.consultants && state.consultants.length >= 1", timeout=15000)
 
         # ---- Paste & Draft: optimize -> discard -> re-optimize -> edit -> save -> draft attaches it
@@ -122,6 +123,7 @@ try:
         page.fill("#pd-raw-text", JD)
         check("original resume" in page.inner_text("#pd-resume-version"), "starts with the original resume")
         page.click("#btn-pd-optimize")
+        _optimize_steps.through_apply(page)
         page.wait_for_function("document.getElementById('do-optimized').value.includes('React')", timeout=20000)
         check("Java developer with 6 years" in page.input_value("#do-original"), "original shown side by side")
         check(not page.get_attribute("#do-optimized", "readonly"), "optimized side is editable")
@@ -131,13 +133,16 @@ try:
 
         ai_calls.clear()
         page.click("#btn-pd-optimize")
+        _optimize_steps.through_apply(page)
         page.wait_for_function("!document.getElementById('btn-do-save').disabled", timeout=20000)
         page.click("#btn-do-reoptimize")
+        _optimize_steps.through_apply(page)
         page.wait_for_function("!document.getElementById('btn-do-save').disabled", timeout=20000)
         check([c for c in ai_calls if c != "other"] == ["rewrite", "rewrite"], f"same resume + JD: the analysis from the first run is reused: {ai_calls}")
         page.click("#rv-tab-text")
         page.fill("#do-optimized", page.input_value("#do-optimized").replace("Java developer with 6 years", "Java full stack developer with 6 years"))
         page.screenshot(path=shot)
+        _optimize_steps.to_email(page)
         page.click("#btn-do-save")
         page.wait_for_function("document.getElementById('pd-resume-version').innerText.includes('Koushik_Versionui_Java_Full_Stack_Developer_Spring_Boot.docx')", timeout=10000)
         saved = rv.list_for(cid)

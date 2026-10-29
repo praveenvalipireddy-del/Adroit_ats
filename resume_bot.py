@@ -264,7 +264,8 @@ Respond with ONE JSON object and nothing else - no markdown fences, no commentar
   "risky_skills_avoided": ["skills you will NOT add, and why in a few words"],
   "skills_to_add": {"summary": ["..."], "technical_skills": ["..."], "projects": ["..."], "environment": ["..."]},
   "ats_optimization_notes": ["Keywords optimized: ...", "Domain alignment improvements: ...", "Recent project enhancements: ..."],
-  "target_match_percentage": <integer 0-100>
+  "target_match_percentage": <integer 0-100>,
+  "skill_evidence": {"<each skill in skills_to_add and partial_match_skills>": "the exact words from the RESUME that show the candidate used it (copied word for word, at most 25 words), or \"\" when the resume does not show it"}
 }
 match_breakdown must add up to initial_match_percentage.
 skills_to_add lists ONLY skills that pass your Skill Classification Engine as 'Missing But Addable' (realistic, supportable, timeline-valid, role-appropriate for this candidate), each under the section where it will go. The next step may add NO technology that is not in this list or already in the resume, so leave out anything risky. Use empty lists when nothing should be added."""
@@ -479,6 +480,79 @@ def _skill_plan(data: dict) -> dict:
     }
 
 
+def _norm_words(text: str) -> str:
+    return re.sub(r"[^a-z0-9+#.]+", " ", (text or "").lower()).strip()
+
+
+def _verified_evidence(raw, resume_text: str) -> dict:
+    """{skill: quote} keeping only quotes that really are in the resume (the AI's word is never enough):
+    the recruiter is shown it as the proof that a suggested change is backed by the consultant's own work."""
+    if not isinstance(raw, dict):
+        return {}
+    resume = _norm_words(resume_text)
+    out = {}
+    for skill, quote in raw.items():
+        q = _norm_words(str(quote or ""))
+        if len(q) >= 8 and q in resume:
+            out[str(skill).strip()] = re.sub(r"\s+", " ", str(quote)).strip()[:220]
+    return out
+
+
+def review_suggestions(result: dict, plan: dict) -> dict:
+    """The 'Choose changes' list for the recruiter, from step 1's plan:
+    - safe: a skill the analysis would add AND the resume really shows (a verified quote) - ticked;
+    - unproven: a skill it would add but the resume doesn't show in words - not ticked;
+    - missing: a must-have the analysis would NOT add (not in the resume) - not ticked, "only if it's true";
+    - align: rewording the summary / recent project for this job's focus (no new facts) - ticked.
+    Each item: {id, kind, skill, label, sections, evidence, checked}. Plus the match now and about where it ends up."""
+    ev = result.get("skill_evidence") or {}
+    ev_l = {k.lower(): v for k, v in ev.items()}
+    sections_of, order = {}, []
+    names = {"summary": "summary", "technical_skills": "skills", "projects": "recent project", "environment": "environment line"}
+    for sec, skills in plan.items():
+        for s in skills:
+            key = s.strip().lower()
+            if not key:
+                continue
+            if key not in sections_of:
+                sections_of[key] = (s.strip(), [])
+                order.append(key)
+            sections_of[key][1].append(names.get(sec, sec))
+    items = []
+    for key in order:
+        skill, secs = sections_of[key]
+        quote = ev_l.get(key, "")
+        where = ", ".join(dict.fromkeys(secs))
+        items.append({"id": f"skill:{skill}", "kind": "safe" if quote else "unproven", "skill": skill,
+                      "label": f"Show {skill} in the {where}", "sections": list(dict.fromkeys(secs)), "evidence": quote, "checked": bool(quote)})
+    planned = set(order)
+    for s in result.get("mandatory_missing_skills") or []:
+        if s.strip() and s.strip().lower() not in planned:
+            items.append({"id": f"skill:{s.strip()}", "kind": "missing", "skill": s.strip(), "label": f"Add {s.strip()}",
+                          "sections": ["skills"], "evidence": "", "checked": False})
+    domain = (result.get("domain_detected") or "").strip()
+    items.insert(0, {"id": "align", "kind": "align", "skill": "",
+                     "label": "Reword the summary and recent project for this job's focus" + (f" ({domain})" if domain and domain != "Not detected" else ""),
+                     "sections": ["summary", "recent project"], "evidence": "", "checked": True})
+    initial = result.get("initial_match_percentage") or 0
+    target = max(initial, result.get("target_match_percentage") or initial)
+    return {"items": items, "initial": initial, "target": target}
+
+
+def approved_plan(plan: dict, approved) -> dict:
+    """Step 1's plan cut down to what the recruiter ticked. `approved` = list of item ids from review_suggestions;
+    a ticked must-have the analysis wouldn't add ("missing") goes into Technical Skills only - the recruiter
+    vouched for it, but it is never written into a project as experience."""
+    ids = {str(a) for a in (approved or [])}
+    keep = {s[6:].strip().lower() for s in ids if s.startswith("skill:")}
+    out = {sec: [s for s in skills if s.strip().lower() in keep] for sec, skills in plan.items()}
+    planned = {s.strip().lower() for skills in plan.values() for s in skills}
+    for a in ids:
+        if a.startswith("skill:") and a[6:].strip().lower() not in planned:
+            out["technical_skills"].append(a[6:].strip())
+    return out
+
+
 def _analysis_result(data: dict, resume_text: str):
     """Step 1: Gemini's analysis JSON -> the app's response shape, with the master prompt's rules
     applied in code. Returns (result, plan) or (None, reason) if the answer is unusable. The
@@ -524,6 +598,7 @@ def _analysis_result(data: dict, resume_text: str):
         "risky_skills_avoided": _as_list(data.get("risky_skills_avoided")),
         "skills_added": {"summary": [], "technical_skills": [], "recent_projects": [], "environment": []},
         "ats_optimization_notes": _as_list(data.get("ats_optimization_notes")),
+        "skill_evidence": _verified_evidence(data.get("skill_evidence"), resume_text),
         "updated_resume_text": resume_text,
         "format_preserved": False,
         "docx_base64": "",
@@ -624,6 +699,8 @@ def _approved_block(result: dict, plan: dict) -> str:
         + line("Recent project bullets", plan["projects"]) + "\n"
         + line("Environment line", plan["environment"]) + "\n"
         f"Skills NOT to add: {', '.join(result['risky_skills_avoided']) or '(none listed)'}\n"
+        + ("The recruiter chose ONLY these skill additions: insert them where listed and change nothing else - do not "
+           "reword the summary or the projects beyond that.\n" if result.get("no_reword") else "")
     )
 
 
@@ -975,7 +1052,7 @@ def prewarm():
 
 
 def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_bytes: bytes = None, timings: dict = None,
-                 analysis_only: bool = False):
+                 analysis_only: bool = False, approved=None):
     """Runs the master prompt through Gemini in two steps (analysis, then the complete rewritten
     resume). Returns (result, reason): result is the app's response dict, or None - never an
     exception - when AI is unavailable, with `reason` saying why (no key, free quota used up,
@@ -1024,14 +1101,28 @@ def _ai_optimize(resume_text: str, jd_text: str, custom_instructions: str, docx_
         return None, plan                       # (None, reason)
     result["ai_model"] = model1
     if analysis_only:          # match check (match_check): step 1 only - its answer is cached for the optimizer
+        result["skill_plan"] = plan
         return result, ""
 
     initial, level = result["initial_match_percentage"], result["enhancement_level"]
-    if initial < 60:
+    if approved is not None:
+        # The recruiter chose the changes ("Choose changes"): only those are made, and their choice replaces
+        # the automatic below-60% / above-90% stops.
+        ids = [str(a) for a in approved]
+        plan = approved_plan(plan, ids)
+        result["approved_changes"] = ids
+        if not ids:
+            result["not_optimized_reason"] = "No changes were chosen, so the resume was left as it is."
+            return result, ""
+        if "align" not in ids:
+            result["no_reword"] = True
+        if level == "None":
+            result["match_decision"] = "Minimal Enhancement / Fine-Tuning (only the changes the recruiter chose)"
+    elif initial < 60:
         result["not_optimized_reason"] = ("The match is below 60%, so per your master prompt this profile is rejected "
                                           "and the resume was left unchanged.")
         return result, ""
-    if level == "None":
+    if approved is None and level == "None":
         result["not_optimized_reason"] = ("The match is already above 90%, so per your master prompt no major changes are "
                                           "needed - your resume was left unchanged.")
         return result, ""
@@ -1158,8 +1249,35 @@ def match_check(resume_text, jd_text, docx_bytes=None):
             "model": result.get("ai_model") or ""}
 
 
-def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_bytes=None):
+def analyze_for_review(resume_text, jd_text, custom_instructions="", docx_bytes=None):
+    """Step 1 only, for the recruiter's 'Match check' and 'Choose changes' screens: the analysis (match %, matched /
+    partial / missing skills, domain) plus review_suggestions. Prepared EXACTLY like optimize_resume_for_jd, so the
+    Apply that follows reuses this cached analysis. {error} when there is no resume / JD or no AI answer."""
+    jd_text = (jd_text or "").strip()
+    if docx_bytes is not None:
+        try:
+            resume_text = docx_editor.extract_text(docx_bytes)
+        except Exception:
+            docx_bytes = None
+    resume_text = (resume_text or "").strip()
+    if not resume_text or not jd_text:
+        return {"error": "Both resume and job description are required."}
+    jd_info = cloud_align.jd_cloud(jd_text)
+    block = cloud_align.prompt_block(jd_info, cloud_align.clouds_in(resume_text))
+    instructions = "\n\n".join(x for x in ((custom_instructions or "").strip(), block) if x)
+    result, reason = _ai_optimize(resume_text, jd_text, instructions, docx_bytes, {}, analysis_only=True)
+    if not result:
+        return {"error": reason or "The AI analysis is unavailable - try again in a minute."}
+    plan = result.pop("skill_plan", {}) or {"summary": [], "technical_skills": [], "projects": [], "environment": []}
+    result["review"] = review_suggestions(result, plan)
+    result.pop("updated_resume_text", None)
+    return result
+
+
+def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_bytes=None, approved=None):
     """Master Resume Optimization & JD Alignment (see MASTER_RESUME_PROMPT.md).
+    `approved`: the ids the recruiter ticked on 'Choose changes' (analyze_for_review) - only those are made;
+    None = the automatic flow (the analysis decides).
 
     With Gemini available, the master prompt drives the full analysis + rewrite; the match band
     is applied in code and mechanically checkable safety rules (dates, years of experience) are
@@ -1188,7 +1306,7 @@ def optimize_resume_for_jd(resume_text, jd_text, custom_instructions="", docx_by
     jd_info = cloud_align.jd_cloud(jd_text)
     block = cloud_align.prompt_block(jd_info, cloud_align.clouds_in(resume_text))
     instructions = "\n\n".join(x for x in ((custom_instructions or "").strip(), block) if x)
-    result, reason = _ai_optimize(resume_text, jd_text, instructions, docx_bytes, timings)
+    result, reason = _ai_optimize(resume_text, jd_text, instructions, docx_bytes, timings, approved=approved)
     if result is None:
         result = _keyword_analysis(resume_text, jd_text, reason)
     result["jd_cloud"] = jd_info

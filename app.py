@@ -1705,11 +1705,33 @@ def api_resume_bot_optimize():
         standing = consultant_rules.text_for(rules_cid, "resume")
         if standing:
             custom_instructions = (custom_instructions + "\n" if custom_instructions else "") + "Standing rules for this consultant:\n" + standing
+    # mode "analyze": step 1 only - the Match check + Choose changes screens; mode "apply": step 2 with only the
+    # changes the recruiter ticked ("approved"); no mode: the one-step optimizer (analysis decides everything).
+    opts = request.form if request.files.get("resume_file") else (request.get_json(silent=True) or {})
+    mode = str(opts.get("mode") or "").strip().lower()
+    if mode == "analyze":
+        result = resume_bot.analyze_for_review(resume_text, jd_text, custom_instructions, docx_bytes)
+        if result.get("error"):
+            return jsonify(result), 400
+        cand_r = models.get_candidate_by_id(rules_cid) if rules_cid and can_access_candidate(user, rules_cid) else None
+        job_r = models.get_job_by_id(_int_or_none(opts.get("job_id"))) if _int_or_none(opts.get("job_id")) else None
+        result["rows"] = _match_rows(cand_r or {}, job_r or {"title": str(opts.get("job_title") or "")}, jd_text, result)
+        return jsonify(result)
+    approved = None
+    if mode == "apply":
+        approved = opts.get("approved")
+        if isinstance(approved, str):
+            try:
+                approved = json.loads(approved or "[]")
+            except ValueError:
+                approved = []
+        approved = [str(a) for a in (approved or []) if str(a).strip()][:40]
     result = resume_bot.optimize_resume_for_jd(
         resume_text=resume_text,
         jd_text=jd_text,
         custom_instructions=custom_instructions,
         docx_bytes=docx_bytes,
+        approved=approved,
     )
     if result.get("error"):
         return jsonify(result), 400
@@ -1728,6 +1750,36 @@ def api_resume_bot_optimize():
     result["suggested_filename"] = resume_versions.make_filename(
         person, result["primary_skill"], resume_versions.taken_names(name_cid) if named_cand else [])
     return jsonify(result)
+
+
+def _match_rows(cand, job, jd_text, analysis):
+    """'The job asks / The resume shows' rows of the Match check: title, experience, location, domain - each
+    {label, job, resume, ok: yes|partial|no|info}. Only what the job, the JD and the profile really say."""
+    rows = []
+    jt, ct = (job.get("title") or "").strip(), (cand.get("title") or "").strip()
+    if jt or ct:
+        common = {w for w in re.findall(r"[a-z0-9+#]{3,}", jt.lower())} & {w for w in re.findall(r"[a-z0-9+#]{3,}", ct.lower())}
+        rows.append({"label": "Job title", "job": jt or "Not stated", "resume": ct or "Not on the profile",
+                     "ok": "yes" if jt and ct and (jt.lower() == ct.lower() or len(common) >= 2) else "partial" if common else "no"})
+    need = job_experience.parse_years(jd_text or job.get("description") or "")
+    yrs = _int_or_none(cand.get("experience_years"))
+    if need or yrs is not None:
+        asks = (f"{need['min']}-{need['max']} years" if need and need.get("max") else f"{need['min']}+ years" if need else "Not stated")
+        ok = "info"
+        if need and yrs is not None:
+            ok = "yes" if need["min"] <= yrs and (not need.get("max") or yrs <= need["max"] + 2) else \
+                 "partial" if need["min"] <= yrs + job_experience.STRETCH_YEARS else "no"
+        rows.append({"label": "Experience", "job": asks, "resume": f"{yrs} years" if yrs is not None else "Not on the profile", "ok": ok})
+    jl, cl = (job.get("location") or "").strip(), (cand.get("location") or "").strip()
+    if jl or cl:
+        same = bool(jl and cl and cl.split(",")[0].strip().lower() in jl.lower())
+        rows.append({"label": "Location", "job": jl or "Not stated", "resume": cl or "Not on the profile", "ok": "yes" if same else "info"})
+    dom = (analysis.get("domain_detected") or "").strip()
+    score = (analysis.get("match_breakdown") or {}).get("domain_experience")
+    if dom and dom != "Not detected":
+        rows.append({"label": "Domain", "job": dom, "resume": f"Domain fit {round(score)}/15" if score is not None else "",
+                     "ok": "info" if score is None else "yes" if score >= 10 else "partial" if score >= 5 else "no"})
+    return rows
 
 
 def _stored_resume_file(cand):

@@ -339,7 +339,7 @@ def _handle(conn, rid: int, cand: Dict, p: Dict, full_text: str, user_id: Option
     version_id, attachment = None, (name, original)
     tailored = resume_versions.decode_docx(res.get("docx_base64") or "") if res.get("optimized") else None
     if tailored:
-        skill = resume_versions.primary_skill(res, cand, jd)
+        skill = resume_versions.primary_skill(res, cand, jd, job_title=title)
         fname = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cand["id"]))
         version_id = resume_versions.save(cand["id"], job_id, fname, tailored, skill, "", jd[:300], user_id or cand.get("assigned_user_id") or 1)
         attachment = (fname, tailored)

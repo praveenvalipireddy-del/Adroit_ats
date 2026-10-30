@@ -152,7 +152,7 @@ try:
         page.fill("input[name=password]", ADMIN_PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.12" in page.content(), "cache-buster not bumped to 5.99.12")
+        check("app.js?v=5.99.13" in page.content(), "cache-buster not bumped to 5.99.13")
         page.click("a.nav-item[data-tab=sourcing]")
         page.click(".edu-tab[data-filter=ALL]")
         page.wait_for_selector("#btn-fill-work-info", timeout=15000)

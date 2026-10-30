@@ -130,7 +130,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.12" in page.content(), "cache-buster not bumped to 5.99.12")
+        check("app.js?v=5.99.13" in page.content(), "cache-buster not bumped to 5.99.13")
         page.click("a.nav-item[data-tab=vendors]")
         page.click("#vendors-tab-usa")
         page.wait_for_function("document.getElementById('vendors-body').innerText.includes('CloudHire')", timeout=10000)

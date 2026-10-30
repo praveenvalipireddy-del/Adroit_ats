@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 3) return;
+  if (window.JH && window.JH.version === 4) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -273,6 +273,59 @@
     }
   }
 
+  // ---------------- which upload box is the resume's
+  // Career sites rarely label the <input type=file> itself: the "Resume/CV:" text is a heading above it, and the
+  // same page often has a second upload for the cover letter. So the box's own label counts first, then the text
+  // of the section it sits in - but never a section that also holds the other upload.
+  const RESUME_RE = /resume|r[ée]sum[ée]|\bcv\b|curriculum/i;
+  const COVER_RE = /cover\s*letter|\bcover\b|motivation/i;
+
+  // file inputs, also inside open shadow roots (some career sites build the form from web components)
+  function fileInputs(root, out = []) {
+    root.querySelectorAll('input[type="file"]').forEach((e) => out.push(e));
+    root.querySelectorAll('*').forEach((n) => { if (n.shadowRoot) fileInputs(n.shadowRoot, out); });
+    return out;
+  }
+
+  function fileContext(input) {
+    const parts = [];
+    let c = input;
+    for (let i = 0; i < 6 && c && c.parentElement && c.parentElement !== document.body; i++) {
+      const p = c.parentElement;
+      if (p.querySelectorAll('input[type="file"]').length > 1) {
+        // this section also holds the other upload: only the heading right above this box counts
+        let s = c.previousElementSibling;
+        for (let k = 0; k < 4 && s; k++, s = s.previousElementSibling) {
+          if (s.querySelector && s.querySelector('input[type="file"]')) break;
+          const t = textOf(s);
+          if (t) { parts.push(t.slice(0, 200)); break; }
+        }
+        break;
+      }
+      parts.push(textOf(p).slice(0, 300));
+      c = p;
+    }
+    return norm(parts.join(' | '));
+  }
+
+  function resumeInput(files) {
+    const scored = files.map((f, i) => {
+      const own = labelOf(f) + ' ' + (f.name || '') + ' ' + (f.id || '');
+      const around = fileContext(f);
+      let score = 0;
+      if (RESUME_RE.test(own) && !COVER_RE.test(own)) score = 3;
+      else if (COVER_RE.test(own)) score = -1;
+      else if (RESUME_RE.test(around) && !COVER_RE.test(around)) score = 2;
+      else if (COVER_RE.test(around) && !RESUME_RE.test(around)) score = -1;
+      else if (RESUME_RE.test(around) && around.search(RESUME_RE) < around.search(COVER_RE)) score = 1;
+      return { f, i, score };
+    });
+    const best = scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.i - b.i)[0];
+    if (best) return best.f;
+    const unknown = scored.filter((x) => x.score === 0);
+    return unknown.length ? unknown[0].f : null;     // nothing says which: the first upload that isn't the cover letter
+  }
+
   // ---------------- the main fill
   function fill(profile, resume) {
     clearMarks();
@@ -282,12 +335,18 @@
     const els = Array.from(document.querySelectorAll('input, select, textarea'));
 
     // resume upload
-    const files = els.filter((e) => e.type === 'file' && !e.disabled);
+    const files = fileInputs(document).filter((e) => !e.disabled);
     if (resume && resume.base64 && files.length) {
-      const target = files.find((f) => /resume|\bcv\b|curriculum/i.test(labelOf(f) + ' ' + (f.name || '') + ' ' + (f.id || '')))
-        || (files.length === 1 && !/cover/i.test(labelOf(files[0]) + ' ' + (files[0].name || '')) ? files[0] : null);
-      if (target && !(target.files && target.files.length)) {
+      const target = resumeInput(files);
+      const has = target && target.files && target.files.length;
+      if (target && has && target.getAttribute('data-jh-file') === resume.filename) {
+        result.resumeAttached = true;                               // already this resume (Autofill ran twice)
+      } else if (target && has && !target.getAttribute('data-jh-file')) {
+        result.needsYou.push('a resume is already attached on the page - Job Hunt left it as it is');
+      } else if (target) {
+        // empty, or holding the other resume Job Hunt attached before (e.g. the original, before "Tailor resume")
         result.resumeAttached = attachResume(target, resume);
+        if (result.resumeAttached) target.setAttribute('data-jh-file', resume.filename);
         const box = target.closest('.field, .form-group, [class*="upload" i], [class*="file" i]') || target.parentElement;
         mark(isShown(target) ? target : box, result.resumeAttached ? GREEN : RED, result.resumeAttached ? 'Resume attached by Job Hunt' : 'Attach the resume here');
       }
@@ -446,6 +505,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 3, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
-    _keyFor: keyFor, _labelOf: labelOf };
+  window.JH = { version: 4, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+    _keyFor: keyFor, _labelOf: labelOf, _resumeInput: resumeInput };
 })();

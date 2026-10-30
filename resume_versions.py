@@ -27,8 +27,39 @@ def _clean(part: str) -> str:
 
 _ROLE_WORD = r"(?:Engineer|Developer|Architect|Analyst|Administrator|Consultant|Scientist|Specialist|Manager|Lead|SRE|Tester|Designer)"
 _ROLE_LINE_RE = re.compile(r"^(?:job\s*title|title|role|position|designation)?\s*[:\-]?\s*(.{3,70})$", re.I)
-_LOOKING_RE = re.compile(r"(?:looking for|hiring|seeking|need)\s+(?:an?\s+|the\s+)?(?:(?:experienced|skilled|talented|strong|seasoned|motivated)\s+)*"
+_LOOKING_RE = re.compile(r"(?:looking for|hiring(?:\s+for)?|seeking|need|requirement for|opening for)\s+(?:an?\s+|the\s+)?(?:(?:experienced|skilled|talented|strong|seasoned|motivated)\s+)*"
                          r"((?:[A-Z][\w/&+.#-]*\s+){0,4}" + _ROLE_WORD + r")\b")
+
+
+# Vendor emails open with "We are hiring for ...", "Urgent requirement for ...", "Hiring: ..." - that lead-in
+# is not the role and must never end up in the file name.
+_LEAD_IN_RE = re.compile(
+    r"^(?:(?:hi|hello|dear|greetings)\b[^,!:\n]*[,!:]\s*)?(?:(?:we|i)\s*(?:are|am|'re|'m)\s+)?(?:currently\s+|actively\s+)?"
+    r"(?:(?:urgent(?:ly)?|immediate(?:ly)?|hot|new|direct\s+client)\s+)*"
+    r"(?:(?:hiring|looking|seeking|searching|recruiting)(?:\s+(?:for|of))?\s*[:\-]?|"
+    r"(?:requirements?|openings?|opportunity|vacancy|need|position|role)\s*(?:(?:for|of)\b|[:\-]))"
+    r"\s*(?:an?\s+|the\s+)?(?:(?:experienced|skilled|talented|strong|seasoned|motivated)\s+)*", re.I)
+_TAIL_RE = re.compile(r"\s*-\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s*,\s*[A-Z]{2}\b.*$|\s+(?:at|with|in|for|who|having|located|based)\s+.*$|\s*[,|(\[].*$"
+                      r"|\s*-\s*(?:remote|hybrid|on-?site|onsite|contract|c2c|w2|full[- ]?time|part[- ]?time|\d.*)\b.*$", re.I)
+
+
+_GENERIC_TITLES = {"requirement", "requirements", "job", "jobs", "role", "position", "opening", "openings", "this role", "untitled",
+                   "hiring", "urgent", "urgent requirement", "job opening", "opportunity", "resume", "profile"}
+
+
+def clean_role(text: str) -> str:
+    """'We are hiring for AI Consultant at NTT DATA, Bangalore' -> 'AI Consultant'. '' when nothing role-like is left."""
+    role = re.sub(r"^(?:(?:re|fw|fwd)\s*:\s*)+", "", " ".join(str(text or "").split()), flags=re.I)
+    prev = None
+    while prev != role:                           # "Hi Team, Urgent requirement for ..." - strip every lead-in
+        prev = role
+        role = _LEAD_IN_RE.sub("", role, count=1).strip()
+    role = re.sub(r"^(?:job\s*title|title|role|position|designation)\s*[:\-]\s*", "", role, flags=re.I)
+    role = _TAIL_RE.sub("", role).strip(" -|,.:")
+    words = role.split()
+    if not words or len(words) > 8 or not re.search(r"[A-Za-z]", role) or role.lower() in _GENERIC_TITLES:
+        return ""
+    return " ".join(words[:6])
 
 
 def jd_role(jd_text: str) -> str:
@@ -38,21 +69,26 @@ def jd_role(jd_text: str) -> str:
         # job-board headers run on: "DevOps Engineer DEPARTMENTDevelopment EMPLOYMENT TYPEFull Time ..." (labels in capitals)
         line = re.split(r"\s+(?:DEPARTMENT|LOCATION|EMPLOYMENT|EXPERIENCE|SALARY|JOB TYPE)", line)[0].strip()
         m = _ROLE_LINE_RE.match(line)
-        if m and re.search(r"\b" + _ROLE_WORD + r"\b", m.group(1)) and not line.endswith((".", ":")) and len(m.group(1).split()) <= 8:
-            role = re.sub(r"\s*[\(\[].*$", "", m.group(1))
-            return " ".join(role.split()[:6]).strip(" -|,")
+        if m and re.search(r"\b" + _ROLE_WORD + r"\b", m.group(1)) and not line.endswith((".", ":")) and len(m.group(1).split()) <= 12:
+            role = clean_role(m.group(1))
+            if role and re.search(r"\b" + _ROLE_WORD + r"\b", role):
+                return role
     m = _LOOKING_RE.search(jd_text or "")
-    return m.group(1).strip() if m else ""
+    return clean_role(m.group(1)) if m else ""
 
 
-def primary_skill(result: Dict, cand: Optional[Dict], jd_text: str) -> str:
-    """The label in the saved file's name: the JD's role + the matched skill the JD mentions most
-    ('DevOps Engineer Terraform'), else that skill alone, else the consultant's main skill."""
+def primary_skill(result: Dict, cand: Optional[Dict], jd_text: str, job_title: str = "") -> str:
+    """The label in the saved file's name: the job's role (its title when known, else read from the JD) + the
+    matched skill the JD mentions most ('DevOps Engineer Terraform'), else that skill alone, else the consultant's
+    main skill."""
     matched = [s for s in (result or {}).get("mandatory_matched_skills") or [] if str(s).strip()]
     jd = (jd_text or "").lower()
     in_jd = [s for s in matched if str(s).strip().lower() in jd]
     # the skill the JD talks about most (not just the first one listed)
     in_jd.sort(key=lambda s: -jd.count(str(s).strip().lower()))
+    title = clean_role(job_title)
+    if title:
+        return title                               # the job's own title is the clearest name ('AI Consultant Insurance')
     role = jd_role(jd_text)
     if role:
         top = next((str(s).strip() for s in in_jd if str(s).strip().lower() not in role.lower()), "")

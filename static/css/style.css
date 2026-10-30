@@ -1230,6 +1230,12 @@ body {
 .sa-status { font-size: 0.85rem; margin-bottom: 8px; }
 .sa-err { color: #b91c1c; }
 .sa-warn { color: #b45309; font-size: 0.8rem; }
+.sa-manual { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; font-size: 0.85rem; color: #334155; }
+.sa-manual ol { margin: 6px 0 10px; padding-left: 18px; }
+.sa-manual li { margin-bottom: 6px; }
+.sa-manual a { color: #2563eb; }
+.sa-manual-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.sa-manual-row input { flex: 1; min-width: 200px; }
 .sa-person { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
 .sa-p-main b { display: block; color: #0f172a; }
 .sa-p-main span { display: block; font-size: 0.8rem; color: #64748b; }

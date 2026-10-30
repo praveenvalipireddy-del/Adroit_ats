@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Resume preview - Job Hunt</title>
+  <link rel="stylesheet" href="panel.css">
+  <style>
+    body { background: #eef1f6; }
+    .pv-bar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 20px; background: #fff; border-bottom: 1px solid var(--line); }
+    .pv-bar b { font-size: 15px; }
+    .pv-bar .hint { margin: 0; text-align: left; }
+    .pv-doc { max-width: 900px; margin: 18px auto 40px; padding: 0 12px; }
+    .pv-doc .docx-wrapper { background: transparent !important; padding: 0 !important; }
+    .pv-doc .docx-wrapper > section.docx { box-shadow: 0 2px 12px rgba(15, 23, 42, .14); margin-bottom: 16px; }
+    .pv-text { background: #fff; padding: 28px 34px; box-shadow: 0 2px 12px rgba(15, 23, 42, .14); font-size: 13.5px; line-height: 1.55; }
+    .pv-changed { background: #fef3c7 !important; box-shadow: -4px 0 0 #f59e0b; }
+    .pv-key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #fef3c7; box-shadow: -3px 0 0 #f59e0b; vertical-align: -1px; margin-left: 3px; }
+    .pv-pdf { width: 100%; height: calc(100vh - 120px); border: 0; background: #fff; box-shadow: 0 2px 12px rgba(15, 23, 42, .14); }
+  </style>
+</head>
+<body>
+  <div class="pv-bar">
+    <div class="grow"><b id="pv-name">Resume</b><p class="hint" id="pv-note"></p></div>
+    <label class="check" id="pv-toggle-wrap"><input type="checkbox" id="pv-toggle" checked> Highlight changes <span class="pv-key"></span></label>
+    <button class="btn primary" id="pv-download">⬇ Download</button>
+  </div>
+  <div class="pv-doc" id="pv-doc"><p class="hint">Opening the resume…</p></div>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/docx-preview.min.js"></script>
+  <script src="preview.js"></script>
+</body>
+</html>

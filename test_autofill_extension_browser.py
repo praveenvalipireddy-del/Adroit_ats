@@ -287,13 +287,32 @@ try:
               f"panel: what changed + the tailored resume is the one attached: {panel.inner_text('#resume-name')!r}")
         shots["tailor"] = os.path.join(tmp_dir, "panel_tailor.png")
         panel.screenshot(path=shots["tailor"], full_page=True)
-        job_page.goto("https://boards.greenhouse.io/samplefixtureco/jobs/1")      # the same job's form again, empty
+        # preview: the real Word file in a tab, the changed lines highlighted; download: the same file
+        with ctx.expect_page() as pv_info:
+            panel.click("#btn-tl-preview")
+        pv = pv_info.value
+        pv.on("pageerror", lambda e: js_errors.append("preview: " + str(e)))
+        wait_text(pv, '#pv-note', 'Tailored for this job')
+        check(pv.inner_text("#pv-name") == tailored_name, f"preview names the tailored file: {pv.inner_text('#pv-name')!r}")
+        hl = pv.eval_on_selector_all(".pv-changed", "els => els.map(e => e.textContent)")
+        check(any("Power BI dashboards" in t for t in hl), f"preview highlights the changed line: {hl}")
+        with pv.expect_download() as dl:
+            pv.click("#pv-download")
+        check(dl.value.suggested_filename == tailored_name, f"preview download: {dl.value.suggested_filename}")
+        shots["preview"] = os.path.join(tmp_dir, "preview.png")
+        pv.screenshot(path=shots["preview"], full_page=True)
+        pv.close()
+        with panel.expect_download() as dl:
+            panel.click("#btn-tl-download")
+        check(dl.value.suggested_filename == tailored_name and dl.value.path() and os.path.getsize(dl.value.path()) > 1000,
+              f"panel download: {dl.value.suggested_filename}")
+        # the same form (original already attached by Job Hunt): Autofill swaps in the tailored resume
         job_page.bring_to_front()
         panel.bring_to_front()
         panel.wait_for_timeout(1500)
         panel.click("#btn-autofill")
         for _ in range(100):
-            if job_page.eval_on_selector("#cv", "e => e.files.length"):
+            if job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == tailored_name:
                 break
             panel.wait_for_timeout(200)
         check(job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == tailored_name, f"Autofill attached the tailored resume ({tailored_name})")
@@ -348,7 +367,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.12" in page.content(), "cache-buster not bumped to 5.99.12")
+        check("app.js?v=5.99.13" in page.content(), "cache-buster not bumped to 5.99.13")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

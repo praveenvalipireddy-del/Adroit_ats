@@ -64,6 +64,18 @@ check(rv.make_filename("Koushik Versiontest", "Java Full Stack", taken) == "Kous
 check(rv.primary_skill({"mandatory_matched_skills": ["Spring Boot", "Java Full Stack"]}, {}, "Need Java Full Stack with React") == "Java Full Stack",
       "the matched skill the JD names")
 check(rv.primary_skill({"mandatory_matched_skills": []}, {"primary_skills": "Python, AWS"}, "x") == "Python", "fallback: profile skill")
+# a vendor email's lead-in ("We are hiring for ...") is never part of the file name
+for jd, want in [("We are hiring for AI Consultant", "AI Consultant"), ("Hi Team,\nWe are hiring for Java Developer with 8 years", "Java Developer"),
+                 ("Urgent requirement for DevOps Engineer - Remote", "DevOps Engineer"), ("Hiring: Senior Data Engineer", "Senior Data Engineer"),
+                 ("Immediate opening for QA Analyst", "QA Analyst"), ("Position: Lead Data Engineer at Wipro, Hyderabad", "Lead Data Engineer"),
+                 ("Job Title: Salesforce Developer (Remote)", "Salesforce Developer"), ("Requirements Analyst\nabc", "Requirements Analyst")]:
+    check(rv.jd_role(jd) == want, f"role from {jd!r}: {rv.jd_role(jd)!r}")
+check(rv.primary_skill({}, {}, "We are hiring for a Python Developer", job_title="AI Consultant - Insurance") == "AI Consultant - Insurance",
+      "the job's own title names the file")
+check(rv.primary_skill({}, {}, "x", job_title="Re: Urgent requirement for Java Developer - Dallas, TX") == "Java Developer", "email subject cleaned")
+check(rv.primary_skill({}, {"primary_skills": "Python"}, "x", job_title="Requirement") == "Python", "a generic title is not used")
+check(rv.make_filename("Praveen Valipireddy", rv.primary_skill({}, {}, "We are hiring for AI Consultant"), []) == "Praveen_Valipireddy_AI_Consultant.docx",
+      "no 'We_are_hiring_for' in the file name")
 
 # ---- fixtures
 d = docx.Document()

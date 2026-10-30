@@ -78,6 +78,7 @@ function renderMain() {
 
 $('sel-consultant').addEventListener('change', async (e) => {
   st.cid = parseInt(e.target.value, 10) || null;
+  st.original = null;
   await store({ cid: st.cid });
   resetTailor();
   $('match-box').hidden = true;
@@ -261,19 +262,63 @@ async function tailorApply() {
     const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids } });
     const box = $('tailor-box');
     if (!d.changed) { box.innerHTML = `<p class="warn">${esc(d.reason)}</p><p class="hint">Autofill attaches the original resume.</p>`; return; }
-    st.tailored = { filename: d.filename, mime: d.mime, base64: d.base64 };
+    st.tailored = { filename: d.filename, mime: d.mime, base64: d.base64, original: d.original_text || '', changes: d.changes };
     $('resume-name').textContent = `${d.filename} (tailored for this job)`;
     const list = d.changes.map((c) => `<li>${c.before ? `<s>${esc(c.before)}</s><br>` : ''}<span>${esc(c.after)}</span></li>`).join('');
     box.innerHTML = `<b style="color:var(--green)">✓ ${d.changes.length} change${d.changes.length === 1 ? '' : 's'} made</b>
-      <p class="hint">Autofill attaches <b>${esc(d.filename)}</b> (saved in Job Hunt).</p><ul class="tl-changes">${list}</ul>
+      <p class="hint">Autofill attaches <b>${esc(d.filename)}</b> (saved in Job Hunt).</p>
+      <div class="row"><button class="btn" id="btn-tl-preview">👁 Preview resume</button><button class="btn" id="btn-tl-download">⬇ Download</button></div>
+      <ul class="tl-changes">${list}</ul>
       <button class="link-btn" id="btn-tl-orig">Attach the original resume instead</button>`;
     $('btn-tl-orig').addEventListener('click', resetTailor);
+    $('btn-tl-preview').addEventListener('click', () => previewResume(st.tailored));
+    $('btn-tl-download').addEventListener('click', () => downloadResume(st.tailored));
   } catch (e) {
     flash(e.message, true);
     btn.disabled = false;
     tailorChanged();
   }
 }
+
+// ------------------------------------------------------------- the resume Autofill attaches: preview / download
+async function currentResume() {
+  if (st.tailored) return st.tailored;
+  if (!st.cid || !st.profile || !st.profile.profile.resume_filename) return null;
+  if (st.original && st.original.cid === st.cid) return st.original.file;
+  const file = await api(`/api/ext/consultants/${st.cid}/resume`);
+  st.original = { cid: st.cid, file };
+  return file;
+}
+
+function resumeBlob(r) {
+  const bin = atob(r.base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: r.mime || 'application/octet-stream' });
+}
+
+function downloadResume(r) {
+  if (!r) { flash('No resume on file - upload one in Job Hunt.', true); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(resumeBlob(r));
+  a.download = r.filename;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+async function previewResume(r) {
+  if (!r) { flash('No resume on file - upload one in Job Hunt.', true); return; }
+  await chrome.storage.session.set({ jhPreview: { filename: r.filename, mime: r.mime, base64: r.base64, original: r.original || '', changes: r.changes || [] } });
+  chrome.tabs.create({ url: chrome.runtime.getURL('preview.html') });
+}
+
+async function withResume(fn) {
+  try { fn(await currentResume()); } catch (e) { flash(e.message, true); }
+}
+$('btn-res-preview').addEventListener('click', () => withResume(previewResume));
+$('btn-res-download').addEventListener('click', () => withResume(downloadResume));
 
 $('btn-save').addEventListener('click', async () => {
   if (!st.job || !st.cid) return;
@@ -347,7 +392,7 @@ async function autofill(opened) {
     if ($('chk-resume').checked && st.tailored) {
       resume = st.tailored;                           // the resume tailored for this job (Tailor resume)
     } else if ($('chk-resume').checked && st.profile && st.profile.profile.resume_filename) {
-      try { resume = await api(`/api/ext/consultants/${st.cid}/resume`); } catch (e) { resume = null; }
+      try { resume = await currentResume(); } catch (e) { resume = null; }
     }
     await inject(tab.id, true);
     const frames = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: (p, r) => window.JH && window.JH.fill(p, r), args: [st.profile.profile, resume] });
@@ -400,7 +445,8 @@ async function autofill(opened) {
     st.lastFill = res;
     const lines = [
       [`var(--green)`, `${res.filled.length} field${res.filled.length === 1 ? '' : 's'} filled from ${esc(st.profile.profile.full_name)}'s profile`],
-      resume ? [res.resumeAttached ? 'var(--green)' : 'var(--red)', res.resumeAttached ? `Resume attached (${esc(resume.filename)})` : 'Resume not attached - upload it yourself'] : null,
+      resume ? [res.resumeAttached ? 'var(--green)' : 'var(--red)', res.resumeAttached ? `Resume attached (${esc(resume.filename)})`
+        : `Resume not attached - this page has no upload box Job Hunt can fill. <button class="link-btn" id="btn-res-dl2">⬇ Download ${esc(resume.filename)}</button> and upload it on the page.`] : null,
       ai.filled.length ? ['var(--amber)', `${ai.filled.length} answer${ai.filled.length === 1 ? '' : 's'} written by AI - please check them`] : null,
       res.aiError ? ['var(--red)', `AI answers unavailable: ${esc(res.aiError)}`] : null,
       requiredLeft.length || res.needsYou.length ? ['var(--red)', `Needs you: ${esc([...requiredLeft.map((q) => q.label), ...res.needsYou].slice(0, 6).join(' · '))}`] : null,
@@ -412,6 +458,7 @@ async function autofill(opened) {
         ? `<p class="hint" style="text-align:left;margin:8px 0">Check this page, then go to the next one - it is filled automatically.</p><button class="btn primary wide" id="btn-next-step">Next page › (${esc(next)})</button>`
         : '<p class="hint" style="text-align:left;margin:8px 0 0">Check the form, then click the site\'s Submit button yourself.</p>');
     if (next) $('btn-next-step').addEventListener('click', goNext);
+    if ($('btn-res-dl2')) $('btn-res-dl2').addEventListener('click', () => downloadResume(resume));
     $('applied-card').hidden = !!next;
   } catch (e) {
     box.hidden = false;

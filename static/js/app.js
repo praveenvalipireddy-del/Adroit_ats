@@ -7889,7 +7889,11 @@ async function openSuperApply(job, candId) {
         const res = await fetch('/api/super-apply/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: job.id }) });
         const d = await res.json().catch(() => ({}));
         if (superApply.job !== job) return;
-        if (!res.ok) { $('sa-status').innerHTML = `<span class="sa-err">${escapeHtml(d.error || 'Apollo search failed.')}</span>`; return; }
+        if (!res.ok) {
+            $('sa-status').innerHTML = `<span class="sa-err">${escapeHtml(d.error || 'Apollo search failed.')}</span>`;
+            if (d.plan_blocked) superApplyManual(job);
+            return;
+        }
         if (!(d.people || []).length) {
             $('sa-status').innerHTML = `<span class="cons-muted">Apollo found no recruiters or HR at <b>${escapeHtml(d.company)}</b> in this country. No credits used.</span>`;
             return;
@@ -7908,6 +7912,39 @@ async function openSuperApply(job, candId) {
     } catch (e) {
         $('sa-status').innerHTML = '<span class="sa-err">Could not reach Job Hunt. Try again.</span>';
     }
+}
+
+// Apollo's Free plan has no API: the recruiter finds the person in Apollo / LinkedIn themselves (Apollo's own site
+// still reveals emails with the plan's credits) and pastes the email - nothing is guessed here.
+function superApplyManual(job) {
+    const co = job.company || '';
+    const apollo = 'https://app.apollo.io/#/people?qKeywords=' + encodeURIComponent(co);
+    const linkedin = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(`recruiter ${co}`);
+    const box = document.getElementById('sa-people');
+    box.innerHTML = `<div class="sa-manual">
+        <b>Free way</b>
+        <ol>
+            <li>Find a recruiter or HR person at <b>${escapeHtml(co || 'the company')}</b>:
+                <a href="${apollo}" target="_blank" rel="noopener">Search in Apollo ↗</a> (the Apollo website shows their verified email for 1 credit)
+                or <a href="${linkedin}" target="_blank" rel="noopener">Recruiters on LinkedIn ↗</a></li>
+            <li>Paste their work email here - only one you verified, never a guessed one:</li>
+        </ol>
+        <div class="sa-manual-row">
+            <input type="email" id="sa-manual-email" class="form-control" placeholder="name@company.com">
+            <button type="button" class="btn btn-primary btn-sm" id="sa-manual-draft">✉️ Create Gmail draft with resume</button>
+        </div>
+        <div id="sa-manual-msg" class="sa-warn"></div>
+    </div>`;
+    document.getElementById('sa-manual-draft').addEventListener('click', e => {
+        const email = document.getElementById('sa-manual-email').value.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+            document.getElementById('sa-manual-msg').textContent = 'Enter a full email address, like name@company.com.';
+            return;
+        }
+        document.getElementById('sa-manual-msg').textContent = '';
+        if (!(state.jobs || []).some(x => x.id === job.id)) state.jobs = [...(state.jobs || []), job];
+        createJobDraft(job.id, superApply.candId, email, e.currentTarget);
+    });
 }
 
 async function superApplyReveal(btn) {

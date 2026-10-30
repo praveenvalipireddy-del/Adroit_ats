@@ -75,8 +75,28 @@ try:
 except apollo_api.ApolloError as ex:
     check("APOLLO_API_KEY" in str(ex), f"not connected message: {ex}")
 
-apollo_api.http_post = fake_post
 os.environ["APOLLO_API_KEY"] = "fixture-not-a-real-key"
+
+
+# ---- Apollo's Free plan has no API: a clear plan message (not a retry), flagged so the window offers the free way
+class _Resp:
+    status_code = 403
+    text = ""
+
+    def json(self):
+        return {"error": "api/v1/mixed_people/api_search is not included in your Free plan and is not accessible, even with a master key."}
+
+
+_real_post = apollo_api.requests.post
+apollo_api.requests.post = lambda *a, **k: _Resp()
+try:
+    apollo_api.search_hiring_team("Fixture Health")
+    failures.append("Free plan should fail")
+except apollo_api.ApolloError as ex:
+    check(ex.plan_blocked and "Free plan" in str(ex) and "free way" in str(ex), f"Free plan message: {ex}")
+apollo_api.requests.post = _real_post
+
+apollo_api.http_post = fake_post
 
 # ---- 2. search
 people = apollo_api.search_hiring_team("Fixture Health", "United States")
@@ -140,7 +160,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.12" in page.content(), "cache-buster not bumped to 5.99.12")
+        check("app.js?v=5.99.13" in page.content(), "cache-buster not bumped to 5.99.13")
         page.evaluate("window.createJobDraft = (...a) => { window.__draft = a.slice(0, 3); }")
         page.click("a.nav-item[data-tab=candidates]")
         page.click(f".cons-card[data-id='{K}']")
@@ -159,6 +179,27 @@ try:
         page.screenshot(path=shot)
         page.click(".sa-draft")
         check(page.evaluate("window.__draft") == [jid, K, "rita@fixturehealth.example"], f"draft to the verified email: {page.evaluate('window.__draft')}")
+
+        # -- Apollo Free plan: the plan message + the free way (Apollo / LinkedIn search, paste the email you verified)
+        def free_plan(path, body):
+            raise apollo_api.ApolloError("Your Apollo account is on the Free plan (fixture). Use the free way below.", plan_blocked=True)
+        apollo_api.http_post = free_plan
+        page.click("#btn-close-super-apply")
+        page.click(".cons-job .cons-job-super")
+        page.wait_for_selector("#sa-manual-email", timeout=10000)
+        txt = page.inner_text("#modal-super-apply")
+        check("Free plan" in txt and "Search in Apollo" in txt and "Recruiters on LinkedIn" in txt, f"free way offered: {txt[:500]!r}")
+        hrefs = page.eval_on_selector_all(".sa-manual a", "els => els.map(e => e.href)")
+        check(any(h.startswith("https://app.apollo.io/") and "Fixture%20Health" in h for h in hrefs)
+              and any(h.startswith("https://www.linkedin.com/search/results/people/") for h in hrefs), f"search links: {hrefs}")
+        page.evaluate("window.__draft = null")
+        page.fill("#sa-manual-email", "not-an-email")
+        page.click("#sa-manual-draft")
+        check(page.evaluate("window.__draft") is None and "full email" in page.inner_text("#sa-manual-msg"), "a bad email is refused")
+        page.fill("#sa-manual-email", "talent@fixturehealth.example")
+        page.click("#sa-manual-draft")
+        check(page.evaluate("window.__draft") == [jid, K, "talent@fixturehealth.example"], f"draft to the pasted email: {page.evaluate('window.__draft')}")
+        page.screenshot(path=shot.replace(".png", "_free.png"))
         browser.close()
 finally:
     server.shutdown()

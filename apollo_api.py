@@ -28,7 +28,9 @@ _SUFFIXES = {"inc", "llc", "ltd", "limited", "corp", "corporation", "co", "compa
 
 
 class ApolloError(RuntimeError):
-    pass
+    def __init__(self, message: str, plan_blocked: bool = False):
+        super().__init__(message)
+        self.plan_blocked = plan_blocked      # the Apollo plan has no API access (Free plan) - not something a retry fixes
 
 
 def api_key() -> str:
@@ -51,8 +53,13 @@ def _post(path: str, body: Dict) -> Dict:
     if r.status_code == 401:
         raise ApolloError("Apollo refused the API key - create a new one (Apollo > Settings > API Keys) and update APOLLO_API_KEY in Render.")
     if r.status_code in (402, 403):
+        said = _message(r)
+        if re.search(r"free plan|not included|upgrade|paid plan", said, re.I):
+            raise ApolloError("Your Apollo account is on the Free plan, and Apollo doesn't allow API searches on it - so Job Hunt "
+                              "can't look up the hiring team automatically. A paid Apollo plan (any tier) turns this on. "
+                              "Until then, use the free way below.", plan_blocked=True)
         raise ApolloError("Your Apollo plan doesn't allow this API call (Apollo said: "
-                          f"{_message(r)}). Use a master API key, or the plan needs an upgrade.")
+                          f"{said}). Use a master API key, or the plan needs an upgrade.")
     if r.status_code == 422:
         raise ApolloError(f"Apollo couldn't use that request ({_message(r)}).")
     if r.status_code == 429:

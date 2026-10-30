@@ -1745,7 +1745,9 @@ def api_resume_bot_optimize():
     name_cid = _int_or_none((request.form.get("candidate_id") if request.form else None) or (request.get_json(silent=True) or {}).get("candidate_id"))
     if name_cid and can_access_candidate(user, name_cid):
         named_cand = models.get_candidate_by_id(name_cid)
-    result["primary_skill"] = resume_versions.primary_skill(result, named_cand, jd_text)
+    title_job = models.get_job_by_id(_int_or_none(opts.get("job_id"))) if _int_or_none(opts.get("job_id")) else None
+    result["primary_skill"] = resume_versions.primary_skill(result, named_cand, jd_text,
+                                                            job_title=(title_job or {}).get("title") or str(opts.get("job_title") or ""))
     person = (named_cand or {}).get("name") or (result.get("candidate_name") if result.get("candidate_name_detected") else "") or "Consultant"
     result["suggested_filename"] = resume_versions.make_filename(
         person, result["primary_skill"], resume_versions.taken_names(name_cid) if named_cand else [])
@@ -2460,7 +2462,7 @@ def api_super_apply_check():
     try:
         apollo_api.http_post("/mixed_people/api_search", {"person_titles": ["recruiter"], "q_keywords": "Apollo", "page": 1, "per_page": 1})
     except apollo_api.ApolloError as ex:
-        return jsonify({"ok": False, "error": str(ex)})
+        return jsonify({"ok": False, "error": str(ex), "plan_blocked": ex.plan_blocked})
     return jsonify({"ok": True, "message": "Apollo is connected - searching the hiring team is free; each email costs 1 credit."})
 
 
@@ -2475,7 +2477,7 @@ def api_super_apply_search():
     try:
         people = apollo_api.search_hiring_team(job.get("company") or "", job.get("country") or "")
     except apollo_api.ApolloError as ex:
-        return jsonify({"error": str(ex)}), 400
+        return jsonify({"error": str(ex), "plan_blocked": ex.plan_blocked, "company": job.get("company") or ""}), 400
     return jsonify({"people": people, "company": job.get("company") or "", "job_title": job.get("title") or ""})
 
 
@@ -2740,6 +2742,16 @@ def _ext_ai(system, prompt, max_tokens):
     return raw
 
 
+def _original_lines(docx_bytes, resume_text):
+    """The original resume's lines, read the same way as the tailored Word file, so the preview marks only real changes."""
+    if docx_bytes:
+        try:
+            return docx_editor.extract_text(docx_bytes)[:60000]
+        except Exception:
+            pass
+    return (resume_text or "")[:60000]
+
+
 @app.route("/api/ext/tailor", methods=["POST"])
 def api_ext_tailor():
     """The side panel's 'Tailor resume': mode "analyze" -> the match + the suggested changes (ticked when the resume
@@ -2774,13 +2786,14 @@ def api_ext_tailor():
         if not data_out:
             buf = resume_bot.create_docx_resume(res.get("updated_resume_text") or resume_text, cand.get("name") or "Candidate")
             data_out = buf.getvalue() if hasattr(buf, "getvalue") else bytes(buf)
-        skill = resume_versions.primary_skill(res, cand, jd)
+        skill = resume_versions.primary_skill(res, cand, jd, job_title=job.get("title") or "")
         fname = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cand["id"]))
         vid = resume_versions.save(cand["id"], None, fname, data_out, skill, "", jd[:300], user["id"])
         changes = [{"before": c.get("before") or "", "after": c.get("after") or ""} for c in (res.get("changes") or [])][:20]
         return jsonify({"changed": True, "version_id": vid, "filename": fname, "changes": changes,
                         "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         "base64": base64.b64encode(data_out).decode("ascii"),
+                        "original_text": _original_lines(docx_bytes, resume_text),     # the preview highlights what differs
                         "initial": res.get("initial_match_percentage")})
     res = resume_bot.analyze_for_review(resume_text, jd, custom_instructions=custom, docx_bytes=docx_bytes)
     if res.get("error"):

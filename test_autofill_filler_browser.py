@@ -138,6 +138,38 @@ with sync_playwright() as p:
     check(page.evaluate("window.JH.hasNext()") == "", "'Submit application' is not a Next button")
     check(not page.evaluate("!!window.submitted"), "still never submitted")
 
+    # ---- 3b. uploads with no label of their own: the section heading above decides (resume, not the cover letter);
+    # the cover letter section first must not fool it; Job Hunt's own earlier attachment is replaced, the recruiter's never
+    UPLOADS = """<html><body><h1>Applying for a job</h1>
+      <div class="sec"><h2>Resume/CV:</h2><p>Upload your Resume/CV using either DOC, DOCX, PDF, or TXT file types (1MB max).</p>
+        <div class="upl"><a href="#">Upload Resume</a><input type="file" id="u1" style="display:none"></div></div>
+      <div class="sec"><span>Cover Letter:</span><div class="box"><p>Upload your Cover Letter</p><a href="#">Select File</a>
+        <input type="file" id="u2" style="display:none"></div></div></body></html>"""
+    COVER_FIRST = """<html><body><form><div><h3>Cover letter (optional)</h3><input type="file" id="c1"></div>
+      <div><h3>Your CV</h3><input type="file" id="c2"></div></form></body></html>"""
+    for path, body in (("/apply/1", UPLOADS), ("/apply/2", COVER_FIRST)):
+        page.route("https://fixture.example.invalid" + path, (lambda b: lambda r: r.fulfill(status=200, content_type="text/html", body=b))(body))
+    page.goto("https://fixture.example.invalid/apply/1")
+    page.add_script_tag(path=FILLER)
+    r = page.evaluate("([p, r]) => window.JH.fill(p, r)", [PROFILE, RESUME])
+    check(r["resumeAttached"] and page.eval_on_selector("#u1", "e => e.files.length && e.files[0].name") == "Karun_Fixture.docx"
+          and page.eval_on_selector("#u2", "e => e.files.length") == 0, f"resume under the 'Resume/CV' heading, cover letter left: {r}")
+    TAILORED = {**RESUME, "filename": "Karun_Fixture_AI_Consultant.docx"}
+    r = page.evaluate("([p, r]) => window.JH.fill(p, r)", [PROFILE, TAILORED])
+    check(r["resumeAttached"] and page.eval_on_selector("#u1", "e => e.files[0].name") == "Karun_Fixture_AI_Consultant.docx",
+          "the tailored resume replaces the original Job Hunt attached earlier")
+    page.goto("https://fixture.example.invalid/apply/2")
+    page.add_script_tag(path=FILLER)
+    r = page.evaluate("([p, r]) => window.JH.fill(p, r)", [PROFILE, RESUME])
+    check(page.eval_on_selector("#c2", "e => e.files.length && e.files[0].name") == "Karun_Fixture.docx"
+          and page.eval_on_selector("#c1", "e => e.files.length") == 0, "cover letter first on the page: the resume still goes to 'Your CV'")
+    page.goto("https://fixture.example.invalid/apply/2")
+    page.add_script_tag(path=FILLER)
+    page.set_input_files("#c2", files=[{"name": "Own_Upload.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4 fixture"}])
+    r = page.evaluate("([p, r]) => window.JH.fill(p, r)", [PROFILE, RESUME])
+    check(not r["resumeAttached"] and page.eval_on_selector("#c2", "e => e.files[0].name") == "Own_Upload.pdf"
+          and any("already attached" in n for n in r["needsYou"]), f"a file the recruiter attached is never replaced: {r['needsYou']}")
+
     # ---- 7. a job page with no form: Apply opens it; an application step: section heading is not the title
     page.route("https://fixture.example.invalid/hcmUI/jobs/job/1", lambda r: r.fulfill(status=200, content_type="text/html", body="""
       <html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>AI Developer II (Fixture)</h1>

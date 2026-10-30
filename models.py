@@ -621,6 +621,28 @@ def init_db():
         UNIQUE (ats, slug)
     );
     """)
+    # People at a job's company whose email was revealed with Apollo (hiring_contacts.py) - shared by the team,
+    # so nobody pays a credit for the same person twice.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS hiring_contacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        apollo_id TEXT UNIQUE,
+        company TEXT,
+        company_norm TEXT,
+        name TEXT,
+        title TEXT,
+        location TEXT,
+        email TEXT,
+        email_status TEXT,
+        verified INTEGER DEFAULT 0,
+        linkedin_url TEXT,
+        revealed_by INTEGER,
+        revealed_by_name TEXT,
+        revealed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        emailed_count INTEGER DEFAULT 0,
+        last_emailed_at TIMESTAMP
+    );
+    """)
 
     conn.commit()
 
@@ -637,6 +659,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS ix_application_replies_app ON application_replies (application_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_requirements_msg ON inbox_requirements (candidate_id, message_id)",
         "CREATE INDEX IF NOT EXISTS ix_email_examples_cand ON email_examples (candidate_id)",
+        "CREATE INDEX IF NOT EXISTS ix_hiring_contacts_company ON hiring_contacts (company_norm)",
     ):
         try:
             cursor.execute(idx_sql)

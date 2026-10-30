@@ -1353,3 +1353,105 @@ body {
 .ch-item.missing { border-color: #fecaca; }
 .ch-proj { display: flex; align-items: center; gap: 10px; font-weight: 800; }
 @media (max-width: 800px) { .mc-wrap { grid-template-columns: 1fr; } }
+
+/* ---- Job page (app.js openJobPage): Overview / Company / Hiring team; Contacts ---- */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+button.jc-title, button.cons-job-title { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+button.jc-title:hover, button.cons-job-title:hover { color: #2563eb; text-decoration: underline; }
+.link-btn { background: none; border: 0; padding: 4px 0; color: #2563eb; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+.jp { color: #0f172a; }
+.jp-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 4px 0 14px; }
+.jp-back { background: none; border: 0; font-weight: 600; font-size: 0.9rem; color: #334155; cursor: pointer; padding: 8px 0; }
+.jp-top-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jp-top-right label { font-size: 0.82rem; color: #475569; }
+.jp-top-right select { height: 38px; width: auto; min-width: 0; max-width: 100%; }
+.jp-tabs { display: flex; gap: 26px; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; overflow-x: auto; }
+.jp-tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 12px 0; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: #64748b; cursor: pointer; white-space: nowrap; }
+.jp-tab.active { color: #0f172a; font-weight: 700; border-bottom-color: #2563eb; }
+.jp-badge { font-size: 0.72rem; font-weight: 700; background: #eff6ff; color: #1d4ed8; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.jp-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 22px; align-items: start; }
+.jp-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.jp-side { display: flex; flex-direction: column; gap: 16px; }
+.jp-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; }
+.jp-card h3 { margin: 0 0 10px; font-size: 1.02rem; font-weight: 800; }
+.jp-head { display: flex; gap: 20px; }
+.jp-head-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.jp-head-row { display: flex; gap: 14px; align-items: center; }
+.jp-title { margin: 2px 0 0; font-size: 1.4rem; font-weight: 800; line-height: 1.25; }
+.jp-ink { color: #0f172a; }
+.jp-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; font-size: 0.88rem; color: #334155; }
+.jp-match { width: 280px; flex: none; background: #eff6ff; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.jp-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; color: #1e40af; }
+.jp-side .jp-label, .jp-team .jp-label { color: #475569; }
+.jp-pct { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.jp-pct span { font-size: 2.4rem; font-weight: 800; line-height: 1; }
+.jp-pct em { font-style: normal; font-size: 0.7rem; font-weight: 700; color: #1d4ed8; background: #dbeafe; padding: 3px 9px; border-radius: 999px; }
+.jp-bar-row { display: flex; justify-content: space-between; font-size: 0.82rem; }
+.jp-bar { height: 6px; border-radius: 3px; background: #dbeafe; }
+.jp-bar > div { height: 6px; border-radius: 3px; background: #2563eb; }
+.jp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.jp-chip { font-size: 0.74rem; padding: 2px 8px; border-radius: 999px; }
+.jp-chip.ok { background: #ecfdf5; color: #047857; }
+.jp-chip.no { background: #fff; color: #b91c1c; }
+.jp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.jp-row h3 { margin: 0; }
+.jp-grow { flex: 1; min-width: 0; }
+.jp-muted { color: #475569; font-size: 0.85rem; }
+.jp-muted.small, .jp .small { font-size: 0.76rem; }
+.jp-ok { color: #047857; }
+.jp-person { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; margin-top: 10px; flex-wrap: wrap; }
+.jp-person.saved { background: #f0fdf4; border-color: #bbf7d0; }
+.jp-avatar { width: 36px; height: 36px; border-radius: 50%; background: #f1f5f9; color: #475569; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex: none; }
+.jp-person.saved .jp-avatar { background: #dcfce7; color: #166534; }
+.jp-pill { font-size: 0.66rem; font-weight: 700; color: #166534; background: #dcfce7; padding: 2px 7px; border-radius: 999px; vertical-align: 2px; }
+.jp-li { font-size: 0.82rem; font-weight: 600; color: #0a66c2; text-decoration: none; white-space: nowrap; }
+.jp-li:hover { text-decoration: underline; }
+.jp-email-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.jp-email-row input { flex: 1; min-width: 220px; }
+.jp-desc { white-space: pre-wrap; font-size: 0.88rem; line-height: 1.6; color: #334155; max-height: 520px; overflow-y: auto; }
+.jp-step { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid #f1f5f9; }
+.jp-step b { font-size: 0.9rem; }
+.jp-step .btn, .jp-step .link-btn { margin-top: 8px; }
+.jp-step-n { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #cbd5e1; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; flex: none; box-sizing: border-box; }
+.jp-step.done .jp-step-n { background: #047857; border-color: #047857; color: #fff; }
+.jp-side select { height: 42px; }
+.jp-wide { width: 100%; margin-top: 14px; }
+.jp-to { font-size: 0.9rem; margin-top: 4px; }
+.jp-joblink { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; background: none; border: 0; border-top: 1px solid #f1f5f9; padding: 10px 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.jp-joblink:hover b { color: #2563eb; }
+.jp-mini { padding: 8px 0; border-top: 1px solid #f1f5f9; font-size: 0.88rem; }
+.jp-team { padding: 0; overflow: hidden; }
+.jp-team-head { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; }
+.jp-team-head h3 { margin: 0 0 2px; }
+.jp-pad { padding: 14px 20px; }
+.jp-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.jp-filter { height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid #e2e8f0; background: #fff; color: #334155; font-weight: 600; font-size: 0.8rem; cursor: pointer; }
+.jp-filter.active { background: #0f172a; border-color: #0f172a; color: #fff; }
+.jp-thead, .jp-trow { display: grid; grid-template-columns: 30px minmax(0, 1.2fr) minmax(0, 1.3fr) 220px; gap: 10px; align-items: center; padding: 10px 20px; }
+.jp-thead { background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; color: #475569; }
+.jp-trow { border-bottom: 1px solid #f1f5f9; padding-top: 13px; padding-bottom: 13px; }
+.jp-trow.saved { background: #f0fdf4; }
+.jp-trow input[type=checkbox] { width: 17px; height: 17px; }
+.jp-tcol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.jp-email { font-size: 0.85rem; word-break: break-all; }
+.jp-copy { margin-left: 6px; height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; font-size: 0.72rem; font-weight: 600; cursor: pointer; }
+.jp-tact .btn { width: 100%; }
+.jp-preview-dialog { max-width: 920px; width: 96vw; }
+#jp-preview-body { max-height: 78vh; overflow-y: auto; background: #eef1f6; }
+.ct-filters { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.ct-filters input { flex: 1; min-width: 220px; }
+.ct-filters select { width: auto; min-width: 200px; }
+.ct-table { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; }
+.ct-head, .ct-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.5fr) 160px 140px; gap: 12px; padding: 12px 20px; align-items: center; }
+.ct-head { background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; color: #475569; }
+.ct-row { border-bottom: 1px solid #f1f5f9; font-size: 0.88rem; }
+@media (max-width: 1000px) {
+    .jp-grid { grid-template-columns: 1fr; }
+    .jp-head { flex-direction: column; }
+    .jp-match { width: auto; }
+    .jp-thead { display: none; }
+    .jp-trow { grid-template-columns: 30px 1fr; }
+    .jp-trow > .jp-tcol, .jp-trow > .jp-tact { grid-column: 2; }
+    .ct-head { display: none; }
+    .ct-row { grid-template-columns: 1fr; gap: 4px; }
+}

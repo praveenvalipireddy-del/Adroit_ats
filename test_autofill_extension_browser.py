@@ -355,7 +355,7 @@ try:
         cur.execute("SELECT a.stage, a.apply_method FROM applications a JOIN jobs j ON j.id = a.job_id WHERE a.candidate_id = ? AND j.url = ?",
                     (K, "https://boards.greenhouse.io/samplefixtureco/jobs/1"))
         row = cur.fetchone()
-        check(row is not None and tuple(row) == ("Applied", "portal"), f"'Yes, I applied' -> Applied in portal: {row and tuple(row)}")
+        check(row is not None and (row[0], row[1]) == ("Applied", "portal"), f"'Yes, I applied' -> Applied in portal: {row and (row[0], row[1])}")
         conn.close()
 
         # -- 7. Job Hunt screens
@@ -367,7 +367,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.13" in page.content(), "cache-buster not bumped to 5.99.13")
+        check("app.js?v=5.99.14" in page.content(), "cache-buster not bumped to 5.99.14")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

@@ -114,6 +114,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                     <span>Vendors</span>
                 </a>
+                <a href="#contacts" class="nav-item" data-tab="contacts">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="11" r="2.5"></circle><path d="M5.5 17a3.5 3.5 0 0 1 7 0"></path><line x1="15" y1="10" x2="19" y2="10"></line><line x1="15" y1="14" x2="19" y2="14"></line></svg>
+                    <span>Contacts</span>
+                </a>
                 <a href="#resumebot" class="nav-item" data-tab="resumebot">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                     <span>Resume Optimizer</span>
@@ -731,6 +735,28 @@
                     </div>
                 </div>
 
+                <!-- JOB PAGE: one job opened from a job card (Overview / Company / Hiring team) - app.js openJobPage -->
+                <div class="tab-pane" id="tab-jobpage"><div id="jobpage-root" class="jp"></div></div>
+
+                <!-- CONTACTS: saved hiring contacts revealed with Apollo, shared by the team (hiring_contacts.py) -->
+                <div class="tab-pane" id="tab-contacts">
+                    <div class="section-header">
+                        <div>
+                            <h2>Contacts</h2>
+                            <p>Every recruiter and HR person whose email was revealed with Apollo - shown on every job at their company, never paid for twice.</p>
+                        </div>
+                        <button type="button" class="btn btn-secondary" id="contacts-export" style="display: none;">Export to Excel</button>
+                    </div>
+                    <div class="ct-filters">
+                        <label for="contacts-q" class="sr-only">Search contacts</label>
+                        <input type="search" id="contacts-q" class="form-control" placeholder="Search name, company, email or title">
+                        <label for="contacts-company" class="sr-only">Company</label>
+                        <select id="contacts-company" class="form-control"><option value="">All companies</option></select>
+                        <span id="contacts-count" class="jp-muted"></span>
+                    </div>
+                    <div id="contacts-table" class="ct-table"></div>
+                </div>
+
                 <!-- VENDORS: each recruiter's private vendor contacts (vendors.py) -->
                 <div class="tab-pane" id="tab-vendors">
                     <style>#vendors-table th, #vendors-table td { padding: 10px 10px; }</style>
@@ -1151,6 +1177,17 @@
         </div>
     </div>
 
+    <!-- MODAL: the job page's resume preview -->
+    <div class="modal-backdrop" id="modal-jp-preview" style="display: none;">
+        <div class="modal-dialog jp-preview-dialog">
+            <div class="modal-header">
+                <h3 id="jp-preview-title">Resume</h3>
+                <button class="modal-close" id="btn-close-jp-preview" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body" id="jp-preview-body"></div>
+        </div>
+    </div>
+
     <!-- MODAL: CHROME AUTOFILL EXTENSION -->
     <div class="modal-backdrop" id="modal-extension" style="display: none;">
         <div class="modal-dialog modal-sm">
@@ -1568,7 +1605,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.13"></script>
+    <script src="/static/js/app.js?v=5.99.14"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

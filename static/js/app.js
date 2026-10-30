@@ -73,6 +73,8 @@ const tabAliasMap = {
     'vendors': 'vendors',
     'settings': 'team',
     'team': 'team',
+    'contacts': 'contacts',
+    'jobpage': 'jobpage',
     'resumebot': 'resumebot'
 };
 
@@ -106,6 +108,8 @@ function switchTab(rawTabId) {
         eduOnTabOpen();
     } else if (paneKey === 'vendors') {
         loadVendors();
+    } else if (paneKey === 'contacts') {
+        loadContacts();
     } else if (paneKey === 'jobs') {
         if (!state.jobs || state.jobs.length === 0) {
             searchJobs(false);
@@ -7339,7 +7343,7 @@ async function consPaneJobs(c, body) {
         return `
         <div class="cons-job" data-id="${j.id}">
             <div class="cons-job-main">
-                <div class="cons-job-title">${escapeHtml(j.title || '')}</div>
+                <button type="button" class="cons-job-title cons-job-open">${escapeHtml(j.title || '')}</button>
                 <div class="cons-job-meta">${escapeHtml(j.company || '')}${j.location ? ' · ' + escapeHtml(j.location) : ''}${j.source ? ' · ' + escapeHtml(j.source) : ''}</div>
                 <div class="cons-tags">
                     ${j.job_type ? `<span class="cons-tag">${escapeHtml(j.job_type)}</span>` : ''}
@@ -7348,6 +7352,7 @@ async function consPaneJobs(c, body) {
                     ${m && m.hit.length ? `<span class="cons-tag green" title="Consultant skills in this job">✓ ${escapeHtml(m.hit.slice(0, 4).join(', '))}</span>` : ''}
                 </div>
                 <div class="cons-job-acts">
+                    <button type="button" class="btn btn-primary btn-sm cons-job-open">Open job</button>
                     <button type="button" class="btn btn-secondary btn-sm cons-job-save" title="Add to ${escapeHtml(c.name)}'s Applications as Saved">🔖 Save</button>
                     <button type="button" class="btn btn-sm cons-job-tailor" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;">⚡ Tailor resume</button>
                     ${j.recruiter_email ? `<button type="button" class="btn btn-primary btn-sm cons-job-draft">✉️ Email recruiter</button>` : ''}
@@ -7362,6 +7367,7 @@ async function consPaneJobs(c, body) {
     const jobOf = el => jobs.find(x => x.id === parseInt(el.closest('.cons-job').dataset.id));
     list.querySelectorAll('.cons-job-draft').forEach(btn => btn.addEventListener('click', () => createJobDraft(jobOf(btn).id, c.id, '', btn)));
     list.querySelectorAll('.cons-job-super').forEach(btn => btn.addEventListener('click', () => openSuperApply(jobOf(btn), c.id)));
+    list.querySelectorAll('.cons-job-open').forEach(btn => btn.addEventListener('click', () => openJobPage(jobOf(btn), c.id, 'candidates')));
     list.querySelectorAll('.cons-job-tailor').forEach(btn => btn.addEventListener('click', () => {
         const j = jobOf(btn);
         if (!(state.jobs || []).some(x => x.id === j.id)) state.jobs = [...(state.jobs || []), j];     // the optimizer looks the job up in state.jobs
@@ -7573,7 +7579,7 @@ function renderJobCards(jobs) {
         <div class="job-card" data-job-id="${j.id}">
             <div class="jc-logo">${consInitials(j.company || j.title)}</div>
             <div class="jc-main">
-                <div class="jc-title">${escapeHtml(j.title || 'Untitled requirement')}</div>
+                <button type="button" class="jc-title jc-open">${escapeHtml(j.title || 'Untitled requirement')}</button>
                 <div class="jc-company">${escapeHtml(j.company || '')}${j.scraped_at ? ` <span>· ${company ? 'posted' : 'found'} ${escapeHtml(jobAgo(j.scraped_at))}</span>` : ''}</div>
                 <div class="jc-meta">
                     ${j.location ? `<span>📍 ${escapeHtml(j.location)}</span>` : ''}
@@ -7585,7 +7591,8 @@ function renderJobCards(jobs) {
                     ${j.vendor ? `<span class="cons-tag green" title="Your vendor contacts at ${escapeHtml(j.vendor.company)}">🤝 Known vendor · ${j.vendor.count}</span>` : ''}
                 </div>
                 <div class="cons-job-acts">
-                    <button type="button" class="btn btn-secondary btn-sm jc-details-btn">${open ? 'Hide details' : 'View details'}</button>
+                    <button type="button" class="btn btn-primary btn-sm jc-open">Open job</button>
+                    <button type="button" class="btn btn-secondary btn-sm jc-details-btn">${open ? 'Hide details' : 'Quick look'}</button>
                     <button type="button" class="btn btn-secondary btn-sm jc-save" title="Add to the consultant's Applications as Saved">🔖 Save</button>
                     <button type="button" class="btn btn-sm jc-optimize" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;" title="Tailor the consultant's resume to this job">⚡ Tailor resume</button>
                     ${j.recruiter_email ? '<button type="button" class="btn btn-primary btn-sm jc-draft">✉️ Email recruiter</button>' : ''}
@@ -7612,8 +7619,9 @@ function renderJobCards(jobs) {
         const card = b.closest('.job-card'), id = parseInt(card.dataset.jobId), d = card.querySelector('.jc-details');
         d.hidden = !d.hidden;
         if (d.hidden) jobsUi.open.delete(id); else jobsUi.open.add(id);
-        b.textContent = d.hidden ? 'View details' : 'Hide details';
+        b.textContent = d.hidden ? 'Quick look' : 'Hide details';
     }));
+    box.querySelectorAll('.jc-open').forEach(b => b.addEventListener('click', () => openJobPage(jobOf(b), state.activeConsultantId, 'jobs')));
     box.querySelectorAll('.jc-save').forEach(b => b.addEventListener('click', async () => {
         const cid = needCand(); if (!cid) return;
         const j = jobOf(b);
@@ -7904,11 +7912,18 @@ async function openSuperApply(job, candId) {
                 <div class="sa-p-main"><b>${escapeHtml(p.name)}</b><span>${escapeHtml(p.title)}${p.location ? ' · ' + escapeHtml(p.location) : ''}</span>
                     ${p.linkedin_url ? `<a href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener">LinkedIn ↗</a>` : ''}</div>
                 <div class="sa-p-act">
-                    ${p.has_email === false ? '<span class="cons-muted" title="Apollo has no email for this person">no email in Apollo</span>'
+                    ${p.saved && p.verified && p.email ? `<div class="sa-email">✓ ${escapeHtml(p.email)} <span class="cons-muted">(saved)</span></div>
+                        <button type="button" class="btn btn-primary btn-sm sa-draft-saved" data-email="${escapeHtml(p.email)}">✉️ Create Gmail draft with resume</button>`
+                        : p.saved ? '<span class="sa-warn">No verified email (checked before - no credit again)</span>'
+                        : p.has_email === false ? '<span class="cons-muted" title="Apollo has no email for this person">no email in Apollo</span>'
                         : '<button type="button" class="btn btn-secondary btn-sm sa-reveal">Get verified email · 1 credit</button>'}
                 </div>
             </div>`).join('');
         $('sa-people').querySelectorAll('.sa-reveal').forEach(btn => btn.addEventListener('click', () => superApplyReveal(btn)));
+        $('sa-people').querySelectorAll('.sa-draft-saved').forEach(btn => btn.addEventListener('click', () => {
+            if (!(state.jobs || []).some(x => x.id === job.id)) state.jobs = [...(state.jobs || []), job];
+            createJobDraft(job.id, superApply.candId, btn.dataset.email, btn);
+        }));
     } catch (e) {
         $('sa-status').innerHTML = '<span class="sa-err">Could not reach Job Hunt. Try again.</span>';
     }
@@ -7979,5 +7994,549 @@ async function superApplyReveal(btn) {
     document.getElementById('btn-close-super-apply')?.addEventListener('click', () => {
         document.getElementById('modal-super-apply').style.display = 'none';
         superApply.job = null;
+    });
+})();
+
+// =========================================================================
+// Job page: one job, opened from a job card - Overview (match, tailor, hiring team, description + the 4-step
+// checklist and the resume used), Company (its other jobs) and Hiring team (Apollo search is free; each new email
+// is 1 credit; people revealed before - by anyone, for any job at the company - are saved and never paid twice).
+// =========================================================================
+const jp = { job: null, candId: null, back: 'jobs', data: null, pane: 'overview', team: null, teamError: null, filter: 'all', ticked: new Set(), resume: '', seq: 0 };
+
+function jpCand() {
+    return (state.consultants || []).find(c => c.id === jp.candId) || null;
+}
+
+async function openJobPage(job, candId, backTab) {
+    if (!job) return;
+    jp.job = job;
+    jp.candId = candId || state.activeConsultantId || null;
+    jp.back = backTab || state.activeTab || 'jobs';
+    jp.pane = 'overview';
+    jp.team = null;
+    jp.teamError = null;
+    jp.filter = 'all';
+    jp.ticked = new Set();
+    jp.resume = '';
+    jp.data = null;
+    if (!(state.jobs || []).some(x => x.id === job.id)) state.jobs = [...(state.jobs || []), job];   // Tailor / drafts look it up there
+    switchTab('jobpage');
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active',
+        (tabAliasMap[el.getAttribute('data-tab')] || el.getAttribute('data-tab')) === (tabAliasMap[jp.back] || jp.back)));
+    window.scrollTo(0, 0);
+    jpRender();
+    await jpLoad();
+}
+
+async function jpLoad() {
+    const seq = ++jp.seq;
+    try {
+        const res = await fetch(`/api/jobs/${jp.job.id}/page${jp.candId ? `?candidate_id=${jp.candId}` : ''}`);
+        const d = await res.json().catch(() => ({}));
+        if (seq !== jp.seq) return;
+        if (!res.ok) { showToast(d.error || 'Could not open the job.', 'error'); return; }
+        jp.data = d;
+        jp.job = { ...jp.job, ...d.job };
+        const forJob = (d.versions || []).find(v => v.job_id === jp.job.id);
+        if (!jp.resume) jp.resume = forJob ? String(forJob.id) : 'original';
+    } catch (e) {
+        if (seq === jp.seq) showToast('Could not reach Job Hunt.', 'error');
+    }
+    jpRender();
+}
+
+function jpSteps() {
+    const d = jp.data || {};
+    const app = d.application || {};
+    const tailored = (d.versions || []).some(v => v.job_id === jp.job.id);
+    return {
+        resume: !!(d.resume && d.resume.on_file),
+        tailored,
+        emailed: !!app.drafted_at || ['email', 'both'].includes(app.apply_method),
+        applied: ['portal', 'both'].includes(app.apply_method),
+    };
+}
+
+function jpRender() {
+    const box = document.getElementById('jobpage-root');
+    if (!box || !jp.job) return;
+    const j = jp.job;
+    const saved = (jp.data && jp.data.contacts) || [];
+    const opts = (state.consultants || []).map(c => `<option value="${c.id}" ${c.id === jp.candId ? 'selected' : ''}>${escapeHtml(c.name)}${c.title ? ' - ' + escapeHtml(c.title) : ''}</option>`).join('');
+    const teamCount = jp.team ? jp.team.length : null;
+    const badge = teamCount != null ? `${teamCount}${saved.length ? ` · ${saved.length} saved` : ''}` : (saved.length ? `${saved.length} saved` : '');
+    box.innerHTML = `
+        <div class="jp-top">
+            <button type="button" class="jp-back" id="jp-back">← Back</button>
+            <div class="jp-top-right">
+                <label for="jp-cons">For</label>
+                <select id="jp-cons" class="form-control">${opts ? '<option value="">Choose the consultant</option>' + opts : '<option value="">No consultants yet</option>'}</select>
+                <button type="button" class="btn btn-secondary btn-sm" id="jp-save">Save</button>
+                ${j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener">Original job post ↗</a>` : ''}
+            </div>
+        </div>
+        <div class="jp-tabs" role="tablist">
+            <button type="button" role="tab" class="jp-tab ${jp.pane === 'overview' ? 'active' : ''}" data-pane="overview" aria-selected="${jp.pane === 'overview'}">Overview</button>
+            <button type="button" role="tab" class="jp-tab ${jp.pane === 'company' ? 'active' : ''}" data-pane="company" aria-selected="${jp.pane === 'company'}">Company</button>
+            <button type="button" role="tab" class="jp-tab ${jp.pane === 'team' ? 'active' : ''}" data-pane="team" aria-selected="${jp.pane === 'team'}">Hiring team${badge ? ` <span class="jp-badge">${badge}</span>` : ''}</button>
+        </div>
+        <div id="jp-pane"></div>`;
+    document.getElementById('jp-back').addEventListener('click', () => switchTab(jp.back));
+    document.getElementById('jp-cons').addEventListener('change', e => {
+        jp.candId = parseInt(e.target.value) || null;
+        jp.resume = '';
+        jpLoad();
+    });
+    document.getElementById('jp-save').addEventListener('click', async e => {
+        if (!jp.candId) { showToast('Choose the consultant first.', 'warning'); return; }
+        const res = await fetch(`/api/jobs/${j.id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: jp.candId }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
+        e.target.textContent = '✓ Saved';
+        e.target.disabled = true;
+    });
+    box.querySelectorAll('.jp-tab').forEach(t => t.addEventListener('click', () => { jp.pane = t.dataset.pane; jpRender(); }));
+    const pane = document.getElementById('jp-pane');
+    if (jp.pane === 'company') jpCompany(pane);
+    else if (jp.pane === 'team') jpTeam(pane);
+    else jpOverview(pane);
+}
+
+// ------------------------------------------------------------- Overview
+function jpOverview(pane) {
+    const j = jp.job, c = jpCand(), d = jp.data || {};
+    const m = c ? consSkillMatch(c, j) : null;
+    const skills = c ? (c.primary_skills || '').split(/[,;/\n|]/).map(s => s.trim()).filter(Boolean) : [];
+    const miss = m ? skills.filter(s => !m.hit.includes(s)) : [];
+    const steps = jpSteps();
+    const done = [steps.resume, steps.tailored, steps.emailed, steps.applied].filter(Boolean).length;
+    const company = (j.source || '').toLowerCase().startsWith('company site');
+    const forJob = (d.versions || []).filter(v => v.job_id === j.id);
+    const desc = (j.full_description || j.description || '').trim();
+    const saved = (d.contacts || []);
+    const step = (n, ok, title, sub, action) => `
+        <div class="jp-step ${ok ? 'done' : ''}">
+            <span class="jp-step-n" aria-hidden="true">${ok ? '✓' : n}</span>
+            <div><b>${title}</b><div class="jp-muted">${sub}</div>${action || ''}</div>
+        </div>`;
+    const versionOpts = [`<option value="original" ${jp.resume === 'original' ? 'selected' : ''}>${escapeHtml((d.resume && d.resume.filename) || 'Original resume')} (original)</option>`]
+        .concat((d.versions || []).map(v => `<option value="${v.id}" ${String(v.id) === jp.resume ? 'selected' : ''}>${escapeHtml(v.filename)}${v.job_id === j.id ? ' (tailored for this job)' : ''}</option>`)).join('');
+    const contactRow = p => p.verified
+        ? `<div class="jp-person saved"><div class="jp-avatar">${consInitials(p.name)}</div>
+            <div class="jp-grow"><b>${escapeHtml(p.name)}</b> <span class="jp-pill">SAVED</span><div class="jp-muted">${escapeHtml(p.title || '')} · ${escapeHtml(p.email)}</div></div>
+            ${jpLinkedIn(p)}<button type="button" class="btn btn-primary btn-sm jp-draft-one" data-email="${escapeHtml(p.email)}">Gmail draft with resume</button></div>`
+        : `<div class="jp-person"><div class="jp-avatar">${consInitials(p.name)}</div>
+            <div class="jp-grow"><b>${escapeHtml(p.name)}</b><div class="jp-muted">${escapeHtml(p.title || '')} · no verified email</div></div>${jpLinkedIn(p)}</div>`;
+    pane.innerHTML = `
+    <div class="jp-grid">
+        <div class="jp-main">
+            <section class="jp-card jp-head">
+                <div class="jp-head-info">
+                    <div class="jp-head-row">
+                        <div class="jc-logo">${consInitials(j.company || j.title)}</div>
+                        <div>
+                            <div class="jp-muted"><b class="jp-ink">${escapeHtml(j.company || 'Company not shown')}</b>${j.scraped_at ? ` · ${company ? 'posted' : 'found'} ${escapeHtml(jobAgo(j.scraped_at))}` : ''}</div>
+                            <h2 class="jp-title">${escapeHtml(j.title || 'Untitled requirement')}</h2>
+                        </div>
+                    </div>
+                    <div class="jp-facts">
+                        ${j.location ? `<div>📍 ${escapeHtml(j.location)}</div>` : ''}
+                        ${j.type_label || j.job_type ? `<div>${escapeHtml(j.type_label || j.job_type)}</div>` : ''}
+                        ${j.experience && j.experience.label && j.experience.source ? `<div>${escapeHtml(j.experience.label)}</div>` : ''}
+                        ${j.salary && !/^Rate on Discussion/i.test(j.salary) ? `<div>${escapeHtml(j.salary)}</div>` : ''}
+                        <div>Source: ${escapeHtml(j.source || 'Portal')}</div>
+                    </div>
+                </div>
+                <div class="jp-match">
+                    <div class="jp-label">${c ? `MATCH FOR ${escapeHtml(c.name.toUpperCase())}` : 'MATCH'}</div>
+                    ${!c ? '<div class="jp-muted">Choose the consultant above to see the match.</div>'
+                        : !m ? '<div class="jp-muted">The consultant has no skills listed, or the posting has no text to compare.</div>'
+                        : `<div class="jp-pct"><span>${m.pct}%</span>${consRingWord(m) ? `<em>${escapeHtml(consRingWord(m))}</em>` : ''}</div>
+                           <div class="jp-bar-row"><span>Skills in this job</span><b>${m.hit.length} of ${m.total}</b></div>
+                           <div class="jp-bar"><div style="width:${m.pct}%"></div></div>
+                           <div class="jp-chips">${m.hit.map(s => `<span class="jp-chip ok">✓ ${escapeHtml(s)}</span>`).join('')}${miss.map(s => `<span class="jp-chip no">✗ ${escapeHtml(s)}</span>`).join('')}</div>`}
+                </div>
+            </section>
+
+            <section class="jp-card">
+                <h3>Tailor the resume</h3>
+                ${forJob.length
+                    ? `<div class="jp-row"><div class="jp-grow">✓ Tailored for this job: <b>${escapeHtml(forJob[0].filename)}</b><div class="jp-muted">Saved ${escapeHtml(String(forJob[0].created_at || '').slice(0, 10))}. Super Apply and email drafts attach it when it is chosen under "Resume used to apply".</div></div>
+                        <button type="button" class="btn btn-secondary btn-sm jp-preview" data-v="${forJob[0].id}">Preview</button>
+                        <button type="button" class="btn btn-secondary btn-sm jp-tailor">Tailor again</button></div>`
+                    : `<div class="jp-row"><div class="jp-grow jp-muted">Match check, choose the changes, review the Word file. The saved file is named after this job.</div>
+                        <button type="button" class="btn btn-primary jp-tailor">Tailor resume</button></div>`}
+            </section>
+
+            <section class="jp-card">
+                <div class="jp-row"><h3 class="jp-grow">Hiring team${j.company ? ` at ${escapeHtml(j.company)}` : ''}</h3><button type="button" class="link-btn jp-open-team">${saved.length ? 'See all →' : 'Find the hiring team →'}</button></div>
+                ${j.recruiter_email ? `<div class="jp-person"><div class="jp-avatar">✉</div><div class="jp-grow"><b>${escapeHtml(j.recruiter_name || 'Recruiter on the posting')}</b><div class="jp-muted">${escapeHtml(j.recruiter_email)} · from the job posting</div></div>
+                    <button type="button" class="btn btn-primary btn-sm jp-draft-one" data-email="${escapeHtml(j.recruiter_email)}">Gmail draft with resume</button></div>` : ''}
+                ${saved.slice(0, 3).map(contactRow).join('')}
+                ${!saved.length && !j.recruiter_email ? `<div class="jp-muted">Nobody saved at this company yet. Searching the hiring team is free; each new email is 1 Apollo credit.</div>` : ''}
+                <div class="jp-email-row"><label for="jp-rec-email" class="jp-muted">Recruiter email you have</label>
+                    <input type="email" id="jp-rec-email" class="form-control form-control-sm" value="${escapeHtml(j.recruiter_email || '')}" placeholder="name@company.com (saves when you leave the box)"></div>
+            </section>
+
+            <section class="jp-card">
+                <h3>Job description</h3>
+                <div class="jp-desc">${desc ? escapeHtml(desc) : '<span class="jp-muted">No description was saved with this job - open the original post.</span>'}</div>
+            </section>
+        </div>
+
+        <aside class="jp-side">
+            <section class="jp-card">
+                <div class="jp-row"><h3 class="jp-grow">Checklist for this job</h3><span class="jp-badge">${done} of 4 done</span></div>
+                ${step(1, steps.resume, 'Resume on file', steps.resume ? escapeHtml((d.resume && d.resume.filename) || 'On file') : (c ? 'Upload it on the consultant\'s profile' : 'Choose the consultant'))}
+                ${step(2, steps.tailored, 'Tailor the resume', steps.tailored ? 'Done - saved for this job' : 'Recommended for this job', steps.tailored ? '' : '<button type="button" class="btn btn-secondary btn-sm jp-tailor">Tailor resume</button>')}
+                ${step(3, steps.emailed, 'Email the hiring team', steps.emailed ? 'Draft created' : (saved.some(p => p.verified) ? `${saved.filter(p => p.verified).length} saved - no credit needed` : 'Find recruiters and HR (Apollo)'),
+                    '<button type="button" class="btn btn-primary btn-sm jp-open-team">Super Apply</button>')}
+                ${step(4, steps.applied, 'Apply on the company site', steps.applied ? 'Applied' : 'The Chrome extension fills the form',
+                    (j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener">Apply with Autofill ↗</a>` : '') +
+                    (steps.applied ? '' : ' <button type="button" class="link-btn jp-applied">I applied</button>'))}
+            </section>
+            <section class="jp-card">
+                <div class="jp-label">RESUME USED TO APPLY</div>
+                <label for="jp-resume" class="sr-only">Resume used to apply</label>
+                <select id="jp-resume" class="form-control" ${c ? '' : 'disabled'}>${versionOpts}</select>
+                <div class="jp-row" style="margin-top:10px">
+                    <button type="button" class="btn btn-secondary btn-sm jp-grow jp-preview">Preview</button>
+                    <button type="button" class="btn btn-secondary btn-sm jp-grow" id="jp-download">Download</button>
+                </div>
+                <div class="jp-muted" style="margin-top:8px">Super Apply and the email drafts attach this file.</div>
+            </section>
+        </aside>
+    </div>`;
+    pane.querySelectorAll('.jp-tailor').forEach(b => b.addEventListener('click', () => {
+        if (!jp.candId) { showToast('Choose the consultant first.', 'warning'); return; }
+        jobOptimizeOpen(j.id, jp.candId, null);
+    }));
+    pane.querySelectorAll('.jp-open-team').forEach(b => b.addEventListener('click', () => { jp.pane = 'team'; jpRender(); }));
+    pane.querySelectorAll('.jp-draft-one').forEach(b => b.addEventListener('click', () => jpDraft([b.dataset.email], b)));
+    pane.querySelectorAll('.jp-preview').forEach(b => b.addEventListener('click', () => jpPreview(b.dataset.v || jp.resume)));
+    document.getElementById('jp-download').addEventListener('click', () => jpDownload(jp.resume));
+    document.getElementById('jp-resume').addEventListener('change', e => { jp.resume = e.target.value; });
+    document.getElementById('jp-rec-email').addEventListener('change', e => {
+        const v = e.target.value.trim();
+        if (v) { saveRecruiterEmail(j.id, v); j.recruiter_email = v; }
+    });
+    pane.querySelector('.jp-applied')?.addEventListener('click', async () => {
+        if (!jp.candId) { showToast('Choose the consultant first.', 'warning'); return; }
+        const status = jpSteps().emailed ? 'both' : 'portal';
+        const res = await fetch(`/api/jobs/${j.id}/apply-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, candidate_id: jp.candId }) });
+        if (!res.ok) { showToast('Could not mark it applied.', 'error'); return; }
+        showToast('Marked as Applied in the consultant\'s Applications.', 'success');
+        jpLoad();
+    });
+}
+
+function jpLinkedIn(p) {
+    if (p.linkedin_url) return `<a class="jp-li" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener">LinkedIn ↗</a>`;
+    const first = String(p.name || '').split(/\s+/)[0].replace(/\*/g, '');
+    const q = `${first} ${p.company || jp.job.company || ''}`.trim();
+    return `<a class="jp-li" href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}" target="_blank" rel="noopener" title="A LinkedIn people search - free">Find on LinkedIn ↗</a>`;
+}
+
+// the chosen resume version, or null for the original
+function jpVersionId() {
+    return jp.resume && jp.resume !== 'original' ? parseInt(jp.resume) : null;
+}
+
+async function jpResumeBlob(choice) {
+    if (choice && choice !== 'original') {
+        const res = await fetch(`/api/optimized-resumes/${choice}/download`);
+        if (!res.ok) throw new Error('Could not load the saved resume.');
+        const v = (jp.data.versions || []).find(x => String(x.id) === String(choice));
+        return { blob: await res.blob(), filename: v ? v.filename : 'resume.docx' };
+    }
+    const res = await fetch(`/api/consultants/${jp.candId}/resume-docx`);
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || 'Could not load the resume.');
+    if (!d.docx_base64) throw new Error(d.filename ? `${d.filename} isn't a Word file - open it from the consultant's profile.` : 'No resume is on file for this consultant.');
+    return { blob: rvB64ToBlob(d.docx_base64), filename: d.filename };
+}
+
+async function jpDownload(choice) {
+    if (!jp.candId) { showToast('Choose the consultant first.', 'warning'); return; }
+    if (!jp.data) { showToast('Still loading the job - try again in a moment.', 'info'); return; }
+    try {
+        const { blob, filename } = await jpResumeBlob(choice);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function jpPreview(choice) {
+    if (!jp.candId) { showToast('Choose the consultant first.', 'warning'); return; }
+    if (!jp.data) { showToast('Still loading the job - try again in a moment.', 'info'); return; }
+    const modal = document.getElementById('modal-jp-preview');
+    const body = document.getElementById('jp-preview-body');
+    body.innerHTML = '<div class="jp-muted">Opening the resume…</div>';
+    modal.style.display = 'flex';
+    try {
+        const { blob, filename } = await jpResumeBlob(choice);
+        document.getElementById('jp-preview-title').textContent = filename;
+        await loadDocxPreview();
+        if (!(window.docx && window.docx.renderAsync)) throw new Error('The preview could not load - use Download.');
+        body.innerHTML = '';
+        await window.docx.renderAsync(blob, body, null, { inWrapper: true, breakPages: true, ignoreLastRenderedPageBreak: true });
+    } catch (e) {
+        body.innerHTML = `<div class="sa-err">${escapeHtml(e.message)}</div>`;
+    }
+}
+
+// one Gmail draft per address, each with the chosen resume
+async function jpDraft(emails, btn) {
+    if (!jp.candId) { showToast('Choose the consultant first.', 'warning'); return; }
+    const list = emails.filter(Boolean);
+    if (!list.length) return;
+    const label = btn ? btn.textContent : '';
+    if (btn) btn.disabled = true;
+    for (let i = 0; i < list.length; i++) {
+        if (btn) btn.textContent = list.length > 1 ? `Creating ${i + 1} of ${list.length}…` : 'Creating draft…';
+        await createJobDraft(jp.job.id, jp.candId, list[i], null, jpVersionId());
+    }
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+    jpLoad();
+}
+
+// ------------------------------------------------------------- Company
+function jpCompany(pane) {
+    const j = jp.job, d = jp.data || {};
+    const jobs = d.company_jobs || [];
+    const saved = d.contacts || [];
+    pane.innerHTML = `
+    <div class="jp-grid">
+        <div class="jp-main">
+            <section class="jp-card">
+                <div class="jp-head-row"><div class="jc-logo">${consInitials(j.company || j.title)}</div><div><h2 class="jp-title">${escapeHtml(j.company || 'Company not shown')}</h2>
+                    <div class="jp-muted">${saved.length} saved contact${saved.length === 1 ? '' : 's'} · ${jobs.length} other job${jobs.length === 1 ? '' : 's'} in Job Hunt</div></div></div>
+            </section>
+            <section class="jp-card">
+                <h3>Other jobs at ${escapeHtml(j.company || 'this company')}</h3>
+                ${jobs.length ? jobs.map(x => `<button type="button" class="jp-joblink" data-id="${x.id}"><b>${escapeHtml(x.title || '')}</b><span class="jp-muted">${escapeHtml([x.location, x.source].filter(Boolean).join(' · '))}</span></button>`).join('')
+                    : '<div class="jp-muted">No other jobs from this company in Job Hunt.</div>'}
+            </section>
+        </div>
+        <aside class="jp-side">
+            <section class="jp-card">
+                <h3>Saved hiring contacts</h3>
+                ${saved.length ? saved.map(p => `<div class="jp-mini"><b>${escapeHtml(p.name)}</b><div class="jp-muted">${escapeHtml(p.title || '')}${p.verified ? ' · ' + escapeHtml(p.email) : ' · no verified email'}</div></div>`).join('')
+                    : '<div class="jp-muted">Nobody saved yet.</div>'}
+                <button type="button" class="btn btn-primary btn-sm jp-open-team" style="margin-top:10px">Hiring team</button>
+            </section>
+        </aside>
+    </div>`;
+    pane.querySelectorAll('.jp-open-team').forEach(b => b.addEventListener('click', () => { jp.pane = 'team'; jpRender(); }));
+    pane.querySelectorAll('.jp-joblink').forEach(b => b.addEventListener('click', async () => {
+        const id = parseInt(b.dataset.id);
+        const known = (state.jobs || []).find(x => x.id === id);
+        openJobPage(known || { id, title: b.querySelector('b').textContent }, jp.candId, jp.back);
+    }));
+}
+
+// ------------------------------------------------------------- Hiring team
+const JP_RECRUITER = /recruit|talent/i;
+const JP_HR = /\bhr\b|human|people/i;
+
+async function jpTeam(pane) {
+    if (jp.team === null && !jp.teamError) {
+        pane.innerHTML = `<div class="jp-card jp-muted">Looking up the hiring team at ${escapeHtml(jp.job.company || 'this company')} (free)…</div>`;
+        const job = jp.job;
+        try {
+            const res = await fetch('/api/super-apply/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: job.id }) });
+            const d = await res.json().catch(() => ({}));
+            if (jp.job !== job) return;
+            if (res.ok) jp.team = d.people || [];
+            else {
+                jp.teamError = d;
+                jp.team = (d.saved || []).map(s => ({ ...s, id: s.apollo_id, saved: true, has_email: !!s.email }));
+            }
+        } catch (e) {
+            jp.teamError = { error: 'Could not reach Job Hunt. Try again.' };
+            jp.team = [];
+        }
+        jpRender();
+        return;
+    }
+    const all = jp.team || [];
+    const groups = { all: all, ta: all.filter(p => JP_RECRUITER.test(p.title || '')), hr: all.filter(p => !JP_RECRUITER.test(p.title || '') && JP_HR.test(p.title || '')), saved: all.filter(p => p.saved) };
+    const shown = groups[jp.filter] || all;
+    const ticked = all.filter(p => p.verified && p.email && jp.ticked.has(p.id));
+    const verName = jpVersionId() ? ((jp.data && jp.data.versions || []).find(v => v.id === jpVersionId()) || {}).filename : ((jp.data && jp.data.resume && jp.data.resume.filename) || 'Original resume');
+    const filterBtn = (key, label) => `<button type="button" class="jp-filter ${jp.filter === key ? 'active' : ''}" data-f="${key}" aria-pressed="${jp.filter === key}">${label} ${groups[key].length}</button>`;
+    const err = jp.teamError;
+    const row = p => {
+        const saved = p.saved, ok = saved && p.verified && p.email;
+        const when = saved && p.revealed_at ? `Revealed ${escapeHtml(String(p.revealed_at).slice(0, 10))}${p.revealed_by_name ? ' by ' + escapeHtml(p.revealed_by_name) : ''}${p.emailed_count ? ` · emailed ${p.emailed_count}×` : ''}` : '';
+        return `
+        <div class="jp-trow ${ok ? 'saved' : ''}" data-id="${escapeHtml(p.id || '')}">
+            <input type="checkbox" class="jp-tick" aria-label="Email ${escapeHtml(p.name)}" ${ok ? '' : 'disabled'} ${ok && jp.ticked.has(p.id) ? 'checked' : ''}>
+            <div><b class="jp-name">${escapeHtml(p.name)}</b>${saved ? ' <span class="jp-pill">SAVED</span>' : ''}<div class="jp-muted">${escapeHtml(p.title || '')}${p.location ? ' · ' + escapeHtml(p.location) : ''}</div>${when ? `<div class="jp-muted small">${when}</div>` : ''}</div>
+            <div class="jp-tcol">
+                ${ok ? `<div class="jp-email">✓ ${escapeHtml(p.email)} <button type="button" class="jp-copy" data-email="${escapeHtml(p.email)}">Copy</button></div>`
+                    : saved ? `<div class="sa-warn">No verified email${p.email_status ? ` (Apollo: ${escapeHtml(p.email_status)})` : ''} - not used</div>` : ''}
+                ${jpLinkedIn(p)}
+            </div>
+            <div class="jp-tact">
+                ${ok ? `<button type="button" class="btn btn-primary btn-sm jp-draft-one" data-email="${escapeHtml(p.email)}">Gmail draft with resume</button>`
+                    : saved ? '<span class="jp-muted small">Credit already used - message on LinkedIn instead</span>'
+                    : p.has_email === false ? '<span class="jp-muted small">No email in Apollo</span>'
+                    : '<button type="button" class="btn btn-secondary btn-sm jp-reveal">Get verified email · 1 credit</button>'}
+            </div>
+        </div>`;
+    };
+    pane.innerHTML = `
+    <div class="jp-grid">
+        <section class="jp-card jp-main jp-team">
+            <div class="jp-row jp-team-head">
+                <div class="jp-grow"><h3>${all.length} ${all.length === 1 ? 'person' : 'people'} at ${escapeHtml(jp.job.company || 'this company')}</h3>
+                    <div class="jp-muted">Found by Apollo · searching is free · each new email is 1 credit · saved people are free</div></div>
+                <div class="jp-filters">${filterBtn('all', 'All')}${filterBtn('ta', 'Recruiters / TA')}${filterBtn('hr', 'HR')}${filterBtn('saved', 'Saved')}</div>
+            </div>
+            ${err ? `<div class="sa-err jp-pad">${escapeHtml(err.error || 'Apollo search failed.')}</div>${err.plan_blocked ? '<div id="jp-manual" class="jp-pad"></div>' : ''}` : ''}
+            ${shown.length ? `<div class="jp-thead"><span></span><span>PERSON</span><span>EMAIL &amp; LINKEDIN</span><span>ACTION</span></div>${shown.map(row).join('')}`
+                : `<div class="jp-muted jp-pad">${err ? '' : `Apollo found no recruiters or HR at ${escapeHtml(jp.job.company || 'this company')} in this country. No credits used.`}</div>`}
+        </section>
+        <aside class="jp-side">
+            <section class="jp-card">
+                <h3>Email with resume</h3>
+                <div class="jp-label">TO (TICKED)</div>
+                <div class="jp-to">${ticked.length ? ticked.map(p => escapeHtml(p.name)).join(', ') : '<span class="jp-muted">Tick saved people with a verified email</span>'}</div>
+                <div class="jp-label" style="margin-top:12px">RESUME</div>
+                <div class="jp-to">${escapeHtml(verName || '')}${jpVersionId() && ((jp.data.versions || []).find(v => v.id === jpVersionId()) || {}).job_id === jp.job.id ? '<div class="jp-ok small">Tailored for this job</div>' : ''}</div>
+                <button type="button" class="link-btn" id="jp-change-resume">Change on Overview</button>
+                <button type="button" class="btn btn-primary jp-wide" id="jp-draft-ticked" ${ticked.length ? '' : 'disabled'}>Create ${ticked.length || ''} Gmail draft${ticked.length === 1 ? '' : 's'}</button>
+                <div class="jp-muted small" style="margin-top:8px">One draft per person, in the consultant's Gmail. You read and send it.</div>
+            </section>
+        </aside>
+    </div>`;
+    if (err && err.plan_blocked) jpManual(document.getElementById('jp-manual'));
+    pane.querySelectorAll('.jp-filter').forEach(b => b.addEventListener('click', () => { jp.filter = b.dataset.f; jpRender(); }));
+    pane.querySelectorAll('.jp-tick').forEach(t => t.addEventListener('change', () => {
+        const id = t.closest('.jp-trow').dataset.id;
+        if (t.checked) jp.ticked.add(id); else jp.ticked.delete(id);
+        jpRender();
+    }));
+    pane.querySelectorAll('.jp-copy').forEach(b => b.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(b.dataset.email); b.textContent = 'Copied'; } catch (e) { showToast('Copy failed - select the email instead.', 'warning'); }
+    }));
+    pane.querySelectorAll('.jp-draft-one').forEach(b => b.addEventListener('click', () => jpDraft([b.dataset.email], b)));
+    pane.querySelectorAll('.jp-reveal').forEach(b => b.addEventListener('click', () => jpReveal(b)));
+    document.getElementById('jp-draft-ticked').addEventListener('click', e => jpDraft(ticked.map(p => p.email), e.currentTarget));
+    document.getElementById('jp-change-resume').addEventListener('click', () => { jp.pane = 'overview'; jpRender(); });
+}
+
+async function jpReveal(btn) {
+    const rowEl = btn.closest('.jp-trow');
+    const p = (jp.team || []).find(x => String(x.id) === rowEl.dataset.id);
+    if (!p) return;
+    if (!confirm(`Get ${p.name}'s email from Apollo?\n\nThis uses 1 Apollo credit (none if Apollo can't match the person). Only a verified email is used.`)) return;
+    btn.disabled = true;
+    btn.textContent = 'Getting email…';
+    const job = jp.job;
+    try {
+        const res = await fetch('/api/super-apply/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_id: job.id, person_id: p.id, title: p.title || '', location: p.location || '' }) });
+        const d = await res.json().catch(() => ({}));
+        if (jp.job !== job) return;
+        if (!res.ok) { showToast(d.error || 'Apollo error', 'error'); btn.disabled = false; btn.textContent = 'Get verified email · 1 credit'; return; }
+        if (!d.matched) { showToast(d.note || 'Apollo couldn\'t match this person.', 'warning'); btn.textContent = 'Not matched'; return; }
+        Object.assign(p, { saved: true, verified: !!d.verified, email: d.email || '', email_status: d.email_status || '', name: d.name || p.name,
+            linkedin_url: d.linkedin_url || p.linkedin_url, revealed_at: new Date().toISOString(), revealed_by_name: d.revealed_by_name || '' });
+        if (d.verified) jp.ticked.add(p.id);
+        else showToast(d.note || 'No verified email for this person.', 'warning', 6000);
+        if (d.saved_on_job) job.recruiter_email = d.email;
+        if (jp.data) {
+            const c = jp.data.contacts || [];
+            if (!c.some(x => x.apollo_id === p.id)) jp.data.contacts = [{ ...p, apollo_id: p.id }, ...c];
+        }
+        jpRender();
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Get verified email · 1 credit';
+    }
+}
+
+// Apollo Free plan: the same free way as the Super Apply window
+function jpManual(box) {
+    const co = jp.job.company || '';
+    box.innerHTML = `<div class="sa-manual"><b>Free way</b><ol>
+        <li>Find a recruiter or HR person at <b>${escapeHtml(co || 'the company')}</b>:
+            <a href="https://app.apollo.io/#/people?qKeywords=${encodeURIComponent(co)}" target="_blank" rel="noopener">Search in Apollo ↗</a> or
+            <a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent('recruiter ' + co)}" target="_blank" rel="noopener">Recruiters on LinkedIn ↗</a></li>
+        <li>Paste their work email here - only one you verified:</li></ol>
+        <div class="sa-manual-row"><input type="email" id="jp-manual-email" class="form-control" placeholder="name@company.com">
+        <button type="button" class="btn btn-primary btn-sm" id="jp-manual-draft">Create Gmail draft with resume</button></div></div>`;
+    document.getElementById('jp-manual-draft').addEventListener('click', e => {
+        const email = document.getElementById('jp-manual-email').value.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) { showToast('Enter a full email address, like name@company.com.', 'warning'); return; }
+        jpDraft([email], e.currentTarget);
+    });
+}
+
+(function initJobPage() {
+    document.getElementById('btn-close-jp-preview')?.addEventListener('click', () => { document.getElementById('modal-jp-preview').style.display = 'none'; });
+    // after the Tailor window closes, the checklist and the resume list show the new version
+    document.getElementById('btn-close-draft-optimize')?.addEventListener('click', () => {
+        if (jp.job && document.getElementById('tab-jobpage')?.classList.contains('active')) { jp.resume = ''; jpLoad(); }
+    });
+})();
+
+// =========================================================================
+// Contacts: every saved hiring contact (shared by the team). Excel export: admins.
+// =========================================================================
+const contactsUi = { q: '', company: '', timer: null };
+
+async function loadContacts() {
+    const box = document.getElementById('contacts-table');
+    if (!box) return;
+    const params = new URLSearchParams({ q: contactsUi.q, company: contactsUi.company });
+    let d;
+    try {
+        const res = await fetch(`/api/contacts?${params}`);
+        d = await res.json();
+        if (!res.ok) throw new Error(d.error || 'Could not load contacts.');
+    } catch (e) {
+        box.innerHTML = `<div class="cons-empty">${escapeHtml(e.message)}</div>`;
+        return;
+    }
+    const sel = document.getElementById('contacts-company');
+    if (sel && sel.options.length <= 1) sel.innerHTML = '<option value="">All companies</option>' + d.companies.map(c => `<option>${escapeHtml(c)}</option>`).join('');
+    document.getElementById('contacts-export').style.display = d.can_export ? '' : 'none';
+    document.getElementById('contacts-count').textContent = `${d.contacts.length} contact${d.contacts.length === 1 ? '' : 's'}`;
+    if (!d.contacts.length) {
+        box.innerHTML = `<div class="cons-empty">${contactsUi.q || contactsUi.company ? 'No contacts match.' : 'No saved contacts yet. Open a job, go to <b>Hiring team</b> and get a verified email - it is saved here for the whole team.'}</div>`;
+        return;
+    }
+    box.innerHTML = `<div class="ct-head"><span>PERSON</span><span>COMPANY</span><span>EMAIL &amp; LINKEDIN</span><span>REVEALED</span><span>EMAILED</span></div>` +
+        d.contacts.map(p => `
+        <div class="ct-row">
+            <div><b>${escapeHtml(p.name)}</b><div class="jp-muted">${escapeHtml(p.title || '')}</div></div>
+            <div>${escapeHtml(p.company || '')}${p.location ? `<div class="jp-muted">${escapeHtml(p.location)}</div>` : ''}</div>
+            <div>${p.verified && p.email ? `<div class="jp-email">✓ ${escapeHtml(p.email)} <button type="button" class="jp-copy" data-email="${escapeHtml(p.email)}">Copy</button></div>` : '<div class="sa-warn">No verified email</div>'}
+                ${p.linkedin_url ? `<a class="jp-li" href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener">LinkedIn ↗</a>` : ''}</div>
+            <div class="jp-muted">${escapeHtml(String(p.revealed_at || '').slice(0, 10))}${p.revealed_by_name ? ' · ' + escapeHtml(p.revealed_by_name) : ''}</div>
+            <div>${p.emailed_count ? `<b>${p.emailed_count} draft${p.emailed_count === 1 ? '' : 's'}</b><div class="jp-muted">last ${escapeHtml(String(p.last_emailed_at || '').slice(0, 10))}</div>` : '<span class="jp-muted">-</span>'}</div>
+        </div>`).join('');
+    box.querySelectorAll('.jp-copy').forEach(b => b.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(b.dataset.email); b.textContent = 'Copied'; } catch (e) { showToast('Copy failed - select the email instead.', 'warning'); }
+    }));
+}
+
+(function initContacts() {
+    document.getElementById('contacts-q')?.addEventListener('input', e => {
+        clearTimeout(contactsUi.timer);
+        contactsUi.timer = setTimeout(() => { contactsUi.q = e.target.value.trim(); loadContacts(); }, 300);
+    });
+    document.getElementById('contacts-company')?.addEventListener('change', e => { contactsUi.company = e.target.value; loadContacts(); });
+    document.getElementById('contacts-export')?.addEventListener('click', () => {
+        window.location.href = `/api/contacts/export.xlsx?${new URLSearchParams({ q: contactsUi.q, company: contactsUi.company })}`;
     });
 })();

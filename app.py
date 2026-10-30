@@ -50,6 +50,7 @@ import job_types
 import autofill
 import career_boards
 import apollo_api
+import hiring_contacts
 import roles_catalog
 
 logging.basicConfig(level=logging.INFO)
@@ -1373,6 +1374,11 @@ def api_create_outreach_draft():
         return jsonify(result), 400
     if custom_body:
         email_memory.remember_final(int(candidate_id), int(job_id), user["id"], (job or {}).get("title") or "", custom_body)
+    conn = models.get_db_connection()
+    try:
+        hiring_contacts.mark_emailed(conn, result.get("to_email") or custom_to_email or "")
+    finally:
+        conn.close()
     result["vendor"] = _capture_vendor(user, job, (custom_to_email or (job or {}).get("recruiter_email") or "").strip(),
                                        cand=models.get_candidate_by_id(int(candidate_id)))
     if req_row:
@@ -2474,10 +2480,29 @@ def api_super_apply_search():
     job = models.get_job_by_id(_int_or_none((request.get_json(silent=True) or {}).get("job_id")) or 0)
     if not job:
         return jsonify({"error": "Job not found"}), 404
+    conn = models.get_db_connection()
     try:
-        people = apollo_api.search_hiring_team(job.get("company") or "", job.get("country") or "")
-    except apollo_api.ApolloError as ex:
-        return jsonify({"error": str(ex), "plan_blocked": ex.plan_blocked, "company": job.get("company") or ""}), 400
+        saved = hiring_contacts.for_company(conn, job.get("company") or "")
+        try:
+            people = apollo_api.search_hiring_team(job.get("company") or "", job.get("country") or "")
+        except apollo_api.ApolloError as ex:
+            return jsonify({"error": str(ex), "plan_blocked": ex.plan_blocked, "company": job.get("company") or "",
+                            "saved": saved}), 400
+        known = hiring_contacts.by_apollo_ids(conn, [p["id"] for p in people])
+    finally:
+        conn.close()
+    for p in people:
+        s = known.get(p["id"])
+        if s:          # revealed before (any job, any recruiter): the full name, email, LinkedIn - no credit again
+            p.update({"saved": True, "name": s["name"] or p["name"], "email": s["email"], "verified": s["verified"],
+                      "email_status": s["email_status"], "linkedin_url": s["linkedin_url"] or p["linkedin_url"],
+                      "revealed_by_name": s["revealed_by_name"], "revealed_at": s["revealed_at"], "emailed_count": s["emailed_count"]})
+    listed = {p["id"] for p in people}
+    extra = [{"id": s["apollo_id"], "name": s["name"], "title": s["title"], "company": s["company"], "location": s["location"],
+              "linkedin_url": s["linkedin_url"], "has_email": bool(s["email"]), "saved": True, "email": s["email"], "verified": s["verified"],
+              "email_status": s["email_status"], "revealed_by_name": s["revealed_by_name"], "revealed_at": s["revealed_at"],
+              "emailed_count": s["emailed_count"]} for s in saved if s["apollo_id"] not in listed]
+    people = sorted(extra + people, key=lambda p: (not p.get("saved"), not p.get("verified")))
     return jsonify({"people": people, "company": job.get("company") or "", "job_title": job.get("title") or ""})
 
 
@@ -2491,17 +2516,105 @@ def api_super_apply_reveal():
     job = models.get_job_by_id(_int_or_none(data.get("job_id")) or 0)
     if not job:
         return jsonify({"error": "Job not found"}), 404
+    person_id = str(data.get("person_id") or "")
+    conn = models.get_db_connection()
     try:
-        res = apollo_api.reveal(str(data.get("person_id") or ""))
-    except apollo_api.ApolloError as ex:
-        return jsonify({"error": str(ex)}), 400
-    if res.get("matched"):
+        saved = hiring_contacts.by_apollo_ids(conn, [person_id]).get(person_id)
+    finally:
+        conn.close()
+    if saved:
+        res = {"matched": True, "verified": saved["verified"], "email": saved["email"], "email_status": saved["email_status"],
+               "name": saved["name"], "title": saved["title"], "company": saved["company"], "linkedin_url": saved["linkedin_url"],
+               "already_saved": True, "revealed_by_name": saved["revealed_by_name"], "note": "" if saved["verified"] else "Apollo had no verified email for this person (checked before - no credit used now)."}
+    else:
+        try:
+            res = apollo_api.reveal(person_id)
+        except apollo_api.ApolloError as ex:
+            return jsonify({"error": str(ex)}), 400
+    if res.get("matched") and not res.get("already_saved"):
         models.log_activity(user["id"], user.get("name") or "", "Apollo email reveal (1 credit)", "Job", job["id"],
                             f"{res.get('name')} at {job.get('company')}: {'verified email' if res['verified'] else 'no verified email'}")
+        conn = models.get_db_connection()
+        res["revealed_by_name"] = user.get("name") or ""
+        try:
+            hiring_contacts.save_reveal(conn, person_id, res, job.get("company") or "", user,
+                                        title=str(data.get("title") or "")[:200], location=str(data.get("location") or "")[:200])
+        finally:
+            conn.close()
     if res.get("verified") and not (job.get("recruiter_email") or "").strip():
         models.update_job_recruiter_info(job["id"], email=res["email"], name=res.get("name") or "")
         res["saved_on_job"] = True
     return jsonify(res)
+
+
+@app.route("/api/jobs/<int:job_id>/page", methods=["GET"])
+def api_job_page(job_id):
+    """Everything the job page shows: the job (full posting), the checklist for the consultant (resume on file,
+    tailored version, draft created, applied), the saved hiring team at the company and its other jobs."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    job = models.get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    out = {"job": job, "resume": None, "versions": [], "application": None}
+    conn = models.get_db_connection()
+    try:
+        out["contacts"] = hiring_contacts.for_company(conn, job.get("company") or "")
+        cur = conn.cursor()
+        cur.execute("SELECT id, title, location, source, scraped_at FROM jobs WHERE LOWER(company) = LOWER(?) AND id <> ? "
+                    "ORDER BY id DESC LIMIT 20", (job.get("company") or "", job_id))
+        out["company_jobs"] = [{"id": r["id"], "title": r["title"], "location": r["location"], "source": r["source"],
+                                "scraped_at": str(r["scraped_at"] or "")[:19]} for r in cur.fetchall()] if (job.get("company") or "").strip() else []
+        cid = _int_or_none(request.args.get("candidate_id"))
+        if cid and can_access_candidate(user, cid):
+            cand = models.get_candidate_by_id(cid)
+            found = models.find_resume_file(cand) if cand else None
+            out["resume"] = {"on_file": bool(found) or bool((cand or {}).get("resume_text")),
+                             "filename": found[0] if found else ((cand or {}).get("resume_filename") or "")}
+            out["versions"] = [{"id": v["id"], "filename": v["filename"], "job_id": v["job_id"], "created_at": v["created_at"]}
+                               for v in resume_versions.list_for(cid)]
+            cur.execute("SELECT id, stage, apply_method, drafted_at, applied_date FROM applications WHERE job_id = ? AND candidate_id = ?",
+                        (job_id, cid))
+            r = cur.fetchone()
+            if r:
+                out["application"] = {"id": r["id"], "stage": r["stage"] or "", "apply_method": r["apply_method"] or "",
+                                      "drafted_at": str(r["drafted_at"] or "")[:19], "applied_date": str(r["applied_date"] or "")[:19]}
+    finally:
+        conn.close()
+    return jsonify(out)
+
+
+@app.route("/api/contacts", methods=["GET"])
+def api_contacts():
+    """Saved hiring contacts (shared by the team): ?q= searches name / company / email / title, ?company= one company."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    conn = models.get_db_connection()
+    try:
+        rows = hiring_contacts.search(conn, str(request.args.get("q") or "")[:100], str(request.args.get("company") or "")[:200])
+        companies = hiring_contacts.companies(conn)
+    finally:
+        conn.close()
+    return jsonify({"contacts": rows, "companies": companies, "can_export": "Admin" in (user.get("role") or "")})
+
+
+@app.route("/api/contacts/export.xlsx", methods=["GET"])
+def api_contacts_export():
+    """Excel of the saved contacts - admins only (emails in bulk)."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if "Admin" not in (user.get("role") or ""):
+        return jsonify({"error": "Only admins can export contacts."}), 403
+    conn = models.get_db_connection()
+    try:
+        rows = hiring_contacts.search(conn, str(request.args.get("q") or "")[:100], str(request.args.get("company") or "")[:200], limit=10000)
+    finally:
+        conn.close()
+    return send_file(io.BytesIO(hiring_contacts.build_xlsx(rows)), as_attachment=True, download_name="hiring_contacts.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.route("/api/jobs/<int:job_id>/save", methods=["POST"])

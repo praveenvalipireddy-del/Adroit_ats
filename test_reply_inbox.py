@@ -273,7 +273,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.13" in page.content(), "cache-buster not bumped to 5.99.13")
+        check("app.js?v=5.99.14" in page.content(), "cache-buster not bumped to 5.99.14")
         page.wait_for_function("typeof state !== 'undefined' && state.consultants && state.consultants.length", timeout=15000)
         page.evaluate(f"openTracker({cid})")
         page.wait_for_selector(f".trk-item[data-app-id='{app_id}']", timeout=10000)

@@ -140,6 +140,29 @@ cur = conn.cursor()
 cur.execute("SELECT COUNT(*) FROM activity_logs WHERE action LIKE 'Apollo email reveal%'")
 check(cur.fetchone()[0] == 1, "credit use logged")
 conn.close()
+# ---- saved contacts: a revealed person is kept (team-wide) and never paid for twice
+import hiring_contacts  # noqa: E402
+conn = models.get_db_connection()
+saved = hiring_contacts.for_company(conn, "FIXTURE HEALTH PVT LTD")
+conn.close()
+check([s["apollo_id"] for s in saved] == [P1] and saved[0]["email"] == "rita@fixturehealth.example" and saved[0]["verified"]
+      and saved[0]["revealed_by_name"], f"the reveal is saved: {saved}")
+n_calls = len(calls)
+d = client.post("/api/super-apply/reveal", json={"job_id": jid, "person_id": P1}).get_json()
+check(d.get("already_saved") and d["email"] == "rita@fixturehealth.example" and len(calls) == n_calls, f"revealed before: Apollo not called: {d}")
+d = client.post("/api/super-apply/search", json={"job_id": jid}).get_json()
+rita = next(p for p in d["people"] if p["id"] == P1)
+check(d["people"][0]["id"] == P1 and rita["saved"] and rita["email"] == "rita@fixturehealth.example" and rita["name"] == "Rita Recruiter",
+      f"search shows the saved person first, with the email: {rita}")
+conn = models.get_db_connection()
+cur = conn.cursor()
+cur.execute("SELECT COUNT(*) FROM activity_logs WHERE action LIKE 'Apollo email reveal%'")
+check(cur.fetchone()[0] == 1, "no second credit logged")
+check(hiring_contacts.mark_emailed(conn, "RITA@fixturehealth.example") == 1 and hiring_contacts.search(conn, "rita")[0]["emailed_count"] == 1,
+      "a draft to the address counts on the contact")
+cur.execute("DELETE FROM hiring_contacts")          # the browser run below reveals again
+conn.commit()
+conn.close()
 models.update_job_recruiter_info(jid, email="")          # the browser run reveals again
 
 with socket.socket() as sk:
@@ -160,7 +183,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.13" in page.content(), "cache-buster not bumped to 5.99.13")
+        check("app.js?v=5.99.14" in page.content(), "cache-buster not bumped to 5.99.14")
         page.evaluate("window.createJobDraft = (...a) => { window.__draft = a.slice(0, 3); }")
         page.click("a.nav-item[data-tab=candidates]")
         page.click(f".cons-card[data-id='{K}']")

@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 4) return;
+  if (window.JH && window.JH.version === 5) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -69,6 +69,7 @@
       if (l) job.location = textOf(l).replace(/^(job )?location\s*:?\s*/i, '').slice(0, 120);
     }
     job.isApplyStep = APPLY_STEP_URL.test(location.pathname + location.hash);
+    job.fields = formFieldCount();
     if (!job.description || job.description.length < 60) {
       const main = document.querySelector('main, [role="main"], #content, .content, article, #app_body') || document.body;
       job.description = (main.innerText || '').trim();
@@ -83,6 +84,23 @@
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
+  }
+
+  // Site furniture, not the application: search bars, newsletter / job-alert sign-ups, cookie banners, chat widgets.
+  // Never filled, and they don't count as "a form is here" (that would stop the Apply click on a job page).
+  const FURNITURE_ZONE = 'footer, nav, [role="search"], [role="navigation"], [role="contentinfo"], ' +
+    'form[action*="search" i], form[id*="search" i], form[class*="search" i], [id*="newsletter" i], [class*="newsletter" i], ' +
+    '[id*="job-alert" i], [class*="job-alert" i], [id*="jobalert" i], [class*="jobalert" i], [id*="cookie" i], [class*="cookie" i], ' +
+    '[id*="onetrust" i], [id*="chatbot" i], [class*="chatbot" i]';
+  const FURNITURE_ATTR = /\bsearch\b|\bkeywords?\b|newsletter|subscribe|job ?alert/i;
+
+  function isFurniture(el) {
+    const zone = el.closest(FURNITURE_ZONE);
+    // a page-wide class (<body class="cookie-ok">) says nothing, and a section with a resume upload is the application
+    if (zone && zone !== document.body && zone !== document.documentElement && !zone.querySelector('input[type="file"]')) return true;
+    // the field's own attributes, not its question: "Experience with search engines?" is a real question
+    const attrs = [el.id, el.name, el.placeholder, el.getAttribute('aria-label')].filter(Boolean).join(' ');
+    return attrs.length <= 60 && FURNITURE_ATTR.test(attrs.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' '));
   }
 
   function containerQuestion(el) {
@@ -354,7 +372,7 @@
 
     for (const el of els) {
       if (el.disabled || el.readOnly || SKIP_TYPES.test(el.type || '') || el.type === 'file') continue;
-      if (el.closest('[data-jh-skip]')) continue;
+      if (el.closest('[data-jh-skip]') || isFurniture(el)) continue;
 
       // radio groups (Yes / No questions, voluntary disclosures)
       if (el.type === 'radio' || el.type === 'checkbox') {
@@ -477,7 +495,7 @@
 
   function formFieldCount() {
     return Array.from(document.querySelectorAll('input, select, textarea'))
-      .filter((e) => !SKIP_TYPES.test(e.type || '') && (e.type === 'file' || isShown(e))).length;
+      .filter((e) => !SKIP_TYPES.test(e.type || '') && (e.type === 'file' || isShown(e)) && !isFurniture(e)).length;
   }
 
   // On a job page with no form yet: click the site's Apply button (it can't submit anything - there is no form).
@@ -505,6 +523,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 4, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+  window.JH = { version: 5, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
     _keyFor: keyFor, _labelOf: labelOf, _resumeInput: resumeInput };
 })();

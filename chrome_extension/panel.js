@@ -1,6 +1,7 @@
 // Job Hunt Autofill - side panel. Talks to the Job Hunt server with the connection key and drives filler.js in the page.
 const $ = (id) => document.getElementById(id);
-const st = { server: '', key: '', user: null, consultants: [], cid: null, profile: null, job: null, tabId: null, lastFill: null };
+const st = { server: '', key: '', user: null, consultants: [], cid: null, profile: null, job: null, lastFill: null,
+  jobs: {}, tabJob: {}, jobKey: null, applyFrom: null, readSeq: 0, tailored: null, tailorReview: null, matchResult: null };
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const show = (view) => ['connect', 'main', 'settings'].forEach((v) => { $('view-' + v).hidden = v !== view; });
@@ -31,8 +32,13 @@ async function connect(server, key) {
 }
 
 async function start() {
+  st.ready = false;
   if (!$('in-server').value && typeof JH_DEFAULT_SERVER !== 'undefined') $('in-server').value = JH_DEFAULT_SERVER;
   const saved = await chrome.storage.local.get(['server', 'key', 'cid']);
+  const known = await chrome.storage.session.get(['jhJobs', 'jhTabJob']);
+  st.jobs = known.jhJobs || {};
+  st.tabJob = known.jhTabJob || {};
+  st.jobKey = null;
   $('in-server').value = saved.server || (typeof JH_DEFAULT_SERVER !== 'undefined' ? JH_DEFAULT_SERVER : '');
   if (!saved.key) { show('connect'); return; }
   try {
@@ -65,6 +71,7 @@ $('btn-connect').addEventListener('click', async () => {
 
 // ------------------------------------------------------------- main view
 function renderMain() {
+  st.ready = true;
   show('main');
   const sel = $('sel-consultant');
   if (!st.consultants.length) {
@@ -81,10 +88,13 @@ $('sel-consultant').addEventListener('change', async (e) => {
   st.original = null;
   await store({ cid: st.cid });
   resetTailor();
+  st.matchResult = null;
+  remember({ match: null });
   $('match-box').hidden = true;
   $('result-box').hidden = true;
   $('applied-card').hidden = true;
   loadProfile();
+  refreshStatus();
 });
 
 async function loadProfile() {
@@ -95,7 +105,7 @@ async function loadProfile() {
     const d = await api(`/api/ext/consultants/${st.cid}`);
     st.profile = d;
     const p = d.profile;
-    $('resume-name').textContent = p.resume_filename || 'No resume on file - upload one in Job Hunt';
+    showResumeName();
     const rows = [['Name', p.full_name], ['Email', p.email], ['Phone', p.phone], ['LinkedIn', p.linkedin_url], ['Location', p.location],
       ['Work authorization', p.visa_status], ['Authorized to work', p.work_authorized], ['Needs sponsorship', p.needs_sponsorship],
       ['Experience', p.years_experience ? p.years_experience + ' years' : ''], ['Rate / salary', p.expected_salary], ['Notice period', p.notice_period], ['Current CTC', p.current_ctc], ['F2F interview', p.f2f_ready],
@@ -128,25 +138,130 @@ async function inject(tabId, allFrames) {
   await chrome.scripting.executeScript({ target: { tabId, allFrames }, files: ['filler.js'] });
 }
 
+// What the panel knows is kept per job, not per tab: going to another tab, an Apply that opens another tab or site, or
+// reopening the panel keeps the job, its match and its tailored resume, so the AI isn't paid for twice.
+// (chrome.storage.session: gone when the browser closes.)
+const MAX_JOBS = 8;
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
+const normTitle = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const GENERIC_TITLE = /\b(apply|application|careers?|jobs?|sign in|log ?in|create account|welcome|home|workday|icims|greenhouse|lever|taleo|smartrecruiters)\b/i;
+const isThin = (read) => !!read.isApplyStep || (read.description || '').length < 300;
+
+function remember(fields) {
+  const rec = st.jobs[st.jobKey];
+  if (!rec) return;
+  Object.assign(rec, fields, { cid: st.cid, used: Date.now() });
+  saveJobs();
+}
+
+async function saveJobs() {
+  Object.keys(st.jobs).sort((a, b) => st.jobs[b].used - st.jobs[a].used).slice(MAX_JOBS).forEach((k) => { delete st.jobs[k]; });
+  Object.keys(st.tabJob).forEach((t) => { if (!st.jobs[st.tabJob[t]]) delete st.tabJob[t]; });
+  // too big to store: everything still works until the panel closes
+  try { await chrome.storage.session.set({ jhJobs: st.jobs, jhTabJob: st.tabJob }); } catch (e) { /* ignore */ }
+}
+
+// Is the page still the job we knew, further along (the form), or a new one?
+function continuesJob(known, read, openedByIt) {
+  const a = normTitle(known.title), b = normTitle(read.title);
+  const sameHost = hostOf(known.url) === hostOf(read.url);
+  if (a && a === b && (!sameHost || known.company === read.company)) return true;
+  if (sameHost || openedByIt) return isThin(read);
+  // the same tab, on another site: only an application form that doesn't name another job
+  return (!!read.isApplyStep || (isThin(read) && read.fields >= 2)) && (!b || GENERIC_TITLE.test(read.title) || a.includes(b) || b.includes(a));
+}
+
+function placeJob(tab, read) {
+  const own = st.tabJob[tab.id];
+  const opener = !own && tab.openerTabId ? st.tabJob[tab.openerTabId] : null;
+  const forced = st.applyFrom && st.jobs[st.applyFrom] && isThin(read) ? st.applyFrom : null;   // Autofill just clicked this job's Apply
+  const base = forced || (st.jobs[own] ? own : opener);
+  const known = st.jobs[base];
+  if (known && hostOf(known.job.url) !== hostOf(st.server) && (forced || continuesJob(known.job, read, !!opener))) {
+    known.job = isThin(read) ? { ...known.job, url: read.url, fields: read.fields, isApplyStep: read.isApplyStep }
+      : { ...read, company: read.company || known.job.company,
+          description: (read.description || '').length >= (known.job.description || '').length ? read.description : known.job.description };
+    known.used = Date.now();
+    st.tabJob[tab.id] = base;
+    return base;
+  }
+  const seen = Object.keys(st.jobs).find((k) => {
+    const j = st.jobs[k].job;
+    return j.url === read.url || (read.title && read.company && j.title === read.title && j.company === read.company);
+  });
+  if (seen) {
+    st.jobs[seen].used = Date.now();
+    st.tabJob[tab.id] = seen;
+    return seen;
+  }
+  if (!read.title || (GENERIC_TITLE.test(read.title) && isThin(read))) return null;   // nothing worth keeping (a sign-in page...)
+  const key = 'j' + Date.now() + Math.random().toString(36).slice(2, 6);
+  st.jobs[key] = { job: read, cid: st.cid, used: Date.now() };
+  st.tabJob[tab.id] = key;
+  return key;
+}
+
+function showResumeName() {
+  if (st.tailored) { $('resume-name').textContent = `${st.tailored.filename} (tailored for this job)`; return; }
+  if (st.profile) $('resume-name').textContent = st.profile.profile.resume_filename || 'No resume on file - upload one in Job Hunt';
+}
+
+// this job's match, suggested changes and tailored resume, back on screen
+function showJobState() {
+  const rec = st.jobs[st.jobKey];
+  const mine = rec && rec.cid === st.cid;
+  st.matchResult = mine ? rec.match || null : null;
+  st.tailorReview = mine ? rec.review || null : null;
+  st.tailored = mine ? rec.tailored || null : null;
+  if (st.matchResult) renderMatch(st.matchResult); else $('match-box').hidden = true;
+  if (st.tailored) renderTailorDone();
+  else if (st.tailorReview) renderTailorReview();
+  else { $('tailor-box').hidden = true; $('tailor-box').innerHTML = ''; }
+  showResumeName();
+}
+
 async function readPage() {
+  if (!st.ready) return;                             // page events while connecting: the consultant isn't known yet
+  const seq = ++st.readSeq;
   const tab = await targetTab();
   if (!tab) { renderJob(null, 'Open a job page'); return; }
-  const prev = st.job;
+  const before = st.jobKey;
   try {
     await inject(tab.id, false);
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.JH.readJob() });
-    let job = r && r.result;
-    // an application form page (e.g. Lever /apply) shows less of the job: keep what we read on the job page
-    if (prev && st.tabId === tab.id && job && (job.isApplyStep || (job.description || '').length < 300) && new URL(prev.url).host === new URL(job.url).host) {
-      job = { ...prev, url: job.url };
-    }
-    st.tabId = tab.id;
-    if (!prev || !job || prev.title !== job.title || prev.company !== job.company) resetTailor();   // another job: its own resume
-    st.job = job;
-    renderJob(job);
+    if (seq !== st.readSeq) return;                  // a newer read is on its way
+    const read = r && r.result;
+    st.jobKey = read ? placeJob(tab, read) : null;
+    st.job = st.jobKey ? st.jobs[st.jobKey].job : read;
+    saveJobs();
+    if (st.jobKey !== before) showJobState();
+    renderJob(st.job);
+    refreshStatus();
   } catch (e) {
+    if (seq !== st.readSeq) return;
     st.job = null;
+    st.jobKey = null;
+    if (before) showJobState();
     renderJob(null, 'Job Hunt can\'t read this page');
+    refreshStatus();
+  }
+}
+
+// Already on this job? A warning before Autofill, not a block: re-applying can be right.
+async function refreshStatus() {
+  const box = $('job-status');
+  const job = st.job, cid = st.cid;
+  if (!job || !job.title || !cid) { box.hidden = true; return; }
+  try {
+    const d = await api('/api/ext/job-status', { method: 'POST', body: { candidate_id: cid, job: { title: job.title, company: job.company, url: job.url } } });
+    if (st.cid !== cid || !st.job || st.job.title !== job.title) return;
+    $('btn-save').classList.toggle('on', !!d.found);
+    box.hidden = !d.found || d.stage === 'Saved';
+    if (box.hidden) return;
+    const who = (st.consultants.find((c) => c.id === cid) || {}).name || 'This consultant';
+    box.textContent = `⚠ ${who} is already on this job: ${d.label}${d.date ? ' on ' + d.date : ''}${d.resume ? ' with ' + d.resume : ''}.`;
+  } catch (e) {
+    box.hidden = true;
   }
 }
 
@@ -168,7 +283,7 @@ function renderJob(job, emptyText) {
   $('job-chips').innerHTML = [job.location, host].filter(Boolean).map((c) => `<span class="chip">${esc(c)}</span>`).join('');
 }
 
-chrome.tabs.onActivated.addListener(() => { $('result-box').hidden = true; $('applied-card').hidden = true; $('match-box').hidden = true; readPage(); });
+chrome.tabs.onActivated.addListener(() => { $('result-box').hidden = true; $('applied-card').hidden = true; readPage(); });
 chrome.tabs.onUpdated.addListener((tabId, info) => { if (info.status === 'complete') readPage(); });
 
 // ------------------------------------------------------------- match / save
@@ -179,19 +294,27 @@ $('btn-match').addEventListener('click', async () => {
   box.innerHTML = '<p class="hint">Checking the match…</p>';
   try {
     const m = await api('/api/ext/match', { method: 'POST', body: { candidate_id: st.cid, job: st.job } });
-    if (m.score == null) { box.innerHTML = `<p class="warn">${esc(m.note)}</p>`; return; }
-    const col = m.score >= 75 ? 'var(--green)' : m.score >= 50 ? 'var(--blue)' : 'var(--amber)';
-    const word = m.score >= 75 ? 'STRONG MATCH' : m.score >= 50 ? 'GOOD MATCH' : 'STRETCH';
-    box.innerHTML = `<div class="match"><div class="ring" style="background:conic-gradient(${col} ${m.score}%, #e5e7eb 0)"><span>${m.score}%</span></div>
-      <div><b style="color:${col};font-size:12px">${word}</b><div class="hint" style="text-align:left;margin:2px 0">${esc(m.note || '')}</div></div></div>
-      ${m.matched && m.matched.length ? `<div class="tags">${m.matched.map((t) => `<span class="tag ok">✓ ${esc(t)}</span>`).join('')}</div>` : ''}
-      ${m.missing && m.missing.length ? `<div class="tags">${m.missing.map((t) => `<span class="tag no">✗ ${esc(t)}</span>`).join('')}</div>` : ''}
-      <button class="btn wide" id="btn-tailor">✨ Tailor resume for this job</button>`;
-    $('btn-tailor').addEventListener('click', tailorAnalyze);
+    st.matchResult = m;
+    remember({ match: m });
+    renderMatch(m);
   } catch (e) {
     box.innerHTML = `<p class="warn">${esc(e.message)}</p>`;
   }
 });
+
+function renderMatch(m) {
+  const box = $('match-box');
+  box.hidden = false;
+  if (m.score == null) { box.innerHTML = `<p class="warn">${esc(m.note)}</p>`; return; }
+  const col = m.score >= 75 ? 'var(--green)' : m.score >= 50 ? 'var(--blue)' : 'var(--amber)';
+  const word = m.score >= 75 ? 'STRONG MATCH' : m.score >= 50 ? 'GOOD MATCH' : 'STRETCH';
+  box.innerHTML = `<div class="match"><div class="ring" style="background:conic-gradient(${col} ${m.score}%, #e5e7eb 0)"><span>${m.score}%</span></div>
+    <div><b style="color:${col};font-size:12px">${word}</b><div class="hint" style="text-align:left;margin:2px 0">${esc(m.note || '')}</div></div></div>
+    ${m.matched && m.matched.length ? `<div class="tags">${m.matched.map((t) => `<span class="tag ok">✓ ${esc(t)}</span>`).join('')}</div>` : ''}
+    ${m.missing && m.missing.length ? `<div class="tags">${m.missing.map((t) => `<span class="tag no">✗ ${esc(t)}</span>`).join('')}</div>` : ''}
+    <button class="btn wide" id="btn-tailor">✨ Tailor resume for this job</button>`;
+  $('btn-tailor').addEventListener('click', tailorAnalyze);
+}
 
 // ------------------------------------------------------------- tailor the resume for this job
 // Same steps as Job Hunt: the match + suggested changes (ticked when the resume shows them) -> only the ticked
@@ -199,9 +322,10 @@ $('btn-match').addEventListener('click', async () => {
 function resetTailor() {
   st.tailored = null;
   st.tailorReview = null;
+  remember({ tailored: null, review: null });
   $('tailor-box').hidden = true;
   $('tailor-box').innerHTML = '';
-  if (st.profile) $('resume-name').textContent = st.profile.profile.resume_filename || 'No resume on file - upload one in Job Hunt';
+  showResumeName();
 }
 
 function tailorChecked() { return [...document.querySelectorAll('#tailor-box input[data-ch]:checked')].map((i) => i.dataset.ch); }
@@ -228,28 +352,37 @@ async function tailorAnalyze() {
   if (!st.job || !st.cid) { box.innerHTML = '<p class="warn">Open a job page and pick a consultant.</p>'; return; }
   box.innerHTML = '<p class="hint">Checking what to change…</p>';
   try {
-    const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'analyze' } });
-    st.tailorReview = d.review;
-    const why = (i) => i.kind === 'align' ? 'Rewords his summary and latest project - no new facts.'
-      : i.kind === 'safe' ? `In his resume: "${esc(i.evidence)}"`
-      : i.kind === 'unproven' ? "His resume doesn't say it - tick only if it's true."
-      : 'Not in his resume - only if he really has it (Skills only).';
-    const item = (i) => `<label class="tl-item"><input type="checkbox" data-ch="${esc(i.id)}"${i.checked ? ' checked' : ''}><span>${esc(i.label)}<small>${why(i)}</small></span></label>`;
-    const group = (title, color, list) => list.length ? `<div class="tl-group" style="color:${color}">${title}</div>${list.map(item).join('')}` : '';
-    const items = d.review.items;
-    box.innerHTML = `<b>Tailor the resume</b> <span class="hint">- only the ticked changes are made</span>
-      ${group('Backed by his resume', 'var(--green)', items.filter((i) => i.kind === 'align' || i.kind === 'safe'))}
-      ${group('Not stated in his resume', 'var(--amber)', items.filter((i) => i.kind === 'unproven'))}
-      ${group('Not in the resume', 'var(--red)', items.filter((i) => i.kind === 'missing'))}
-      <div class="tl-proj">Match ${esc(d.review.initial)}% → <b id="tl-proj"></b></div>
-      <div class="row"><button class="btn primary" id="btn-tl-apply">Apply</button><button class="btn" id="btn-tl-cancel">Keep the original</button></div>`;
-    box.querySelectorAll('input[data-ch]').forEach((i) => i.addEventListener('change', tailorChanged));
-    $('btn-tl-apply').addEventListener('click', tailorApply);
-    $('btn-tl-cancel').addEventListener('click', resetTailor);
-    tailorChanged();
+    // the Match already brought the suggestions; ask only when it came from the free keyword check
+    const known = st.matchResult && st.matchResult.review;
+    const review = known || (await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'analyze' } })).review;
+    st.tailorReview = review;
+    remember({ review });
+    renderTailorReview();
   } catch (e) {
     box.innerHTML = `<p class="warn">${esc(e.message)}</p>`;
   }
+}
+
+function renderTailorReview() {
+  const box = $('tailor-box');
+  box.hidden = false;
+  const why = (i) => i.kind === 'align' ? 'Rewords the summary and latest project - no new facts.'
+    : i.kind === 'safe' ? `In the resume: "${esc(i.evidence)}"`
+    : i.kind === 'unproven' ? "The resume doesn't say it - tick only if it's true."
+    : "Not in the resume - only if the consultant really has it (Skills only).";
+  const item = (i) => `<label class="tl-item"><input type="checkbox" data-ch="${esc(i.id)}"${i.checked ? ' checked' : ''}><span>${esc(i.label)}<small>${why(i)}</small></span></label>`;
+  const group = (title, color, list) => list.length ? `<div class="tl-group" style="color:${color}">${title}</div>${list.map(item).join('')}` : '';
+  const items = st.tailorReview.items;
+  box.innerHTML = `<b>Tailor the resume</b> <span class="hint">- only the ticked changes are made</span>
+    ${group('Backed by the resume', 'var(--green)', items.filter((i) => i.kind === 'align' || i.kind === 'safe'))}
+    ${group('Not stated in the resume', 'var(--amber)', items.filter((i) => i.kind === 'unproven'))}
+    ${group('Not in the resume', 'var(--red)', items.filter((i) => i.kind === 'missing'))}
+    <div class="tl-proj">Match ${esc(st.tailorReview.initial)}% → <b id="tl-proj"></b></div>
+    <div class="row"><button class="btn primary" id="btn-tl-apply">Apply</button><button class="btn" id="btn-tl-cancel">Keep the original</button></div>`;
+  box.querySelectorAll('input[data-ch]').forEach((i) => i.addEventListener('change', tailorChanged));
+  $('btn-tl-apply').addEventListener('click', tailorApply);
+  $('btn-tl-cancel').addEventListener('click', resetTailor);
+  tailorChanged();
 }
 
 async function tailorApply() {
@@ -262,22 +395,30 @@ async function tailorApply() {
     const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids } });
     const box = $('tailor-box');
     if (!d.changed) { box.innerHTML = `<p class="warn">${esc(d.reason)}</p><p class="hint">Autofill attaches the original resume.</p>`; return; }
-    st.tailored = { filename: d.filename, mime: d.mime, base64: d.base64, original: d.original_text || '', changes: d.changes };
-    $('resume-name').textContent = `${d.filename} (tailored for this job)`;
-    const list = d.changes.map((c) => `<li>${c.before ? `<s>${esc(c.before)}</s><br>` : ''}<span>${esc(c.after)}</span></li>`).join('');
-    box.innerHTML = `<b style="color:var(--green)">✓ ${d.changes.length} change${d.changes.length === 1 ? '' : 's'} made</b>
-      <p class="hint">Autofill attaches <b>${esc(d.filename)}</b> (saved in Job Hunt).</p>
-      <div class="row"><button class="btn" id="btn-tl-preview">👁 Preview resume</button><button class="btn" id="btn-tl-download">⬇ Download</button></div>
-      <ul class="tl-changes">${list}</ul>
-      <button class="link-btn" id="btn-tl-orig">Attach the original resume instead</button>`;
-    $('btn-tl-orig').addEventListener('click', resetTailor);
-    $('btn-tl-preview').addEventListener('click', () => previewResume(st.tailored));
-    $('btn-tl-download').addEventListener('click', () => downloadResume(st.tailored));
+    st.tailored = { version_id: d.version_id, filename: d.filename, mime: d.mime, base64: d.base64, original: d.original_text || '', changes: d.changes };
+    remember({ tailored: st.tailored });
+    showResumeName();
+    renderTailorDone();
   } catch (e) {
     flash(e.message, true);
     btn.disabled = false;
     tailorChanged();
   }
+}
+
+function renderTailorDone() {
+  const box = $('tailor-box');
+  const t = st.tailored;
+  box.hidden = false;
+  const list = t.changes.map((c) => `<li>${c.before ? `<s>${esc(c.before)}</s><br>` : ''}<span>${esc(c.after)}</span></li>`).join('');
+  box.innerHTML = `<b style="color:var(--green)">✓ ${t.changes.length} change${t.changes.length === 1 ? '' : 's'} made</b>
+    <p class="hint">Autofill attaches <b>${esc(t.filename)}</b> (saved in Job Hunt).</p>
+    <div class="row"><button class="btn" id="btn-tl-preview">👁 Preview resume</button><button class="btn" id="btn-tl-download">⬇ Download</button></div>
+    <ul class="tl-changes">${list}</ul>
+    <button class="link-btn" id="btn-tl-orig">Attach the original resume instead</button>`;
+  $('btn-tl-orig').addEventListener('click', resetTailor);
+  $('btn-tl-preview').addEventListener('click', () => previewResume(st.tailored));
+  $('btn-tl-download').addEventListener('click', () => downloadResume(st.tailored));
 }
 
 // ------------------------------------------------------------- the resume Autofill attaches: preview / download
@@ -388,6 +529,7 @@ async function autofill(opened) {
   box.hidden = true;
   try {
     if (!st.profile) await loadProfile();
+    await readPage();                                // a page built after it loaded (or the form that just opened)
     let resume = null;
     if ($('chk-resume').checked && st.tailored) {
       resume = st.tailored;                           // the resume tailored for this job (Tailor resume)
@@ -410,14 +552,17 @@ async function autofill(opened) {
         const c = clicked[0] && clicked[0].result;
         if (c && c.clicked) {
           btn.innerHTML = `<span class="spin"></span>Opening "${esc(c.text)}"…`;
+          st.applyFrom = st.jobKey;
           await sleep(1500);
           const target = await targetTab();
           if (target && await waitForForm(target.id, 12000)) {
             btn.disabled = false;
             btn.textContent = 'Autofill';
             await readPage();
+            st.applyFrom = null;
             return autofill(true);
           }
+          st.applyFrom = null;
         }
       }
       const next = await nextStepText(tab.id).catch(() => '');
@@ -459,6 +604,8 @@ async function autofill(opened) {
         : '<p class="hint" style="text-align:left;margin:8px 0 0">Check the form, then click the site\'s Submit button yourself.</p>');
     if (next) $('btn-next-step').addEventListener('click', goNext);
     if ($('btn-res-dl2')) $('btn-res-dl2').addEventListener('click', () => downloadResume(resume));
+    $('applied-ask').hidden = false;
+    $('applied-done').hidden = true;
     $('applied-card').hidden = !!next;
   } catch (e) {
     box.hidden = false;
@@ -473,8 +620,11 @@ async function autofill(opened) {
 $('btn-applied').addEventListener('click', async () => {
   if (!st.job || !st.cid) return;
   try {
-    await api('/api/ext/applied', { method: 'POST', body: { candidate_id: st.cid, job: st.job } });
-    $('applied-card').innerHTML = '<b style="color:var(--green)">✓ Marked as Applied in Job Hunt</b>';
+    const tailored = st.tailored && $('chk-resume').checked ? st.tailored.version_id : null;
+    await api('/api/ext/applied', { method: 'POST', body: { candidate_id: st.cid, job: st.job, version_id: tailored } });
+    $('applied-ask').hidden = true;
+    $('applied-done').hidden = false;
+    refreshStatus();
   } catch (e) { flash(e.message, true); }
 });
 $('btn-not-yet').addEventListener('click', () => { $('applied-card').hidden = true; });
@@ -491,6 +641,7 @@ $('btn-open-jh').addEventListener('click', () => chrome.tabs.create({ url: st.se
 $('btn-disconnect').addEventListener('click', async () => {
   await chrome.storage.local.remove(['key', 'cid']);
   st.key = '';
+  st.ready = false;
   $('in-key').value = '';
   show('connect');
 });

@@ -48,6 +48,7 @@
         <button class="icon" id="btn-save" title="Save this job to Job Hunt">🔖</button>
       </div>
       <div class="chips" id="job-chips"></div>
+      <p class="warn" id="job-status" hidden></p>
       <button class="link-btn" id="btn-match">◔ Match score ↗</button>
       <div id="match-box" hidden></div>
       <div id="tailor-box" hidden></div>
@@ -58,12 +59,15 @@
     <div id="result-box" hidden></div>
 
     <div class="card" id="applied-card" hidden>
-      <b>Did you apply?</b>
-      <p class="hint">Tell Job Hunt so the consultant's Applications stay accurate.</p>
-      <div class="row">
-        <button class="btn primary" id="btn-applied">Yes, I applied</button>
-        <button class="btn" id="btn-not-yet">Not yet</button>
+      <div id="applied-ask">
+        <b>Did you apply?</b>
+        <p class="hint">Tell Job Hunt so the consultant's Applications stay accurate.</p>
+        <div class="row">
+          <button class="btn primary" id="btn-applied">Yes, I applied</button>
+          <button class="btn" id="btn-not-yet">Not yet</button>
+        </div>
       </div>
+      <b id="applied-done" style="color:var(--green)" hidden>✓ Marked as Applied in Job Hunt</b>
     </div>
 
     <div class="rowlink" id="row-info">

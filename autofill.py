@@ -256,31 +256,12 @@ def keyword_match(cand: Dict, job: Dict) -> Dict:
             "note": f"{len(matched)} of {len(skills)} of the consultant's skills appear in this job."}
 
 
-MATCH_SYSTEM = """You compare a consultant's resume with a job posting for a staffing recruiter.
-Score 0-100 how well the consultant fits (skills, experience level, role). Be honest; don't inflate.
-List up to 6 job requirements the resume clearly shows ("strengths") and up to 6 important ones it doesn't show ("missing").
-Use short skill-style phrases taken from the job. Return JSON only: {"score": 0, "strengths": [], "missing": [], "summary": "one sentence"}"""
-
-
-def match_prompt(cand: Dict, job: Dict) -> str:
-    head = f"RESUME ({cand.get('name') or ''}, {cand.get('title') or ''}, {cand.get('experience_years') or ''} yrs):"
-    body = (cand.get("resume_text") or cand.get("primary_skills") or "")[:12000]
-    jd = (job.get("description") or "")[:8000]
-    return "\n".join([head, body, "", f"JOB: {job.get('title')} at {job.get('company')}", jd])
-
-
-def parse_match(raw_text: str) -> Optional[Dict]:
+def match_from_analysis(res: Dict) -> Optional[Dict]:
+    """The panel's match card from resume_bot.analyze_for_review (the same analysis Tailor uses)."""
     try:
-        m = re.search(r"\{.*\}", raw_text or "", re.S)
-        data = json.loads(m.group(0)) if m else None
-    except ValueError:
-        return None
-    if not isinstance(data, dict):
-        return None
-    try:
-        score = max(0, min(100, int(round(float(data.get("score"))))))
+        score = max(0, min(100, int(round(float(res.get("initial_match_percentage"))))))
     except (TypeError, ValueError):
         return None
-    lst = lambda k: [re.sub(r"\s+", " ", str(x)).strip()[:80] for x in (data.get(k) or [])[:6] if str(x).strip()]  # noqa: E731
-    return {"score": score, "matched": lst("strengths"), "missing": lst("missing"),
-            "note": re.sub(r"\s+", " ", str(data.get("summary") or "")).strip()[:300], "method": "ai"}
+    matched, missing = res.get("mandatory_matched_skills") or [], res.get("mandatory_missing_skills") or []
+    return {"score": score, "matched": matched[:8], "missing": missing[:8], "method": "ai", "review": res.get("review"),
+            "note": f"{len(matched)} must-have skill{'' if len(matched) == 1 else 's'} shown, {len(missing)} missing."}

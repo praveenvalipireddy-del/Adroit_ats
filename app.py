@@ -2849,6 +2849,14 @@ def api_ext_resume(cid):
     return jsonify({"filename": name, "mime": mime, "base64": base64.b64encode(data).decode("ascii")})
 
 
+def _ext_resume_inputs(cand):
+    """The resume + standing rules, prepared the same way for Match and Tailor so they share one cached analysis."""
+    _ensure_resume_text(cand)
+    standing = consultant_rules.text_for(cand["id"], "resume")
+    return ((cand.get("resume_text") or "").strip(), _stored_docx_bytes(cand),
+            ("Standing rules for this consultant:\n" + standing) if standing else "")
+
+
 def _ext_ai(system, prompt, max_tokens):
     client, types = resume_bot._gemini_client() if resume_bot.gemini_configured() else (None, None)
     raw, _, _model = resume_bot._generate(client, types, system, prompt, want_json=True, max_tokens=max_tokens)
@@ -2881,13 +2889,9 @@ def api_ext_tailor():
     jd = (job.get("description") or "").strip()
     if len(jd) < 80:
         return jsonify({"error": "Couldn't read the job description on this page."}), 400
-    _ensure_resume_text(cand)
-    docx_bytes = _stored_docx_bytes(cand)
-    resume_text = (cand.get("resume_text") or "").strip()
+    resume_text, docx_bytes, custom = _ext_resume_inputs(cand)
     if docx_bytes is None and not resume_text:
         return jsonify({"error": f"No resume is on file for {cand.get('name')}. Upload one in Job Hunt."}), 404
-    standing = consultant_rules.text_for(cand["id"], "resume")
-    custom = ("Standing rules for this consultant:\n" + standing) if standing else ""
     if str(data.get("mode") or "") == "apply":
         approved = [str(a) for a in (data.get("approved") or []) if str(a).strip()][:40]
         res = resume_bot.optimize_resume_for_jd(resume_text, jd, custom_instructions=custom, docx_bytes=docx_bytes, approved=approved)
@@ -2918,7 +2922,8 @@ def api_ext_tailor():
 
 @app.route("/api/ext/match", methods=["POST"])
 def api_ext_match():
-    """Match score for the job on the page: AI (Gemini, free tier) when available, else the free keyword check."""
+    """Match score for the job on the page: the same analysis Tailor uses (one AI call, one number, its suggested
+    changes returned with it), else the free keyword check."""
     user = _ext_user()
     if not user:
         return jsonify({"error": "Not connected"}), 401
@@ -2926,14 +2931,18 @@ def api_ext_match():
     cand = _ext_consultant(user, data.get("candidate_id"))
     if not cand:
         return jsonify({"error": "Consultant not found"}), 404
-    _ensure_resume_text(cand)
     job = autofill.clean_job(data.get("job"))
     if len(job["description"]) < 80:
         return jsonify({"error": "Couldn't read the job description on this page."}), 400
+    resume_text, docx_bytes, custom = _ext_resume_inputs(cand)
     result = None
-    if (cand.get("resume_text") or "").strip():
+    if docx_bytes is not None or resume_text:
         try:
-            result = autofill.parse_match(_ext_ai(autofill.MATCH_SYSTEM, autofill.match_prompt(cand, job), 1200))
+            res = resume_bot.analyze_for_review(resume_text, job["description"], custom_instructions=custom, docx_bytes=docx_bytes)
+            if res.get("error"):
+                logger.warning(f"Extension match: AI unavailable ({res['error']}) - keyword check used")
+            else:
+                result = autofill.match_from_analysis(res)
         except Exception as ex:
             logger.warning(f"Extension match: AI unavailable ({resume_bot._explain_gemini_error(ex)}) - keyword check used")
     return jsonify(result or autofill.keyword_match(cand, job))
@@ -2977,6 +2986,37 @@ def _ext_save_job(cand, job):
     return jid
 
 
+@app.route("/api/ext/job-status", methods=["POST"])
+def api_ext_job_status():
+    """Is this consultant already on the job on the page? Found the way saving finds it: the link, else title + company."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    data = request.get_json(silent=True) or {}
+    cand = _ext_consultant(user, data.get("candidate_id"))
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    job = autofill.clean_job(data.get("job"))
+    conn = models.get_db_connection()
+    try:
+        cur = conn.cursor()
+        found = None
+        sql = """SELECT a.stage, a.applied_date, a.updated_at, r.filename FROM applications a JOIN jobs j ON j.id = a.job_id
+                 LEFT JOIN optimized_resumes r ON r.id = a.resume_version_id WHERE a.candidate_id = ? AND """
+        if job["url"]:
+            cur.execute(sql + "j.url = ?", (cand["id"], job["url"]))
+            found = cur.fetchone()
+        if not found and job["title"] and job["company"]:
+            cur.execute(sql + "j.title = ? AND j.company = ?", (cand["id"], job["title"], job["company"]))
+            found = cur.fetchone()
+    finally:
+        conn.close()
+    if not found:
+        return jsonify({"found": False})
+    return jsonify({"found": True, "stage": found[0], "label": application_tracker.STATUS_LABELS.get(found[0], found[0]),
+                    "date": str(found[1] or found[2] or "")[:10], "resume": found[3] or ""})
+
+
 @app.route("/api/ext/save-job", methods=["POST"])
 def api_ext_save_job():
     """'Save' in the panel: the job goes into Job Hunt, and into the consultant's Applications as Saved."""
@@ -3001,7 +3041,7 @@ def api_ext_save_job():
 
 @app.route("/api/ext/applied", methods=["POST"])
 def api_ext_applied():
-    """'Yes, I applied' in the panel: Applications -> Applied (in portal)."""
+    """'Yes, I applied' in the panel: Applications -> Applied (in portal), with the tailored resume that was used."""
     user = _ext_user()
     if not user:
         return jsonify({"error": "Not connected"}), 401
@@ -3013,10 +3053,16 @@ def api_ext_applied():
     if not job["title"] or not job["url"]:
         return jsonify({"error": "Couldn't read the job title / link on this page."}), 400
     jid = _ext_save_job(cand, job)
+    vid = _int_or_none(data.get("version_id"))
+    version = resume_versions.get(vid) if vid else None
+    version_id = version["id"] if version and version["candidate_id"] == cand["id"] else None
     conn = models.get_db_connection()
     try:
         app_id = application_tracker.upsert(conn, jid, cand["id"], user["id"], stage="Applied", apply_method="portal",
-                                            client_company=job["company"] or None)
+                                            client_company=job["company"] or None, resume_version_id=version_id)
+        if version_id:
+            conn.cursor().execute("UPDATE optimized_resumes SET job_id = ? WHERE id = ? AND job_id IS NULL", (jid, version_id))
+            conn.commit()
     finally:
         conn.close()
     models.log_activity(user["id"], user.get("name") or "", "Applied (extension)", "Candidate", cand["id"],

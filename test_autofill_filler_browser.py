@@ -7,6 +7,7 @@
 4. Never overwrites a field that already has a value, never ticks consent boxes, never submits.
 5. Questions it can't answer are returned for the AI; fillAnswers fills them (amber); required ones left get red.
 6. React-style forms see the input/change events.
+8. Search bars, newsletter / job-alert boxes and footers aren't the application: not filled, and they don't stop the Apply click.
 Run: python test_autofill_filler_browser.py
 """
 import base64
@@ -169,6 +170,27 @@ with sync_playwright() as p:
     r = page.evaluate("([p, r]) => window.JH.fill(p, r)", [PROFILE, RESUME])
     check(not r["resumeAttached"] and page.eval_on_selector("#c2", "e => e.files[0].name") == "Own_Upload.pdf"
           and any("already attached" in n for n in r["needsYou"]), f"a file the recruiter attached is never replaced: {r['needsYou']}")
+
+    # ---- 8. site furniture: a job page with a search bar and a newsletter box still has "no form", and neither gets filled
+    page.route("https://fixture.example.invalid/hcmUI/jobs/job/2", lambda r: r.fulfill(status=200, content_type="text/html", body="""
+      <html><body class="cookie-ok"><header><form action="/search/results"><label for="s1">Location</label><input id="s1"></form>
+      <input id="locationSearch" placeholder="City"><input id="s3" name="keyword_search"></header>
+      <h1>Furniture Fixture Job</h1><p>Labelled fixture.</p>
+      <a href="#" onclick="document.getElementById('f2').hidden=false;window.applyClicked=true;return false;">Apply Now</a>
+      <form id="f2" hidden><label for="e2">Email *</label><input id="e2"><label for="q2">Do you have experience with search engines?</label><input id="q2"></form>
+      <footer><label for="nl">Email</label><input id="nl"></footer>
+      <div id="newsletter-signup"><label for="nl2">Email</label><input id="nl2"></div></body></html>"""))
+    page.goto("https://fixture.example.invalid/hcmUI/jobs/job/2")
+    page.add_script_tag(path=FILLER)
+    check(page.evaluate("window.JH.formFieldCount()") == 0, f"furniture isn't a form: {page.evaluate('window.JH.formFieldCount()')}")
+    r = page.evaluate("([p, r]) => window.JH.fill(p, r)", [{**PROFILE, "location": "Dallas, TX"}, None])
+    check(r["fieldsSeen"] == 0, f"furniture isn't seen by the fill: {r}")
+    check(page.evaluate("window.JH.clickApply().clicked") and page.evaluate("!!window.applyClicked"), "Apply clicked despite the search bar")
+    r = page.evaluate("([p, r]) => window.JH.fill(p, r)", [{**PROFILE, "location": "Dallas, TX"}, None])
+    check(page.eval_on_selector("#e2", "e => e.value") == PROFILE["email"], "the real form (on a page with body.cookie-ok) is filled")
+    check(any("search engines" in q["label"] for q in r["questions"]), f"a real question mentioning search is kept: {r['questions']}")
+    empty = page.evaluate("['s1','locationSearch','s3','nl','nl2'].map(i => document.getElementById(i).value)")
+    check(empty == [""] * 5, f"search / newsletter / footer boxes stay empty: {empty}")
 
     # ---- 7. a job page with no form: Apply opens it; an application step: section heading is not the title
     page.route("https://fixture.example.invalid/hcmUI/jobs/job/1", lambda r: r.fulfill(status=200, content_type="text/html", body="""

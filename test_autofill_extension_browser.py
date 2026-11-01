@@ -4,11 +4,13 @@
 2. /api/ext/me lists only the consultants this recruiter may act on; another recruiter's consultant is 404 everywhere.
 3. Autofill answers are saved on the consultant (unknown keys dropped, yes/no normalised) and feed the profile
    (names split, voluntary questions default to "Decline to self-identify", nothing invented).
-4. Resume download, AI answers (an answer outside the given options is dropped), match (AI, or the free keyword
-   check when the AI fails), Save -> Applications "Saved", "Yes, I applied" -> "Applied" in portal.
+4. Resume download, AI answers (an answer outside the given options is dropped), match (the Tailor analysis, or the
+   free keyword check when the AI fails), Save -> Applications "Saved", "Yes, I applied" -> "Applied" in portal with
+   the tailored resume used, "already on this job" status.
 5. The extension zip: manifest + panel + filler, and config.js pointing at this server.
 6. The real extension loaded in Edge: connect with the key, the panel reads the job page, Autofill fills the form
-   (profile fields + resume + AI answer), "Yes, I applied" marks the application Applied.
+   (profile fields + resume + AI answer), "Yes, I applied" marks the application Applied. The tailored resume stays
+   with its job across tab switches, an Apply that opens another site in a new tab, and reopening the panel.
 7. Job Hunt in Edge: the consultant form's "Autofill answers" section saves; "Autofill extension" shows the key.
 Run: python test_autofill_extension_browser.py
 """
@@ -16,6 +18,7 @@ import base64
 import io
 import json
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -119,7 +122,7 @@ def fake_ai(system, prompt, max_tokens):
         import re as _re
         why = _re.search(r'id "([\w-]+)": Why do you want', prompt)
         return json.dumps({"answers": {why.group(1) if why else "qwhy": "I build SQL and Power BI reports (fixture).", "qyrs": "Fifty", "qclear": ""}})
-    return json.dumps({"score": 81, "strengths": ["SQL", "Power BI"], "missing": ["Snowflake"], "summary": "Strong reporting fit (fixture)."})
+    raise AssertionError("only the form's questions use this AI call now: " + system[:60])
 
 
 app_module._ext_ai = fake_ai
@@ -129,27 +132,17 @@ JOB = {"title": "Senior Data Analyst (Fixture)", "company": "Sample Fixture Co",
        "url": "https://boards.greenhouse.io/samplefixtureco/jobs/1", "description": "We need SQL, Power BI and Python. " * 5}
 ans = anon.post("/api/ext/answers", headers=H, json={"candidate_id": K, "job": JOB, "questions": qs}).get_json()
 check(ans["answers"] == {"qwhy": "I build SQL and Power BI reports (fixture)."}, f"answers parsed, invalid option + empty dropped: {ans}")
-m = anon.post("/api/ext/match", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
-check(m["score"] == 81 and m["method"] == "ai" and m["missing"] == ["Snowflake"], f"AI match: {m}")
-
-
-def broken_ai(*a, **k):
-    raise RuntimeError("quota (fixture)")
-
-
-app_module._ext_ai = broken_ai
-m2 = anon.post("/api/ext/match", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
-check(m2["method"] == "keywords" and m2["score"] == 75 and m2["missing"] == ["Tableau"], f"keyword fallback when the AI fails: {m2}")
-app_module._ext_ai = fake_ai
 
 # ---- Tailor resume: the match + suggested changes, then only the ticked ones made, saved, returned for Autofill
 import resume_bot as _rb  # noqa: E402
 import resume_versions as _rv  # noqa: E402
 tailor_calls = []
+analyze_calls = []
 TAILORED_TEXT = "KARUN FIXTURETEST\nData Analyst - SQL, Power BI dashboards (tailored fixture)"
 
 
 def fake_analyze(resume_text, jd_text, custom_instructions="", docx_bytes=None):
+    analyze_calls.append(jd_text[:20])
     return {"ai_powered": True, "initial_match_percentage": 70, "mandatory_matched_skills": ["SQL"], "partial_match_skills": ["Power BI"],
             "mandatory_missing_skills": ["Tableau"], "review": {"initial": 70, "target": 85, "items": [
                 {"id": "align", "kind": "align", "skill": "", "label": "Reword the summary for this job", "sections": [], "evidence": "", "checked": True},
@@ -167,6 +160,25 @@ def fake_tailor(resume_text, jd_text, custom_instructions="", docx_bytes=None, a
 
 _rb.analyze_for_review = fake_analyze
 _rb.optimize_resume_for_jd = fake_tailor
+
+# Match = the analysis Tailor uses: one number, its suggestions with it; the free keyword check when the AI fails
+m = anon.post("/api/ext/match", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
+check(m["score"] == 70 and m["method"] == "ai" and m["matched"] == ["SQL"] and m["missing"] == ["Tableau"] and len(m["review"]["items"]) == 3,
+      f"match from the analysis: {m}")
+check(len(analyze_calls) == 1, f"one analysis for the match: {analyze_calls}")
+_rb.analyze_for_review = lambda *a, **k: {"error": "quota (fixture)"}
+m2 = anon.post("/api/ext/match", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
+check(m2["method"] == "keywords" and m2["score"] == 75 and m2["missing"] == ["Tableau"], f"keyword fallback when the AI has no answer: {m2}")
+
+
+def broken_analyze(*a, **k):
+    raise RuntimeError("quota (fixture)")
+
+
+_rb.analyze_for_review = broken_analyze
+m3 = anon.post("/api/ext/match", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
+check(m3["method"] == "keywords", f"keyword fallback when the AI fails: {m3}")
+_rb.analyze_for_review = fake_analyze
 ta = anon.post("/api/ext/tailor", headers=H, json={"candidate_id": K, "job": JOB, "mode": "analyze"}).get_json()
 check(ta["match"] == 70 and [i["id"] for i in ta["review"]["items"] if i["checked"]] == ["align", "skill:Power BI"], f"tailor: suggestions: {ta}")
 tp = anon.post("/api/ext/tailor", headers=H, json={"candidate_id": K, "job": JOB, "mode": "apply", "approved": ["align", "skill:Power BI"]}).get_json()
@@ -186,6 +198,26 @@ row = cur.fetchone()
 check(row[0] == "Company site (Greenhouse)" and row[1].startswith("We need SQL") and row[2] == "United States", f"job saved: {tuple(row)}")
 conn.close()
 check(anon.post("/api/ext/save-job", headers=H, json={"candidate_id": K, "job": {"title": "", "url": ""}}).status_code == 400, "no title -> refused")
+
+# ---- already on this job?  + which resume went with "Yes, I applied"
+status = lambda cid, job: anon.post("/api/ext/job-status", headers=H, json={"candidate_id": cid, "job": job})  # noqa: E731
+check(status(K, JOB).get_json()["stage"] == "Saved", "status: saved job found by its link")
+check(status(K, {**JOB, "url": "https://forms.example.invalid/apply/1"}).get_json()["stage"] == "Saved", "status: the apply form's link -> found by title + company")
+check(status(K, {"title": "Never seen", "company": "Nobody", "url": "https://x.example/never"}).get_json() == {"found": False}, "status: a new job")
+check(status(X, JOB).status_code == 404, "status: another recruiter's consultant hidden")
+check(anon.post("/api/ext/job-status", json={"candidate_id": K, "job": JOB}).status_code == 401, "status needs the connection key")
+JOB2 = {**JOB, "title": "Second Fixture Role", "url": "https://boards.greenhouse.io/samplefixtureco/jobs/2"}
+foreign = _rv.save(X, None, "Other_Consultant.docx", b"PK fixture", "Java", "", "", OTHER)
+ap = anon.post("/api/ext/applied", headers=H, json={"candidate_id": K, "job": JOB2, "version_id": foreign}).get_json()
+conn = models.get_db_connection()
+cur = conn.cursor()
+cur.execute("SELECT resume_version_id FROM applications WHERE id = ?", (ap["application_id"],))
+check(cur.fetchone()[0] is None, "applied: another consultant's resume version is never linked")
+conn.close()
+st2 = status(K, JOB2).get_json()
+check(st2["stage"] == "Applied" and st2["label"] == "Applied" and len(st2["date"]) == 10, f"status: applied with its date: {st2}")
+analyze_calls.clear()
+tailor_calls.clear()
 
 # ---- 5. zip
 z = client.get("/extension/jobhunt-autofill.zip")
@@ -255,7 +287,7 @@ try:
         panel.click("#row-info")
         wait_text(panel, '#info-box', 'karun-fixturetest')
         panel.click("#btn-match")
-        wait_text(panel, '#match-box', '81%')
+        wait_text(panel, '#match-box', '70%')
         panel.click("#btn-autofill")
         panel.wait_for_selector("#applied-card:not([hidden])", timeout=20000)
         result = panel.inner_text("#result-box")
@@ -273,10 +305,14 @@ try:
         job_page.screenshot(path=shots["form"], full_page=True)
         panel.click("#btn-applied")
         wait_text(panel, '#applied-card', 'Marked as Applied')
+        wait_text(panel, '#job-status', 'already on this job')
+        check("Applied" in panel.inner_text("#job-status"), f"the panel warns before a second application: {panel.inner_text('#job-status')!r}")
 
         # -- Tailor resume in the panel: ticks -> Apply -> what changed -> Autofill attaches the tailored file
         panel.click("#btn-tailor")
-        wait_text(panel, '#tailor-box', 'Rewords his summary')
+        wait_text(panel, '#tailor-box', 'Rewords the summary')
+        check(len(analyze_calls) == 1, f"Tailor reuses the Match's analysis: {analyze_calls}")
+        check(not re.search(r"\b(his|he|him)\b", panel.inner_text("#tailor-box"), re.I), f"no 'his' / 'he': {panel.inner_text('#tailor-box')!r}")
         ticks = panel.eval_on_selector_all("#tailor-box input[data-ch]", "els => els.map(e => e.dataset.ch + ':' + e.checked)")
         check(ticks == ["align:true", "skill:Power BI:true", "skill:Tableau:false"], f"panel: proof decides the ticks: {ticks}")
         check("Apply 2 changes" in panel.inner_text("#btn-tl-apply") and "about" in panel.inner_text("#tl-proj"), "panel: Apply count + expected match")
@@ -317,6 +353,67 @@ try:
             panel.wait_for_timeout(200)
         check(job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == tailored_name, f"Autofill attached the tailored resume ({tailored_name})")
         panel.wait_for_selector("#applied-card:not([hidden])", timeout=20000)
+        check("Yes, I applied" in panel.inner_text("#applied-card"), f"the card asks again, it doesn't still say Marked: {panel.inner_text('#applied-card')!r}")
+        panel.click("#btn-applied")
+        wait_text(panel, '#applied-card', 'Marked as Applied')
+        wait_text(panel, '#job-status', tailored_name)
+        conn = models.get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""SELECT r.filename, r.job_id, a.job_id FROM applications a JOIN jobs j ON j.id = a.job_id
+                       JOIN optimized_resumes r ON r.id = a.resume_version_id WHERE a.candidate_id = ? AND j.url = ?""", (K, JOB["url"]))
+        row = cur.fetchone()
+        check(row is not None and row[0] == tailored_name and row[1] == row[2], f"Applied records the tailored resume: {row and tuple(row)}")
+        conn.close()
+
+        # -- another tab, then back: the tailored resume and match are still with this job, with no new AI call
+        tailor_used = len(tailor_calls)
+        OTHER_JOB = """<html><head><title>Platform Engineer (Fixture)</title></head><body><h1>Platform Engineer (Fixture)</h1><main>""" + \
+            "Labelled fixture job page for another job with Kubernetes and Terraform. " * 8 + """</main></body></html>"""
+        ctx.route("https://other.fixture.example.invalid/job/5", lambda r: r.fulfill(status=200, content_type="text/html", body=OTHER_JOB))
+        other = ctx.new_page()
+        other.goto("https://other.fixture.example.invalid/job/5")
+        other.bring_to_front()
+        panel.bring_to_front()
+        wait_text(panel, '#job-title', 'Platform Engineer')
+        check(panel.is_hidden("#tailor-box") and panel.is_hidden("#match-box") and tailored_name not in panel.inner_text("#resume-name"),
+              "another job doesn't show this job's resume")
+        for _ in range(25):
+            if panel.is_hidden("#job-status"):
+                break
+            panel.wait_for_timeout(200)
+        check(panel.is_hidden("#job-status"), "another job has no 'already on this job' warning")
+        job_page.bring_to_front()
+        panel.bring_to_front()
+        wait_text(panel, '#job-title', 'Senior Data Analyst')
+        wait_text(panel, '#resume-name', tailored_name)
+        check("change made" in panel.inner_text("#tailor-box") and "70%" in panel.inner_text("#match-box"), "back on the job: its tailored resume + match are back")
+        other.close()
+
+        # -- the panel closed and reopened: still there
+        panel.reload()
+        panel.wait_for_selector("#view-main:not([hidden])", timeout=10000)
+        wait_text(panel, '#resume-name', tailored_name)
+        check("Senior Data Analyst" in panel.inner_text("#job-title"), "panel reopened: the job is back")
+
+        # -- Apply opens the form on another site, in a new tab: same job, same tailored resume
+        FORM2 = """<html><head><title>Apply</title></head><body><h1>Apply</h1><label for="fn">First Name</label><input id="fn">
+          <label for="cv2">Resume</label><input id="cv2" type="file"></body></html>"""
+        ctx.route("https://forms.fixture.example.invalid/apply/77", lambda r: r.fulfill(status=200, content_type="text/html", body=FORM2))
+        job_page.bring_to_front()
+        with ctx.expect_page() as info:
+            job_page.evaluate("window.open('https://forms.fixture.example.invalid/apply/77')")
+        form_tab = info.value
+        form_tab.wait_for_load_state()
+        form_tab.bring_to_front()
+        panel.bring_to_front()
+        panel.wait_for_timeout(1500)
+        check("Senior Data Analyst" in panel.inner_text("#job-title"), f"new tab on another site keeps the job: {panel.inner_text('#job-title')!r}")
+        check(tailored_name in panel.inner_text("#resume-name"), f"new tab keeps the tailored resume: {panel.inner_text('#resume-name')!r}")
+        panel.click("#btn-autofill")
+        panel.wait_for_selector("#applied-card:not([hidden])", timeout=20000)
+        check(form_tab.eval_on_selector("#cv2", "e => e.files.length && e.files[0].name") == tailored_name, "the tailored resume attached on the other site")
+        check(len(tailor_calls) == tailor_used and len(analyze_calls) == 1, f"no new AI calls for any of that: {tailor_calls} {analyze_calls}")
+        form_tab.close()
 
         # -- a job page with no form: Autofill clicks the site's Apply, then fills; a 2-step form: "Next page" fills step 2
         STEP1 = """<html><head><title>AI Developer II (Fixture) | Careers</title></head><body><h1>AI Developer II (Fixture)</h1>
@@ -347,7 +444,7 @@ try:
         check(job_page.eval_on_selector("#li", "e => e.value") == "https://www.linkedin.com/in/karun-fixturetest", "Next page -> step 2 filled")
         check(panel.inner_text("#job-title") != "Work Summary", "a step heading never becomes the job title")
         check(not job_page.evaluate("!!window.submitted"), "Submit never clicked on the last step")
-        check(not panel.is_hidden("#applied-card"), "'Did you apply?' shown on the last step")
+        check(not panel.is_hidden("#applied-card") and "Yes, I applied" in panel.inner_text("#applied-card"), "'Did you apply?' shown on the last step")
         ctx.close()
 
         conn = models.get_db_connection()

@@ -199,107 +199,77 @@
 
                 <!-- TAB 1: 24-HOUR USA IT JOBS TABLE & OUTREACH -->
                 <div class="tab-pane" id="tab-jobs">
-                    <div class="section-header">
-                        <div>
-                            <h2>Jobs</h2>
-                            <p id="jobs-tab-source-desc">US jobs from LinkedIn, Dice, Indeed, recruiter posts and company career sites. Pick the consultant on the right to see the match, tailor the resume and apply.</p>
+                    <div class="jobs-head">
+                        <h2>Jobs</h2>
+                        <div class="jobs-head-pick">
+                            <label for="jobs-side-consultant">Consultant</label>
+                            <select id="jobs-side-consultant" class="form-control"><option value="">All consultants</option></select>
                         </div>
-                        <div class="stats-pills">
-                            <span class="pill"><strong id="stat-total-jobs">{{ stats.total_jobs }}</strong> Total Jobs</span>
-                            <span class="pill pill-green"><strong id="stat-email-jobs">{{ stats.jobs_with_email }}</strong> Direct Emails</span>
-                            <span class="pill pill-purple"><strong id="stat-drafted-count">{{ stats.drafted_count }}</strong> Drafts Created</span>
+                        <div class="jobs-head-pick" id="jobs-market-wrap">
+                            <label for="filter-country">Market</label>
+                            <select id="filter-country" class="form-control">
+                                <option value="United States">United States</option>
+                                <option value="India">India</option>
+                            </select>
                         </div>
+                        <span id="jobs-who" class="cons-muted"></span>
                     </div>
 
-                    <!-- Search and Filter Bar -->
-                    <div class="filter-card">
-                        <div class="filter-row">
-                            <div class="filter-group">
-                                <label>Job Market</label>
-                                <select id="filter-country">
-                                    <option value="United States">🇺🇸 United States (LinkedIn, Dice)</option>
-                                    <option value="India">🇮🇳 India (Naukri, Foundit, LinkedIn)</option>
-                                </select>
-                            </div>
-                            <div class="filter-group">
-                                <label>Search Role / Skills</label>
-                                <input type="text" id="filter-query" placeholder="Search 24h jobs (e.g. AI, Java, DevOps, Data, Cloud...)" value="">
-                            </div>
-                            <div class="filter-group">
-                                <label>Roles</label>
-                                <div id="jobs-roles"></div>
-                            </div>
-                            <div class="filter-group">
-                                <label id="filter-location-label">US Location</label>
-                                <input type="text" id="filter-location" placeholder="United States, Dallas TX, Remote..." value="United States">
-                            </div>
-                            <div class="filter-group">
-                                <label>Portal Source</label>
-                                <select id="filter-source">
-                                    <option value="All">All US Portals (LinkedIn, Dice)</option>
-                                    <option value="LinkedIn">LinkedIn (Live 24h)</option>
-                                    <option value="Dice">Dice.com</option>
-                                    <option value="Indeed">Indeed</option>
-                                    <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
-                                    <option value="Company site">🏢 Company career sites</option>
-                                </select>
-                            </div>
-                            <div class="filter-group">
-                                <label>Posted within</label>
-                                <select id="filter-posted" title="How recent the jobs are">
-                                    <option value="24" selected>Last 24 hours</option>
-                                    <option value="72">Last 3 days</option>
-                                    <option value="168">Last week</option>
-                                    <option value="336">Last 2 weeks</option>
-                                </select>
-                            </div>
-                            <div class="filter-group">
-                                <label>Work model</label>
-                                <select id="filter-work-model" title="Remote / hybrid / on-site, as the posting says">
-                                    <option value="">Any</option>
-                                    <option value="remote">Remote</option>
-                                    <option value="hybrid">Hybrid</option>
-                                    <option value="onsite">On-site</option>
-                                </select>
-                            </div>
-                            <div class="filter-group">
-                                <label>Job type</label>
-                                <select id="filter-job-type" title="Full-time, contract or part-time - each portal is asked for that type">
-                                    <option value="">All types</option>
-                                    <option value="Full-time">Full-time</option>
-                                    <option value="Contract" selected>Contract</option>
-                                    <option value="Part-time">Part-time</option>
-                                </select>
-                            </div>
-                            <div class="filter-group" style="min-width:210px;">
-                                <label for="filter-experience">My experience: <b id="filter-experience-value">Any</b></label>
-                                <input type="range" id="filter-experience" min="0" max="16" step="1" value="16" style="width:100%; accent-color:#2563eb;" title="Drag to the consultant's years - hides jobs that need clearly more">
-                                <label id="filter-exp-unstated-wrap" style="display:none; align-items:center; gap:6px; font-weight:500; font-size:12px; margin-top:4px; cursor:pointer; text-transform:none; letter-spacing:0;"><input type="checkbox" id="filter-exp-unstated" checked> Include jobs that don't state experience</label>
-                            </div>
-                            <div class="filter-group filter-actions">
-                                <label>&nbsp;</label>
-                                <button class="btn btn-primary" id="btn-search-jobs">
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                                    Search
-                                </button>
-                                <button class="btn btn-success" id="btn-live-scrape-trigger">
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                                    Live scrape
-                                </button>
-                            </div>
-                        </div>
+                    <!-- The same filter bar as a consultant's Matched jobs -->
+                    <div class="cons-filter">
+                        <div class="cf-q"><label for="filter-query">Role / skills</label><input type="text" id="filter-query" class="form-control" placeholder="e.g. Data Analyst, Python, Power BI"></div>
+                        <div><label>Roles</label><div id="jobs-roles"></div></div>
+                        <div><label id="filter-location-label" for="filter-location">Location</label><input type="text" id="filter-location" class="form-control" placeholder="Dallas, Remote…"></div>
+                        <div><label for="filter-posted">Posted within</label>
+                            <select id="filter-posted" class="form-control">
+                                <option value="24" selected>Last 24 hours</option>
+                                <option value="72">Last 3 days</option>
+                                <option value="168">Last week</option>
+                                <option value="336">Last 2 weeks</option>
+                            </select></div>
+                        <div><label for="filter-work-model">Work model</label>
+                            <select id="filter-work-model" class="form-control">
+                                <option value="">Any</option>
+                                <option value="remote">Remote</option>
+                                <option value="hybrid">Hybrid</option>
+                                <option value="onsite">On-site</option>
+                            </select></div>
+                        <div><label for="filter-job-type">Job type</label>
+                            <select id="filter-job-type" class="form-control">
+                                <option value="" selected>All types</option>
+                                <option value="Contract">Contract</option>
+                                <option value="Full-time">Full-time</option>
+                                <option value="Part-time">Part-time</option>
+                            </select></div>
+                        <div><label for="filter-experience">Experience</label>
+                            <select id="filter-experience" class="form-control" title="The consultant's years - hides jobs that need clearly more">
+                                <option value="">Any</option>
+                                <option value="0">Under 1 yr</option>
+                                {% for y in range(1, 16) %}<option value="{{ y }}">{{ y }} yr{{ 's' if y > 1 else '' }}</option>{% endfor %}
+                            </select></div>
+                        <div><label for="filter-source">Source</label>
+                            <select id="filter-source" class="form-control">
+                                <option value="All">All portals</option>
+                                <option value="LinkedIn">LinkedIn</option>
+                                <option value="Dice">Dice</option>
+                                <option value="Indeed">Indeed</option>
+                                <option value="Recruiter Post">LinkedIn recruiter posts</option>
+                                <option value="Company site">🏢 Company career sites</option>
+                            </select></div>
+                        <div class="cf-go"><button type="button" class="btn btn-primary" id="btn-search-jobs">🔍 Search</button></div>
                     </div>
 
-                    <div class="jobs-view-bar">
-                        <span id="jobs-cards-count" class="jobs-cards-count"></span>
-                        <div class="cons-view-toggle" role="group" aria-label="View">
-                            <button type="button" class="jobs-view-btn cons-view-btn" data-view="cards" id="jobs-view-cards">▦ Cards</button>
-                            <button type="button" class="jobs-view-btn cons-view-btn" data-view="table" id="jobs-view-table">☰ Table</button>
+                    <div class="cons-pane-bar">
+                        <span id="jobs-cards-count"></span>
+                        <div class="jobs-bar-acts">
+                            <span id="jobs-portal-cost"></span>
+                            <button type="button" class="btn btn-secondary btn-sm" id="jobs-side-toggle">🏢 Company career sites</button>
+                            <button type="button" class="btn btn-primary btn-sm" id="btn-live-scrape-trigger" title="Ask the job portals for new jobs matching these filters">🔄 Find new jobs from portals</button>
                         </div>
                     </div>
+                    <div id="jobs-side" class="jobs-side" hidden></div>
                     <div id="jobs-cards-wrap" class="jobs-cards-wrap">
                         <div id="jobs-cards" class="jobs-cards"></div>
-                        <aside id="jobs-side" class="jobs-side"></aside>
                     </div>
 
                     <!-- Interactive Live Jobs Table -->
@@ -1605,7 +1575,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.14"></script>
+    <script src="/static/js/app.js?v=5.99.15"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

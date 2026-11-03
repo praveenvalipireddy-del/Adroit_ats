@@ -169,7 +169,7 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 950}, accept_downloads=True)
-        page.add_init_script("try { localStorage.setItem('jobsView', 'table') } catch (e) {}")   # these checks use the Jobs table view
+        page.add_init_script("window.addEventListener('DOMContentLoaded', () => window.setJobsView && setJobsView('table'))")   # these checks use the Jobs table view
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         page.route("**/*", guard)
         page.goto(base + "/login")
@@ -177,7 +177,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.14" in page.content(), "cache-buster not bumped to 5.99.14")
+        check("app.js?v=5.99.15" in page.content(), "cache-buster not bumped to 5.99.15")
 
         # 1. Browse Jobs on Karun (not the first consultant)
         page.click("a.nav-item[data-tab=candidates]")
@@ -281,6 +281,8 @@ try:
         # the Applied status survives a reload
         page.reload()
         page.click("a.nav-item[data-tab=jobs]")
+        page.wait_for_function("document.getElementById('jobs-side-consultant').options.length >= 2", timeout=15000)
+        page.select_option("#jobs-side-consultant", "")      # the Jobs page opens filtered for the first consultant
         page.wait_for_selector(ROW.format(pasted_id), timeout=20000)
         check(page.input_value(f"{ROW.format(pasted_id)} .job-apply-status") == "both", "Applied status kept after reload")
         browser.close()

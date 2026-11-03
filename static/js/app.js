@@ -111,9 +111,7 @@ function switchTab(rawTabId) {
     } else if (paneKey === 'contacts') {
         loadContacts();
     } else if (paneKey === 'jobs') {
-        if (!state.jobs || state.jobs.length === 0) {
-            searchJobs(false);
-        }
+        jobsOnTabOpen();
     }
 }
 
@@ -181,6 +179,7 @@ async function fetchConsultants(recruiterId = null) {
         populateConsultantDropdowns();
         updateActiveConsultantUI();
         refreshJobConsultantSelects();
+        jobsConsultantsLoaded();
         if (typeof renderConsultantsTable === 'function') renderConsultantsTable();
         renderConsultantsGrid();
         renderConsultantCards();
@@ -377,8 +376,9 @@ function renderConsultantsGrid() {
         btn.addEventListener('click', () => {
             const candId = parseInt(btn.getAttribute('data-id'));
             const skills = btn.getAttribute('data-skills') || '';
-            state.activeConsultantId = candId;
+            setActiveConsultant(candId);
             updateActiveConsultantUI();
+            jobsApplyConsultant(jobsActiveConsultant());
             
             const firstSkill = skills.split(',')[0].trim() || 'Software Engineer';
             const searchInput = document.getElementById('filter-query');
@@ -668,41 +668,27 @@ function syncJobsMarketUi() {
     const locLabel = document.getElementById('filter-location-label');
     const locInput = document.getElementById('filter-location');
     const sourceSelect = document.getElementById('filter-source');
-    const descEl = document.getElementById('jobs-tab-source-desc');
 
-    if (locLabel) locLabel.innerText = isIndia ? 'India Location' : 'US Location';
     if (locInput) {
-        locInput.placeholder = isIndia ? 'India, Bangalore, Hyderabad, Remote...' : 'United States, Dallas TX, Remote...';
-        if (!locInput.value || locInput.value === 'United States' || locInput.value === 'India') {
-            locInput.value = country;
-        }
-    }
-    const typeSelect = document.getElementById('filter-job-type');
-    if (typeSelect && typeSelect.dataset.market !== (isIndia ? 'India' : 'US')) {
-        typeSelect.dataset.market = isIndia ? 'India' : 'US';
-        typeSelect.value = isIndia ? '' : 'Contract';            // US default = C2C contract roles, India = all types
+        locInput.placeholder = isIndia ? 'Hyderabad, Remote…' : 'Dallas, Remote…';
+        if (locInput.value === 'United States' || locInput.value === 'India') locInput.value = '';     // empty = the whole market
     }
     if (sourceSelect) {
         sourceSelect.innerHTML = isIndia
-            ? `<option value="All">All India Portals (Naukri, Foundit, Indeed, LinkedIn)</option>
+            ? `<option value="All">All portals</option>
                <option value="Naukri">Naukri.com</option>
                <option value="Foundit">Foundit / Monster India</option>
                <option value="Indeed">Indeed India</option>
                <option value="LinkedIn">LinkedIn (Live)</option>
                <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
                <option value="Company site">🏢 Company career sites</option>`
-            : `<option value="All">All US Portals (LinkedIn, Dice)</option>
+            : `<option value="All">All portals</option>
                <option value="LinkedIn">LinkedIn (Live 24h)</option>
                <option value="Dice">Dice.com</option>
                <option value="Indeed">Indeed</option>
                <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
                <option value="Company site">🏢 Company career sites</option>`;
         jobsPortalCostHint();
-    }
-    if (descEl) {
-        descEl.innerText = isIndia
-            ? 'India jobs from Naukri, Foundit, Indeed, LinkedIn, recruiter posts and company career sites. Pick the consultant on the right to see the match, tailor the resume and apply.'
-            : 'US jobs from LinkedIn, Dice, Indeed, recruiter posts and company career sites. Pick the consultant on the right to see the match, tailor the resume and apply.';
     }
 }
 
@@ -816,6 +802,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
             </tr>`;
     }
 
+    state.jobsSearched = true;
     const cardsBox = document.getElementById('jobs-cards');
     if (cardsBox) cardsBox.innerHTML = `<div class="cons-loading"><div class="spinner" style="display:inline-block; margin-right:8px;"></div>${liveScrape ? 'Scraping fresh jobs across portals…' : 'Searching jobs…'}</div>`;
 
@@ -863,6 +850,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
         renderJobCards(state.jobs);
     } catch (err) {
         console.error('Error fetching jobs:', err);
+        if (cardsBox) cardsBox.innerHTML = '<div class="cons-empty">Could not load jobs. Try again.</div>';
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding: 24px; color: #ef4444;">Failed to load jobs. Please try searching again.</td></tr>`;
         }
@@ -3706,6 +3694,7 @@ function setActiveConsultant(candidateId) {
     const id = parseInt(candidateId);
     if (!id || !(state.consultants || []).some(c => c.id === id)) return;
     state.activeConsultantId = id;
+    state.jobsAll = false;
     ['global-active-consultant', 'pd-consultant-select'].forEach(selId => {
         const sel = document.getElementById(selId);
         if (sel) sel.value = String(id);
@@ -3716,12 +3705,10 @@ function setActiveConsultant(candidateId) {
 
 async function browseJobsForCandidate(candidateId, candidateTitle, candidateCountry) {
     // The consultant's experience drives the Jobs experience filter (Any when not on file).
-    const consultant = (state.consultants || []).find(c => c.id === parseInt(candidateId));
-    setJobsExperience(consultant && consultant.experience_years ? consultant.experience_years : null);
-
     // 0. This consultant becomes the Target Candidate on every job row (it used to stay on
     //    whoever was selected before, e.g. the first consultant, instead of the one clicked).
     setActiveConsultant(candidateId);
+    jobsApplyConsultant(jobsActiveConsultant());
 
     // 1. Switch to the Jobs tab first
     switchTab('jobs');
@@ -3729,30 +3716,6 @@ async function browseJobsForCandidate(candidateId, candidateTitle, candidateCoun
     // 2. Wait a tick for the tab pane to become visible, then set the
     //    search query to the candidate title and trigger the job search
     setTimeout(async () => {
-        const queryInput = document.getElementById('filter-query');
-        if (queryInput && candidateTitle) {
-            // Use first 2-3 words of title for a broad but relevant search
-            const coreTitle = candidateTitle
-                .replace(/^(senior|lead|principal|staff|junior|sr|jr|associate)\s+/i, '')
-                .replace(/[|&,]/g, ' ')
-                .trim()
-                .split(/\s+/)
-                .slice(0, 3)
-                .join(' ');
-            queryInput.value = coreTitle || candidateTitle;
-        }
-
-        // Match this candidate to THEIR OWN market: a consultant based in India gets India
-        // job postings (Naukri/Foundit/LinkedIn), a US-based consultant gets US postings.
-        const countrySelect = document.getElementById('filter-country');
-        const country = candidateCountry === 'India' ? 'India' : 'United States';
-        if (countrySelect) countrySelect.value = country;
-        syncJobsMarketUi();
-
-        // Reset location to the candidate's country so we get results
-        const locInput = document.getElementById('filter-location');
-        if (locInput && !locInput.value.trim()) locInput.value = country;
-
         // Trigger the job search
         await searchJobs(false);
         updateTableConsultantSelects();
@@ -4654,26 +4617,19 @@ function initSourcingTracker() {
 }
 
 // ---- Jobs: experience filter (slider) + Experience column ----
-const JOBS_EXP_ANY = 16;   // the slider's right end means "Any"
-
 function jobsMyExperience() {
-    const v = parseInt(document.getElementById('filter-experience')?.value ?? JOBS_EXP_ANY);
-    return (isNaN(v) || v >= JOBS_EXP_ANY) ? null : v;
+    const v = parseInt(document.getElementById('filter-experience')?.value);
+    return isNaN(v) ? null : v;
 }
 
-function syncJobsExperienceLabel() {
-    const n = jobsMyExperience();
-    const out = document.getElementById('filter-experience-value');
-    if (out) out.textContent = n === null ? 'Any' : `${n} yr${n === 1 ? '' : 's'}`;
-    const wrap = document.getElementById('filter-exp-unstated-wrap');
-    if (wrap) wrap.style.display = n === null ? 'none' : 'flex';
+function jobExpValue(years) {           // a consultant's years as the filter's value ('' = Any when not on file)
+    const y = parseInt(years);
+    return y > 0 ? String(Math.min(15, y)) : '';
 }
 
 function setJobsExperience(years) {
-    const slider = document.getElementById('filter-experience');
-    if (!slider) return;
-    slider.value = (years === null || years === undefined || years === '') ? JOBS_EXP_ANY : Math.min(JOBS_EXP_ANY - 1, Math.max(0, parseInt(years)));
-    syncJobsExperienceLabel();
+    const sel = document.getElementById('filter-experience');
+    if (sel) sel.value = jobExpValue(years);
 }
 
 function jobExperienceBadge(exp) {
@@ -4689,14 +4645,7 @@ function jobExperienceBadge(exp) {
 }
 
 (function initJobsExperienceFilter() {
-    const start = () => {
-        const slider = document.getElementById('filter-experience');
-        if (!slider) return;
-        syncJobsExperienceLabel();
-        slider.addEventListener('input', syncJobsExperienceLabel);
-        slider.addEventListener('change', () => searchJobs(false));
-        document.getElementById('filter-exp-unstated')?.addEventListener('change', () => searchJobs(false));
-    };
+    const start = () => document.getElementById('filter-experience')?.addEventListener('change', () => searchJobs(false));
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
 
@@ -7276,7 +7225,7 @@ const CONS_JOB_SOURCES = [['All', 'All portals'], ['Company site', '🏢 Company
 async function consPaneJobs(c, body) {
     const country = consMarket(c) === 'India' ? 'India' : 'United States';
     consUi.jf = consUi.jf || {};
-    const f = consUi.jf[c.id] = consUi.jf[c.id] || { query: consCoreTitle(c.title), location: '', posted: '24', type: '', source: 'All', work: '', roles: [] };
+    const f = consUi.jf[c.id] = consUi.jf[c.id] || { query: consCoreTitle(c.title), location: '', posted: '24', type: '', source: 'All', work: '', roles: [], exp: jobExpValue(c.experience_years) };
     const sel = (id, opts, val) => `<select id="${id}" class="form-control">${opts.map(([v, l]) => `<option value="${v}" ${String(val) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
     body.innerHTML = `
         <div class="cons-filter">
@@ -7286,6 +7235,7 @@ async function consPaneJobs(c, body) {
             <div><label>Posted within</label>${sel('cons-jf-posted', [['24', 'Last 24 hours'], ['72', 'Last 3 days'], ['168', 'Last week'], ['336', 'Last 2 weeks']], f.posted)}</div>
             <div><label>Work model</label>${sel('cons-jf-work', [['', 'Any'], ['remote', 'Remote'], ['hybrid', 'Hybrid'], ['onsite', 'On-site']], f.work)}</div>
             <div><label>Job type</label>${sel('cons-jf-type', [['', 'All types'], ['Contract', 'Contract'], ['Full-time', 'Full-time'], ['Part-time', 'Part-time']], f.type)}</div>
+            <div><label>Experience</label>${sel('cons-jf-exp', JOB_EXP_OPTIONS, f.exp)}</div>
             <div><label>Source</label>${sel('cons-jf-source', CONS_JOB_SOURCES, f.source)}</div>
             <div class="cf-go"><button type="button" class="btn btn-primary" id="cons-jf-go">🔍 Search</button></div>
         </div>
@@ -7299,11 +7249,12 @@ async function consPaneJobs(c, body) {
         f.type = document.getElementById('cons-jf-type').value;
         f.source = document.getElementById('cons-jf-source').value;
         f.work = document.getElementById('cons-jf-work').value;
+        f.exp = document.getElementById('cons-jf-exp').value;
     };
     const go = () => { read(); consPaneJobs(c, body); };
     document.getElementById('cons-jf-go').addEventListener('click', go);
     ['cons-jf-query', 'cons-jf-loc'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') go(); }));
-    ['cons-jf-posted', 'cons-jf-type', 'cons-jf-source', 'cons-jf-work'].forEach(id => document.getElementById(id).addEventListener('change', go));
+    ['cons-jf-posted', 'cons-jf-type', 'cons-jf-source', 'cons-jf-work', 'cons-jf-exp'].forEach(id => document.getElementById(id).addEventListener('change', go));
     document.getElementById('cons-jobs-live').addEventListener('click', () => { read(); consFindLiveJobs(c, f, country, body); });
     rolePicker(document.getElementById('cons-jf-roles'), {
         get: () => f.roles,
@@ -7312,14 +7263,14 @@ async function consPaneJobs(c, body) {
         onChange: () => { const q = f.query; read(); f.query = document.getElementById('cons-jf-query').value.trim() === consCoreTitle(c.title) && f.roles.length ? q : f.query; consPaneJobs(c, body); },
     });
 
-    const key = `${c.id}|${f.query}|${f.location}|${f.posted}|${f.type}|${f.source}|${f.roles.join(',')}`;
+    const key = `${c.id}|${f.query}|${f.location}|${f.posted}|${f.type}|${f.source}|${f.exp}|${f.roles.join(',')}`;
     let jobs = consUi.jobs[key];
     if (!jobs) {
         try {
             const res = await fetch('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: f.query, location: f.location || country, source: f.source, country, is_24h_only: true, live_scrape: false,
                     no_scrape: true, type_filter: f.type, posted_within_hours: parseInt(f.posted) > 24 ? parseInt(f.posted) : null, roles: f.roles,
-                    my_experience: c.experience_years || null, include_unstated: true }) });
+                    my_experience: f.exp === '' ? null : parseInt(f.exp), include_unstated: true }) });
             const d = await res.json().catch(() => ({}));
             jobs = Array.isArray(d) ? d : (d.jobs || d.results || []);
             consUi.jobs[key] = jobs;
@@ -7335,51 +7286,72 @@ async function consPaneJobs(c, body) {
         list.innerHTML = `<div class="cons-empty">No jobs match these filters. Try <b>Posted within: Last week</b>, fewer words in Role / skills, or <b>🔄 Find new jobs from portals</b> above.</div>`;
         return;
     }
-    const scored = jobs.map(j => ({ j, m: consSkillMatch(c, j) })).sort((a, b) => ((b.m || {}).pct || 0) - ((a.m || {}).pct || 0)).slice(0, 60);
-    list.innerHTML = scored.map(({ j, m }) => {
-        const pct = m ? m.pct : null;
-        const col = pct == null ? '#94a3b8' : (m.total < 4 ? '#2563eb' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706');
-        const word = consRingWord(m);
-        return `
+    renderJobResults(list, jobs, c, 'candidates');
+}
+
+const JOB_EXP_OPTIONS = [['', 'Any'], ['0', 'Under 1 yr'], ...Array.from({ length: 15 }, (_, i) => [String(i + 1), `${i + 1} yr${i ? 's' : ''}`])];
+
+// One job card and one result list: the Jobs page and a consultant's Matched jobs show the same thing.
+function jobCardHtml(j, m, c) {
+    const pct = m ? m.pct : null;
+    const col = !pct ? '#94a3b8' : (m.total < 4 ? '#2563eb' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706');
+    const word = consRingWord(m);
+    const company = (j.source || '').toLowerCase().startsWith('company site');
+    const salary = j.salary && !/^Rate on Discussion/i.test(j.salary) ? j.salary : '';
+    const type = j.type_label || j.job_type;
+    const ago = j.scraped_at ? jobAgo(j.scraped_at) : '';
+    return `
         <div class="cons-job" data-id="${j.id}">
             <div class="cons-job-main">
-                <button type="button" class="cons-job-title cons-job-open">${escapeHtml(j.title || '')}</button>
-                <div class="cons-job-meta">${escapeHtml(j.company || '')}${j.location ? ' · ' + escapeHtml(j.location) : ''}${j.source ? ' · ' + escapeHtml(j.source) : ''}</div>
+                <button type="button" class="cons-job-title cons-job-open">${escapeHtml(j.title || 'Untitled requirement')}</button>
+                <div class="cons-job-meta">${[j.company, j.location, j.source].filter(Boolean).map(escapeHtml).join(' · ')}${ago ? ` · ${company ? 'posted' : 'found'} ${escapeHtml(ago)}` : ''}</div>
                 <div class="cons-tags">
-                    ${j.job_type ? `<span class="cons-tag">${escapeHtml(j.job_type)}</span>` : ''}
-                    ${j.salary ? `<span class="cons-tag">${escapeHtml(j.salary)}</span>` : ''}
+                    ${type ? `<span class="cons-tag">${escapeHtml(type)}</span>` : ''}
+                    ${j.experience && j.experience.label && j.experience.source ? `<span class="cons-tag">${escapeHtml(j.experience.label)}</span>` : ''}
+                    ${salary ? `<span class="cons-tag">${escapeHtml(salary)}</span>` : ''}
                     ${j.recruiter_email ? '<span class="cons-tag blue">Recruiter email found</span>' : ''}
+                    ${j.vendor ? `<span class="cons-tag green" title="Your vendor contacts at ${escapeHtml(j.vendor.company)}">🤝 Known vendor · ${j.vendor.count}</span>` : ''}
                     ${m && m.hit.length ? `<span class="cons-tag green" title="Consultant skills in this job">✓ ${escapeHtml(m.hit.slice(0, 4).join(', '))}</span>` : ''}
                 </div>
                 <div class="cons-job-acts">
                     <button type="button" class="btn btn-primary btn-sm cons-job-open">Open job</button>
-                    <button type="button" class="btn btn-secondary btn-sm cons-job-save" title="Add to ${escapeHtml(c.name)}'s Applications as Saved">🔖 Save</button>
+                    <button type="button" class="btn btn-secondary btn-sm cons-job-save" title="Add to the consultant's Applications as Saved">🔖 Save</button>
                     <button type="button" class="btn btn-sm cons-job-tailor" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;">⚡ Tailor resume</button>
                     ${j.recruiter_email ? `<button type="button" class="btn btn-primary btn-sm cons-job-draft">✉️ Email recruiter</button>` : ''}
                     <button type="button" class="btn btn-sm cons-job-super sa-btn" title="Find the hiring team at this company (Apollo) and email them the resume">⭐ Super Apply</button>
                     ${j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the form">Apply on site ↗</a>` : ''}
                 </div>
             </div>
-            ${!pct ? `<div class="cons-ring none" title="None of the consultant's listed skills appear in this posting's text">skills not mentioned</div>`
-                : `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of the consultant's ${m.total} listed skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`}
+            ${pct ? `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of the consultant's ${m.total} listed skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`
+                : (c ? `<div class="cons-ring none" title="None of the consultant's listed skills appear in this posting's text">skills not mentioned</div>` : '')}
         </div>`;
-    }).join('');
+}
+
+function renderJobResults(box, jobs, c, backTab) {
+    const LIMIT = 200;
+    const scored = jobs.map(j => ({ j, m: c ? consSkillMatch(c, j) : null }));
+    if (c) scored.sort((a, b) => ((b.m || {}).pct || 0) - ((a.m || {}).pct || 0));      // best skills match first
+    box.innerHTML = scored.slice(0, LIMIT).map(({ j, m }) => jobCardHtml(j, m, c)).join('')
+        + (jobs.length > LIMIT ? `<div class="cons-empty small">Showing the first ${LIMIT} of ${jobs.length}. Narrow the search to see the rest.</div>` : '');
     const jobOf = el => jobs.find(x => x.id === parseInt(el.closest('.cons-job').dataset.id));
-    list.querySelectorAll('.cons-job-draft').forEach(btn => btn.addEventListener('click', () => createJobDraft(jobOf(btn).id, c.id, '', btn)));
-    list.querySelectorAll('.cons-job-super').forEach(btn => btn.addEventListener('click', () => openSuperApply(jobOf(btn), c.id)));
-    list.querySelectorAll('.cons-job-open').forEach(btn => btn.addEventListener('click', () => openJobPage(jobOf(btn), c.id, 'candidates')));
-    list.querySelectorAll('.cons-job-tailor').forEach(btn => btn.addEventListener('click', () => {
-        const j = jobOf(btn);
+    const each = (cls, fn) => box.querySelectorAll(cls).forEach(btn => btn.addEventListener('click', () => {
+        if (!c) { showToast('Pick a consultant first.', 'warning'); return; }
+        fn(btn, jobOf(btn));
+    }));
+    box.querySelectorAll('.cons-job-open').forEach(btn => btn.addEventListener('click', () => openJobPage(jobOf(btn), c ? c.id : state.activeConsultantId, backTab)));
+    each('.cons-job-draft', (btn, j) => createJobDraft(j.id, c.id, j.recruiter_email || '', btn));
+    each('.cons-job-super', (btn, j) => openSuperApply(j, c.id));
+    each('.cons-job-tailor', (btn, j) => {
         if (!(state.jobs || []).some(x => x.id === j.id)) state.jobs = [...(state.jobs || []), j];     // the optimizer looks the job up in state.jobs
         jobOptimizeOpen(j.id, c.id, null);
-    }));
-    list.querySelectorAll('.cons-job-save').forEach(btn => btn.addEventListener('click', async () => {
-        const res = await fetch(`/api/jobs/${jobOf(btn).id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: c.id }) });
+    });
+    each('.cons-job-save', async (btn, j) => {
+        const res = await fetch(`/api/jobs/${j.id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: c.id }) });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
         btn.textContent = '✓ Saved';
         btn.disabled = true;
-    }));
+    });
 }
 
 // "Find new jobs from portals" on the consultant's page: a live portal search for these filters. Paid portals
@@ -7405,7 +7377,7 @@ async function consFindLiveJobs(c, f, country, body) {
     try {
         const res = await fetch('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query: keyword, location: f.location || country, source: src, country, is_24h_only: true, live_scrape: true,
-                no_scrape: false, type_filter: f.type, my_experience: c.experience_years || null, include_unstated: true }) });
+                no_scrape: false, type_filter: f.type, my_experience: f.exp === '' ? null : parseInt(f.exp), include_unstated: true }) });
         const d = await res.json().catch(() => ({}));
         const parts = Object.entries(d.scrape_sources || {}).map(([name, v]) => v.error ? `${name}: ${v.error}` : `${name}: ${v.count} found`);
         showToast(res.ok ? `Portal search done${parts.length ? ' - ' + parts.join(' · ') : ''}.` : (d.error || 'The portal search failed.'), res.ok ? 'success' : 'error', 9000);
@@ -7526,15 +7498,12 @@ function consPaneProfile(c, body) {
 // The table view stays one click away.
 // =========================================================================
 const jobsUi = { view: 'cards', boards: null, open: new Set(), roles: [] };
-try { jobsUi.view = localStorage.getItem('jobsView') === 'table' ? 'table' : 'cards'; } catch (e) { /* storage blocked */ }
 
 function setJobsView(view) {
     jobsUi.view = view;
-    try { localStorage.setItem('jobsView', view); } catch (e) { /* ignore */ }
     const cards = document.getElementById('jobs-cards-wrap'), table = document.getElementById('jobs-table-view');
     if (cards) cards.hidden = view !== 'cards';
     if (table) table.hidden = view !== 'table';
-    document.querySelectorAll('.jobs-view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
 }
 
 function jobAgo(ts) {
@@ -7548,7 +7517,54 @@ function jobAgo(ts) {
     return days === 1 ? '1 day ago' : `${days} days ago`;
 }
 
+// The consultant sets the search: market, role and experience, exactly as on their Matched jobs.
+function jobsApplyConsultant(c) {
+    state.jobsFor = c ? c.id : null;
+    state.jobsSearched = true;
+    const query = document.getElementById('filter-query'), loc = document.getElementById('filter-location');
+    if (query) query.value = c ? consCoreTitle(c.title) : '';
+    if (loc) loc.value = '';
+    jobsUi.roles = [];
+    jobsMountRoles();
+    setJobsExperience(c ? c.experience_years : null);
+    const market = document.getElementById('filter-country');
+    if (market && c && !market.disabled) market.value = consMarket(c) === 'India' ? 'India' : 'United States';
+    syncJobsMarketUi();
+    jobsFillConsultants();
+}
+
+function jobsFillConsultants() {
+    const sel = document.getElementById('jobs-side-consultant');
+    const c = jobsActiveConsultant();
+    if (sel) {
+        sel.innerHTML = '<option value="">All consultants</option>' + (state.consultants || []).map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+        sel.value = c ? String(c.id) : '';
+    }
+    const wrap = document.getElementById('jobs-market-wrap');
+    if (wrap) wrap.hidden = !!c;
+    const who = document.getElementById('jobs-who');
+    if (who) who.textContent = c ? [c.title, c.experience_years ? `${c.experience_years}+ yrs` : '', consMarket(c)].filter(Boolean).join(' · ') : '';
+}
+
+function jobsOnTabOpen() {
+    const c = jobsActiveConsultant();
+    jobsFillConsultants();
+    if (state.jobsSearched && state.jobsFor === (c ? c.id : null)) return;
+    jobsApplyConsultant(c);
+    searchJobs(false);
+}
+
+// The consultants can arrive after the tab has opened: their search replaces the empty one, unless something was already typed.
+function jobsConsultantsLoaded() {
+    jobsFillConsultants();
+    const c = jobsActiveConsultant();
+    if (state.activeTab !== 'jobs' || !c || state.jobsFor || document.getElementById('filter-query')?.value.trim()) return;
+    jobsApplyConsultant(c);
+    searchJobs(false);
+}
+
 function jobsActiveConsultant() {
+    if (state.jobsAll) return null;
     return (state.consultants || []).find(c => c.id === state.activeConsultantId) || null;
 }
 
@@ -7556,100 +7572,20 @@ function renderJobCards(jobs) {
     const box = document.getElementById('jobs-cards');
     if (!box) return;
     renderJobsSide();
+    jobsFillConsultants();
     const c = jobsActiveConsultant();
-    const countEl = document.getElementById('jobs-cards-count');
     const list = jobs || [];
-    if (countEl) countEl.textContent = `${list.length} job${list.length === 1 ? '' : 's'}${c ? ` · match shown for ${c.name}` : ''}`;
+    const countEl = document.getElementById('jobs-cards-count');
+    const country = document.getElementById('filter-country')?.value || 'United States';
+    if (countEl) countEl.textContent = `${list.length} job${list.length === 1 ? '' : 's'} · ${country}${c ? ' · best skills match first' : ''}`;
     if (!list.length) {
         const company = (document.getElementById('filter-source')?.value || '') === 'Company site';
         box.innerHTML = `<div class="cons-empty">No jobs match these filters.${company
-            ? ' Company-site jobs show by posting date - try <b>Posted within: Last week</b>, or <b>Refresh company jobs</b> on the right.'
-            : ' Try <b>Posted within: Last 3 days</b>, other keywords, or <b>Live scrape</b>.'}</div>`;
+            ? ' Company-site jobs show by posting date - try <b>Posted within: Last week</b>, or <b>Refresh company jobs</b> under Company career sites.'
+            : ' Try <b>Posted within: Last week</b>, fewer words in Role / skills, or <b>🔄 Find new jobs from portals</b> above.'}</div>`;
         return;
     }
-    const scored = list.slice(0, 200).map(j => ({ j, m: c ? consSkillMatch(c, j) : null }));
-    box.innerHTML = scored.map(({ j, m }) => {
-        const pct = m ? m.pct : null;
-        const col = !pct ? '#94a3b8' : (m.total < 4 ? '#2563eb' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706');
-        const word = consRingWord(m);
-        const company = (j.source || '').toLowerCase().startsWith('company site');
-        const open = jobsUi.open.has(j.id);
-        const salary = j.salary && !/^Rate on Discussion/i.test(j.salary) ? j.salary : '';
-        return `
-        <div class="job-card" data-job-id="${j.id}">
-            <div class="jc-logo">${consInitials(j.company || j.title)}</div>
-            <div class="jc-main">
-                <button type="button" class="jc-title jc-open">${escapeHtml(j.title || 'Untitled requirement')}</button>
-                <div class="jc-company">${escapeHtml(j.company || '')}${j.scraped_at ? ` <span>· ${company ? 'posted' : 'found'} ${escapeHtml(jobAgo(j.scraped_at))}</span>` : ''}</div>
-                <div class="jc-meta">
-                    ${j.location ? `<span>📍 ${escapeHtml(j.location)}</span>` : ''}
-                    ${j.type_label ? `<span class="cons-tag ${j.type_label === 'Contract' ? 'blue' : j.type_label === 'Full-time' ? 'green' : ''}">${escapeHtml(j.type_label)}</span>` : ''}
-                    ${j.experience && j.experience.label && j.experience.source ? `<span class="cons-tag">${escapeHtml(j.experience.label)}</span>` : ''}
-                    ${salary ? `<span class="cons-tag green">${escapeHtml(salary)}</span>` : ''}
-                    <span class="cons-tag ${company ? 'amber' : ''}" style="cursor:default">${company ? '🏢 ' : ''}${escapeHtml(j.source || 'Portal')}</span>
-                    ${j.recruiter_email ? '<span class="cons-tag blue">Recruiter email found</span>' : ''}
-                    ${j.vendor ? `<span class="cons-tag green" title="Your vendor contacts at ${escapeHtml(j.vendor.company)}">🤝 Known vendor · ${j.vendor.count}</span>` : ''}
-                </div>
-                <div class="cons-job-acts">
-                    <button type="button" class="btn btn-primary btn-sm jc-open">Open job</button>
-                    <button type="button" class="btn btn-secondary btn-sm jc-details-btn">${open ? 'Hide details' : 'Quick look'}</button>
-                    <button type="button" class="btn btn-secondary btn-sm jc-save" title="Add to the consultant's Applications as Saved">🔖 Save</button>
-                    <button type="button" class="btn btn-sm jc-optimize" style="background:#f5f3ff; color:#6d28d9; border:1px solid #c4b5fd;" title="Tailor the consultant's resume to this job">⚡ Tailor resume</button>
-                    ${j.recruiter_email ? '<button type="button" class="btn btn-primary btn-sm jc-draft">✉️ Email recruiter</button>' : ''}
-                    <button type="button" class="btn btn-sm jc-super sa-btn" title="Find the hiring team at this company (Apollo) and email them the resume">⭐ Super Apply</button>
-                    ${j.url ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the application">Apply ↗</a>` : ''}
-                </div>
-                <div class="jc-details" ${open ? '' : 'hidden'}>
-                    <div class="jc-desc">${escapeHtml((j.description || '').slice(0, 1500))}${(j.description || '').length > 1500 || j.has_full_description ? '…' : ''}</div>
-                    <div class="jc-email-row"><input type="email" class="form-control form-control-sm jc-email" value="${escapeHtml(j.recruiter_email || '')}" placeholder="Recruiter email (saves when you leave the box)"></div>
-                </div>
-            </div>
-            ${pct ? `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of ${escapeHtml(c.name)}'s skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`
-                : (c ? '<div class="cons-ring none" title="None of the consultant\'s listed skills appear in this posting\'s text">skills not mentioned</div>' : '')}
-        </div>`;
-    }).join('') + (list.length > 200 ? `<div class="cons-empty small">Showing the first 200 of ${list.length}. Narrow the search to see the rest.</div>` : '');
-
-    const jobOf = el => (state.jobs || []).find(x => x.id === parseInt(el.closest('.job-card').dataset.jobId));
-    const needCand = () => {
-        const id = state.activeConsultantId;
-        if (!id) showToast('Pick a consultant on the right first.', 'warning');
-        return id;
-    };
-    box.querySelectorAll('.jc-details-btn').forEach(b => b.addEventListener('click', () => {
-        const card = b.closest('.job-card'), id = parseInt(card.dataset.jobId), d = card.querySelector('.jc-details');
-        d.hidden = !d.hidden;
-        if (d.hidden) jobsUi.open.delete(id); else jobsUi.open.add(id);
-        b.textContent = d.hidden ? 'Quick look' : 'Hide details';
-    }));
-    box.querySelectorAll('.jc-open').forEach(b => b.addEventListener('click', () => openJobPage(jobOf(b), state.activeConsultantId, 'jobs')));
-    box.querySelectorAll('.jc-save').forEach(b => b.addEventListener('click', async () => {
-        const cid = needCand(); if (!cid) return;
-        const j = jobOf(b);
-        const res = await fetch(`/api/jobs/${j.id}/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate_id: cid }) });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
-        b.textContent = '✓ Saved';
-        b.disabled = true;
-        showToast(`Saved to ${jobsActiveConsultant()?.name || 'the consultant'}'s Applications.`, 'success', 2500);
-    }));
-    box.querySelectorAll('.jc-optimize').forEach(b => b.addEventListener('click', () => {
-        const cid = needCand(); if (!cid) return;
-        jobOptimizeOpen(jobOf(b).id, cid, null);
-    }));
-    box.querySelectorAll('.jc-draft').forEach(b => b.addEventListener('click', () => {
-        const cid = needCand(); if (!cid) return;
-        const j = jobOf(b);
-        const typed = b.closest('.job-card').querySelector('.jc-email')?.value.trim();
-        createJobDraft(j.id, cid, typed || j.recruiter_email || '', b);
-    }));
-    box.querySelectorAll('.jc-super').forEach(b => b.addEventListener('click', () => {
-        const cid = needCand(); if (!cid) return;
-        openSuperApply(jobOf(b), cid);
-    }));
-    box.querySelectorAll('.jc-email').forEach(inp => inp.addEventListener('change', () => {
-        const j = jobOf(inp);
-        if (inp.value.trim()) { saveRecruiterEmail(j.id, inp.value); j.recruiter_email = inp.value.trim(); }
-    }));
+    renderJobResults(box, list, c, 'jobs');
 }
 
 async function loadCareerBoards(force) {
@@ -7664,19 +7600,8 @@ async function loadCareerBoards(force) {
 async function renderJobsSide() {
     const side = document.getElementById('jobs-side');
     if (!side) return;
-    const c = jobsActiveConsultant();
-    const opts = (state.consultants || []).map(x => `<option value="${x.id}" ${c && x.id === c.id ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
-    const o = c ? (consUi.overview[c.id] || {}) : {};
     const b = await loadCareerBoards(false);
     side.innerHTML = `
-        <div class="cons-panel">
-            <div class="cons-panel-h"><h3>Applying for</h3></div>
-            <select id="jobs-side-consultant" class="form-control">${opts || '<option value="">No consultants yet</option>'}</select>
-            ${c ? `<div class="cons-muted" style="margin-top:8px;">${escapeHtml(c.title || '')}${c.experience_years ? ' · ' + c.experience_years + '+ yrs' : ''}</div>
-                <div class="cons-muted">📄 ${escapeHtml(c.resume_filename || 'No resume on file')}</div>
-                <div class="cons-stats" style="margin-top:10px;"><div><b>${o.applied_this_week || 0}</b><span>Applied this week</span></div><div><b>${o.open || 0}</b><span>Open</span></div><div><b>${o.replies_waiting || 0}</b><span>Replies</span></div></div>
-                <div class="cons-job-acts"><button type="button" class="btn btn-secondary btn-sm" id="jobs-side-match">Jobs for ${escapeHtml(c.name.split(' ')[0])}'s role</button></div>` : ''}
-        </div>
         <div class="cons-panel">
             <div class="cons-panel-h"><h3>🏢 Company career sites</h3></div>
             <div class="cons-muted">${b ? `${b.active} companies read for free (${escapeHtml((b.portals || []).join(', '))}).` : 'Company list unavailable.'}
@@ -7694,11 +7619,6 @@ async function renderJobsSide() {
                 <div class="jobs-board-list">${b ? b.boards.map(x => `<div class="cons-kv"><span>${escapeHtml(x.company || x.slug)} <small>(${escapeHtml(x.portal)})</small></span><b>${x.last_checked_at ? (x.last_error ? '<span style="color:#b45309" title="' + escapeHtml(x.last_error) + '">error</span>' : (x.last_job_count || 0) + ' jobs') : 'not read yet'}</b></div>`).join('') : ''}</div>
             </details>
         </div>`;
-    document.getElementById('jobs-side-consultant')?.addEventListener('change', e => {
-        setActiveConsultant(parseInt(e.target.value));
-        renderJobCards(state.jobs);
-    });
-    document.getElementById('jobs-side-match')?.addEventListener('click', () => browseJobsForCandidate(c.id, c.title || '', c.country || 'United States'));
     document.getElementById('jobs-boards-show').addEventListener('click', () => {
         const src = document.getElementById('filter-source');
         if (src) { src.value = 'Company site'; src.dispatchEvent(new Event('change')); }
@@ -7725,14 +7645,14 @@ async function renderJobsSide() {
     });
 }
 
-(function initJobCards() {
-    document.querySelectorAll('.jobs-view-btn').forEach(b => b.addEventListener('click', () => setJobsView(b.dataset.view)));
-    setJobsView(jobsUi.view);
-    document.getElementById('filter-posted')?.addEventListener('change', () => searchJobs(false));
-    document.getElementById('filter-work-model')?.addEventListener('change', () => searchJobs(false));
+function jobsMountRoles() {
     rolePicker(document.getElementById('jobs-roles'), {
         get: () => jobsUi.roles,
-        set: v => { jobsUi.roles = v; },
+        set: v => {
+            jobsUi.roles = v;
+            const q = document.getElementById('filter-query'), c = jobsActiveConsultant();     // picked roles replace the title keyword
+            if (v.length && q && c && q.value.trim() === consCoreTitle(c.title)) q.value = '';
+        },
         countsBody: () => ({
             country: document.getElementById('filter-country')?.value || 'United States',
             location: document.getElementById('filter-location')?.value?.trim() || '',
@@ -7742,6 +7662,23 @@ async function renderJobsSide() {
         }),
         onChange: () => searchJobs(false),
     });
+}
+
+(function initJobCards() {
+    setJobsView('cards');
+    document.getElementById('filter-posted')?.addEventListener('change', () => searchJobs(false));
+    document.getElementById('filter-work-model')?.addEventListener('change', () => searchJobs(false));
+    document.getElementById('jobs-side-toggle')?.addEventListener('click', () => {
+        const side = document.getElementById('jobs-side');
+        if (side) side.hidden = !side.hidden;
+    });
+    document.getElementById('jobs-side-consultant')?.addEventListener('change', e => {
+        const id = parseInt(e.target.value);
+        if (id) setActiveConsultant(id); else state.jobsAll = true;
+        jobsApplyConsultant(jobsActiveConsultant());
+        searchJobs(false);
+    });
+    jobsMountRoles();
     // company career sites are mostly full-time: picking them shows all job types
     document.getElementById('filter-source')?.addEventListener('change', e => {
         if (e.target.value === 'Company site') {

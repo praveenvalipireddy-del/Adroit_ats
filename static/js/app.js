@@ -820,6 +820,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
                 live_scrape: liveScrape,
                 type_filter: document.getElementById('filter-job-type')?.value || '',
                 no_scrape: !opts.allowScrape,       // India: only a click on Search Jobs may start a paid scrape
+                candidate_id: jobsActiveConsultant()?.id || null,
                 posted_within_hours: (parseInt(document.getElementById('filter-posted')?.value) || 24) > 24 ? parseInt(document.getElementById('filter-posted').value) : null,
                 roles: jobsUi.roles,
                 my_experience: jobsMyExperience(),
@@ -7190,14 +7191,6 @@ function consCoreTitle(t) {
     return (t || '').replace(/^(senior|lead|principal|staff|junior|sr|jr|associate)\s+/i, '').replace(/[|&,]/g, ' ').trim().split(/\s+/).slice(0, 3).join(' ');
 }
 
-function consSkillMatch(c, job) {
-    const skills = (c.primary_skills || '').split(/[,;/\n|]/).map(s => s.trim()).filter(Boolean);
-    const text = `${job.title || ''} ${job.description || ''} ${job.full_description || ''}`.toLowerCase();
-    if (!skills.length || !text.trim()) return null;
-    const hit = skills.filter(s => new RegExp(`(^|[^a-z0-9])${s.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(text));
-    return { pct: Math.round(100 * hit.length / skills.length), hit, total: skills.length };
-}
-
 // Work model as the posting states it (location, title, first part of the description): remote / hybrid / onsite.
 function jobWorkModels(j) {
     const t = `${j.location || ''} ${j.title || ''} ${(j.description || '').slice(0, 2000)}`.toLowerCase();
@@ -7212,11 +7205,32 @@ function filterWorkModel(jobs, model) {
     return model ? (jobs || []).filter(j => jobWorkModels(j).has(model)) : (jobs || []);
 }
 
-// The ring's word: with only a few listed skills, "2 of 2 skills" (100% of two words is not a strong match).
-function consRingWord(m) {
-    if (!m || !m.pct) return '';
-    if (m.total < 4) return `${m.hit.length} OF ${m.total} SKILLS`;
-    return m.pct >= 60 ? 'STRONG' : m.pct >= 35 ? 'GOOD' : 'STRETCH';
+// The match comes from the server (job_match.py): of the skills the job asks for, how many this consultant has.
+function jobMatchWord(m) {
+    return !m || m.pct == null ? '' : m.pct >= 60 ? 'STRONG' : m.pct >= 35 ? 'GOOD' : 'STRETCH';
+}
+
+// No percentage: the consultant has no skills on file, or the posting names too few to compare.
+function jobMatchNote(m) {
+    if (m.no_profile) return 'add skills';
+    return m.asked ? `${m.hit.length} of ${m.asked} skill${m.asked === 1 ? '' : 's'}` : 'no skills named';
+}
+
+function jobMatchRing(m) {
+    if (!m) return '';
+    if (m.pct == null) {
+        const tip = m.no_profile ? 'This consultant has no skills or resume on file.'
+            : m.asked ? `This posting names only ${m.asked} skill${m.asked === 1 ? '' : 's'}: too few for a percentage.` : 'This posting names no skills we recognise.';
+        return `<div class="cons-ring none" title="${tip}">${jobMatchNote(m)}</div>`;
+    }
+    const col = m.pct >= 60 ? '#16a34a' : m.pct >= 35 ? '#2563eb' : '#d97706';
+    return `<div class="cons-ring" style="--p:${m.pct};--col:${col}" title="This job asks for ${m.asked} skills; the consultant's skills and resume show ${m.hit.length}."><div><span>${m.pct}%</span></div><small>${jobMatchWord(m)}<br>${m.hit.length} of ${m.asked} skills</small></div>`;
+}
+
+// Best first; a posting that names too few skills for a percentage sits below real matches when it overlaps at all.
+function jobMatchRank(m) {
+    if (!m) return -1;
+    return m.pct != null ? m.pct : (m.hit.length ? 30 : -1);
 }
 
 const CONS_JOB_SOURCES = [['All', 'All portals'], ['Company site', '🏢 Company career sites'], ['LinkedIn', 'LinkedIn'], ['Indeed', 'Indeed'],
@@ -7269,7 +7283,7 @@ async function consPaneJobs(c, body) {
         try {
             const res = await fetch('/api/jobs/search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: f.query, location: f.location || country, source: f.source, country, is_24h_only: true, live_scrape: false,
-                    no_scrape: true, type_filter: f.type, posted_within_hours: parseInt(f.posted) > 24 ? parseInt(f.posted) : null, roles: f.roles,
+                    no_scrape: true, candidate_id: c.id, type_filter: f.type, posted_within_hours: parseInt(f.posted) > 24 ? parseInt(f.posted) : null, roles: f.roles,
                     my_experience: f.exp === '' ? null : parseInt(f.exp), include_unstated: true }) });
             const d = await res.json().catch(() => ({}));
             jobs = Array.isArray(d) ? d : (d.jobs || d.results || []);
@@ -7292,10 +7306,7 @@ async function consPaneJobs(c, body) {
 const JOB_EXP_OPTIONS = [['', 'Any'], ['0', 'Under 1 yr'], ...Array.from({ length: 15 }, (_, i) => [String(i + 1), `${i + 1} yr${i ? 's' : ''}`])];
 
 // One job card and one result list: the Jobs page and a consultant's Matched jobs show the same thing.
-function jobCardHtml(j, m, c) {
-    const pct = m ? m.pct : null;
-    const col = !pct ? '#94a3b8' : (m.total < 4 ? '#2563eb' : pct >= 60 ? '#16a34a' : pct >= 35 ? '#2563eb' : '#d97706');
-    const word = consRingWord(m);
+function jobCardHtml(j, m) {
     const company = (j.source || '').toLowerCase().startsWith('company site');
     const salary = j.salary && !/^Rate on Discussion/i.test(j.salary) ? j.salary : '';
     const type = j.type_label || j.job_type;
@@ -7311,7 +7322,8 @@ function jobCardHtml(j, m, c) {
                     ${salary ? `<span class="cons-tag">${escapeHtml(salary)}</span>` : ''}
                     ${j.recruiter_email ? '<span class="cons-tag blue">Recruiter email found</span>' : ''}
                     ${j.vendor ? `<span class="cons-tag green" title="Your vendor contacts at ${escapeHtml(j.vendor.company)}">🤝 Known vendor · ${j.vendor.count}</span>` : ''}
-                    ${m && m.hit.length ? `<span class="cons-tag green" title="Consultant skills in this job">✓ ${escapeHtml(m.hit.slice(0, 4).join(', '))}</span>` : ''}
+                    ${m && m.hit.length ? `<span class="cons-tag green" title="Asked for in this job, and shown by the consultant's skills or resume">✓ ${escapeHtml(m.hit.slice(0, 4).join(', '))}${m.hit.length > 4 ? ` +${m.hit.length - 4}` : ''}</span>` : ''}
+                    ${m && m.missing.length && !m.no_profile ? `<span class="cons-tag amber" title="Asked for in this job, not in the consultant's skills or resume">✗ ${escapeHtml(m.missing.slice(0, 3).join(', '))}${m.missing.length > 3 ? ` +${m.missing.length - 3}` : ''}</span>` : ''}
                 </div>
                 <div class="cons-job-acts">
                     <button type="button" class="btn btn-primary btn-sm cons-job-open">Open job</button>
@@ -7322,16 +7334,15 @@ function jobCardHtml(j, m, c) {
                     ${j.url ? `<a class="btn btn-secondary btn-sm" href="${escapeHtml(j.url)}" target="_blank" rel="noopener" title="Opens the job - the Job Hunt Autofill extension fills the form">Apply on site ↗</a>` : ''}
                 </div>
             </div>
-            ${pct ? `<div class="cons-ring" style="--p:${pct};--col:${col}" title="${m.hit.length} of the consultant's ${m.total} listed skills appear in this job"><div><span>${pct}%</span></div><small>${word}</small></div>`
-                : (c ? `<div class="cons-ring none" title="None of the consultant's listed skills appear in this posting's text">skills not mentioned</div>` : '')}
+            ${jobMatchRing(m)}
         </div>`;
 }
 
 function renderJobResults(box, jobs, c, backTab) {
     const LIMIT = 200;
-    const scored = jobs.map(j => ({ j, m: c ? consSkillMatch(c, j) : null }));
-    if (c) scored.sort((a, b) => ((b.m || {}).pct || 0) - ((a.m || {}).pct || 0));      // best skills match first
-    box.innerHTML = scored.slice(0, LIMIT).map(({ j, m }) => jobCardHtml(j, m, c)).join('')
+    const scored = jobs.map(j => ({ j, m: c ? (j.skill_match || null) : null }));
+    if (c) scored.sort((a, b) => jobMatchRank(b.m) - jobMatchRank(a.m) || (b.m ? b.m.hit.length : 0) - (a.m ? a.m.hit.length : 0));      // best skills match first
+    box.innerHTML = scored.slice(0, LIMIT).map(({ j, m }) => jobCardHtml(j, m)).join('')
         + (jobs.length > LIMIT ? `<div class="cons-empty small">Showing the first ${LIMIT} of ${jobs.length}. Narrow the search to see the rest.</div>` : '');
     const jobOf = el => jobs.find(x => x.id === parseInt(el.closest('.cons-job').dataset.id));
     const each = (cls, fn) => box.querySelectorAll(cls).forEach(btn => btn.addEventListener('click', () => {
@@ -8043,9 +8054,7 @@ function jpRender() {
 // ------------------------------------------------------------- Overview
 function jpOverview(pane) {
     const j = jp.job, c = jpCand(), d = jp.data || {};
-    const m = c ? consSkillMatch(c, j) : null;
-    const skills = c ? (c.primary_skills || '').split(/[,;/\n|]/).map(s => s.trim()).filter(Boolean) : [];
-    const miss = m ? skills.filter(s => !m.hit.includes(s)) : [];
+    const m = c ? (d.skill_match || null) : null;
     const steps = jpSteps();
     const done = [steps.resume, steps.tailored, steps.emailed, steps.applied].filter(Boolean).length;
     const company = (j.source || '').toLowerCase().startsWith('company site');
@@ -8088,11 +8097,13 @@ function jpOverview(pane) {
                 <div class="jp-match">
                     <div class="jp-label">${c ? `MATCH FOR ${escapeHtml(c.name.toUpperCase())}` : 'MATCH'}</div>
                     ${!c ? '<div class="jp-muted">Choose the consultant above to see the match.</div>'
-                        : !m ? '<div class="jp-muted">The consultant has no skills listed, or the posting has no text to compare.</div>'
-                        : `<div class="jp-pct"><span>${m.pct}%</span>${consRingWord(m) ? `<em>${escapeHtml(consRingWord(m))}</em>` : ''}</div>
-                           <div class="jp-bar-row"><span>Skills in this job</span><b>${m.hit.length} of ${m.total}</b></div>
-                           <div class="jp-bar"><div style="width:${m.pct}%"></div></div>
-                           <div class="jp-chips">${m.hit.map(s => `<span class="jp-chip ok">✓ ${escapeHtml(s)}</span>`).join('')}${miss.map(s => `<span class="jp-chip no">✗ ${escapeHtml(s)}</span>`).join('')}</div>`}
+                        : !m ? '<div class="jp-muted">Loading the match…</div>'
+                        : m.no_profile ? '<div class="jp-muted">This consultant has no skills or resume on file. Add them to see the match.</div>'
+                        : !m.asked ? '<div class="jp-muted">This posting names no skills we recognise.</div>'
+                        : `${m.pct != null ? `<div class="jp-pct"><span>${m.pct}%</span><em>${escapeHtml(jobMatchWord(m))}</em></div>` : '<div class="jp-muted">Too few skills named for a percentage.</div>'}
+                           <div class="jp-bar-row"><span>Skills this job asks for</span><b>${m.hit.length} of ${m.asked}</b></div>
+                           <div class="jp-bar"><div style="width:${Math.round(100 * m.hit.length / m.asked)}%"></div></div>
+                           <div class="jp-chips">${m.hit.map(s => `<span class="jp-chip ok">✓ ${escapeHtml(s)}</span>`).join('')}${m.missing.map(s => `<span class="jp-chip no">✗ ${escapeHtml(s)}</span>`).join('')}</div>`}
                 </div>
             </section>
 

@@ -464,7 +464,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.15" in page.content(), "cache-buster not bumped to 5.99.15")
+        check("app.js?v=5.99.16" in page.content(), "cache-buster not bumped to 5.99.16")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

@@ -103,7 +103,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.15" in page.content(), "cache-buster not bumped to 5.99.15")
+        check("app.js?v=5.99.16" in page.content(), "cache-buster not bumped to 5.99.16")
         # the Dashboard (made-up pipeline, "88%" / "24 Days") is gone: the app opens on the consultant cards
         page.wait_for_selector(f".cons-card[data-id='{K}']", timeout=15000)
         check(page.locator("a.nav-item[data-tab=dashboard]").count() == 0 and page.locator("#tab-dashboard").count() == 0, "no Dashboard tab")
@@ -144,8 +144,8 @@ try:
         jobs = page.inner_text("#cons-jobs-list")
         check("Data Analyst - Power BI (Layout Fixture)" in jobs and "Email recruiter" in jobs and "Apply on site" in jobs, f"matched jobs: {jobs[:300]!r}")
         first = page.locator(".cons-job").first
-        check("Power BI (Layout Fixture)" in first.inner_text() and "67%" in first.inner_text(), f"best skills match first: {first.inner_text()[:200]!r}")
-        check("2 OF 3 SKILLS" in first.inner_text(), f"few listed skills -> '2 of 3 skills', not STRONG: {first.inner_text()[-60:]!r}")
+        check("Power BI (Layout Fixture)" in first.inner_text() and "%" not in first.inner_text(), f"best skills match first: {first.inner_text()[:200]!r}")
+        check("2 of 2 skills" in first.inner_text(), f"a posting naming few skills -> '2 of 2 skills', no percentage: {first.inner_text()[-60:]!r}")
         shots["jobs"] = os.path.join(tmp_dir, "ws_jobs.png")
         page.screenshot(path=shots["jobs"])
         # the search bar on the consultant's page

@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 import msal
 
 import config
+import job_match
 import models
 import resume_bot
 import cloud_align
@@ -746,6 +747,19 @@ def _tag_known_vendors(jobs, user):
                 j["vendor"] = {"company": company, "count": len(rows)}
 
 
+def _attach_skill_match(jobs, candidate_id):
+    """The skills match for the consultant being searched for (free). Never fails a search."""
+    cid = _int_or_none(candidate_id)
+    if not cid or not can_access_candidate(current_user(), cid):
+        return
+    try:
+        cand = models.get_candidate_by_id(cid)
+        if cand:
+            job_match.attach(_ensure_resume_text(cand), [j for j in jobs if isinstance(j, dict)], models.get_full_descriptions)
+    except Exception as e:
+        logger.error(f"Skills match failed: {e}")
+
+
 @app.route("/api/jobs/search", methods=["POST", "OPTIONS"])
 def api_jobs_search():
     if request.method == "OPTIONS":
@@ -851,6 +865,7 @@ def api_jobs_search():
             logger.error(f"Live scrape on-demand error: {e}")
 
     _tag_known_vendors(results, current_user())
+    _attach_skill_match(results, data.get("candidate_id"))
     # Company-site jobs carry the whole posting in full_description: the list sends the summary only
     # (the Resume Optimizer asks /api/jobs/<id>/full-description, which returns the stored text).
     for r in results:
@@ -2569,6 +2584,8 @@ def api_job_page(job_id):
         cid = _int_or_none(request.args.get("candidate_id"))
         if cid and can_access_candidate(user, cid):
             cand = models.get_candidate_by_id(cid)
+            if cand:
+                out["skill_match"] = job_match.match(job_match.consultant_profile(_ensure_resume_text(cand)), job_match.job_text(job))
             found = models.find_resume_file(cand) if cand else None
             out["resume"] = {"on_file": bool(found) or bool((cand or {}).get("resume_text")),
                              "filename": found[0] if found else ((cand or {}).get("resume_filename") or "")}

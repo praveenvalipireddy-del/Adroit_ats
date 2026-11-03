@@ -1731,6 +1731,20 @@ def get_jobs(query=None, location=None, source=None, job_type=None, contract_onl
 
     return filtered
 
+def get_full_descriptions(job_ids):
+    """{job id: stored whole posting} for a small batch of jobs."""
+    ids = [int(i) for i in job_ids]
+    if not ids:
+        return {}
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT id, full_description FROM jobs WHERE id IN ({', '.join('?' for _ in ids)})", tuple(ids))
+        return {r["id"]: r["full_description"] or "" for r in cursor.fetchall()}
+    finally:
+        conn.close()
+
+
 def save_job_full_description(job_id, text):
     conn = get_db_connection()
     cursor = conn.cursor()

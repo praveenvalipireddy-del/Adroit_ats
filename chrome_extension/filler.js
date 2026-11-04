@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 5) return;
+  if (window.JH && window.JH.version === 6) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -36,7 +36,23 @@
   }
 
   const SECTION_HEADING = /^(work summary|summary|import (your )?profile|apply|application|my information|personal (info|information|details)|contact (info|information)|my experience|experience|education|review|voluntary disclosures?|self[- ]identify|questions|application questions|additional information|documents|attachments|sign in|create account)$/i;
-  const APPLY_STEP_URL = /\/apply(\/|$|\?)|\/application(\/|$)|apply\/section|\/candidate\//i;
+  const APPLY_STEP_URL = /\/apply(\/|$|\?)|\/application(\/|$)|apply\/section|\/candidate\/|\/indeedapply\//i;
+
+  // "AI GENERALIST - Delhi - Indeed.com" is the job board's page title: the job is AI GENERALIST.
+  const JOB_BOARD = /^(indeed|linkedin|glassdoor|naukri|foundit|monster|dice|ziprecruiter|simplyhired|shine|timesjobs)\b|[a-z0-9-]+\.(com|co\.in|in|co|org|io)$/i;
+  function cleanTitle(t) {
+    const title = norm(t).replace(/\s*-\s*job post$/i, '');
+    const parts = title.split(/\s+[|–—-]\s+/);
+    return parts.length > 1 && JOB_BOARD.test(parts[parts.length - 1]) ? parts[0] : title;
+  }
+  const TITLE_ON_PAGE = '[data-testid="jobsearch-JobInfoHeader-title"], [data-testid="simpler-jobTitle"], .jobsearch-JobInfoHeader-title';
+  const COMPANY_ON_PAGE = '[data-testid="inlineHeader-companyName"], [data-company-name="true"], [data-testid*="companyName" i], [class*="company-name" i], [class*="companyName" i]';
+  const LOCATION_ON_PAGE = '[data-testid="inlineHeader-companyLocation"], [data-testid="job-location"]';
+
+  function companyOnPage() {
+    const el = document.querySelector(COMPANY_ON_PAGE);
+    return el ? textOf(el.querySelector('a') || el).slice(0, 120) : '';
+  }
 
   function readJob() {
     const job = { url: location.href, title: '', company: '', location: '', description: '' };
@@ -57,13 +73,17 @@
       } catch (e) { /* not JSON */ }
     }
     const atsCompany = companyFromUrl();
-    if (!job.company) job.company = atsCompany || norm((document.querySelector('meta[property="og:site_name"]') || {}).content);
+    if (!job.company) {
+      const site = norm((document.querySelector('meta[property="og:site_name"]') || {}).content);
+      job.company = atsCompany || companyOnPage() || (JOB_BOARD.test(site) ? '' : site);     // "Indeed" is the board, not the employer
+    }
     if (!job.title) {
       // a heading like "Work Summary" / "Import your profile" on an application step is not the job title
-      const cands = [textOf(document.querySelector('h1')), norm((document.querySelector('meta[property="og:title"]') || {}).content),
-        norm(document.title).split(/\s[|–-]\s/)[0]];
+      const cands = [textOf(document.querySelector(TITLE_ON_PAGE)), textOf(document.querySelector('h1')),
+        norm((document.querySelector('meta[property="og:title"]') || {}).content), norm(document.title).split(/\s[|–-]\s/)[0]].map(cleanTitle);
       job.title = cands.find((t) => t && t.length > 2 && !SECTION_HEADING.test(t)) || '';
     }
+    if (!job.location) job.location = textOf(document.querySelector(LOCATION_ON_PAGE)).slice(0, 120);
     if (!job.location) {
       const l = document.querySelector('[class*="location" i], [data-qa*="location" i], [data-automation-id*="location" i]');
       if (l) job.location = textOf(l).replace(/^(job )?location\s*:?\s*/i, '').slice(0, 120);
@@ -74,7 +94,7 @@
       const main = document.querySelector('main, [role="main"], #content, .content, article, #app_body') || document.body;
       job.description = (main.innerText || '').trim();
     }
-    job.title = job.title.slice(0, 200);
+    job.title = cleanTitle(job.title).slice(0, 200);
     job.description = job.description.slice(0, 20000);
     return job;
   }
@@ -523,6 +543,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 5, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+  window.JH = { version: 6, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
     _keyFor: keyFor, _labelOf: labelOf, _resumeInput: resumeInput };
 })();

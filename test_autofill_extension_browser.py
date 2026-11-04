@@ -186,6 +186,9 @@ check(tp.get("changed") and tailor_calls[-1] == ["align", "skill:Power BI"] and 
       and base64.b64decode(tp["base64"])[:2] == b"PK" and tp["changes"][0]["after"].endswith("Power BI dashboards"),
       f"tailor: only the ticked changes, a Word file back: {dict((k, v) for k, v in tp.items() if k != 'base64')}")
 check(len(_rv.list_for(K)) == 1, "the tailored resume is saved as a version")
+import autofill  # noqa: E402
+check(autofill.clean_job({"title": "AI GENERALIST - Delhi - Indeed.com"})["title"] == "AI GENERALIST", "a job board's page title is cleaned")
+check(autofill.clean_job({"title": "C# Developer - ASP.NET"})["title"] == "C# Developer - ASP.NET", "a real title keeps its parts")
 check(anon.post("/api/ext/tailor", json={"candidate_id": K, "job": JOB}).status_code == 401, "tailor needs the connection key")
 
 sv = anon.post("/api/ext/save-job", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
@@ -445,6 +448,84 @@ try:
         check(panel.inner_text("#job-title") != "Work Summary", "a step heading never becomes the job title")
         check(not job_page.evaluate("!!window.submitted"), "Submit never clicked on the last step")
         check(not panel.is_hidden("#applied-card") and "Yes, I applied" in panel.inner_text("#applied-card"), "'Did you apply?' shown on the last step")
+
+        # -- Indeed: the page title holds the city and site; the apply steps are on another site with another link
+        INDEED = """<html><head><title>AI GENERALIST - Delhi - Indeed.com</title><meta property="og:title" content="AI GENERALIST - Delhi - Indeed.com">
+          <meta property="og:site_name" content="Indeed"></head><body>
+          <h2 data-testid="jobsearch-JobInfoHeader-title">AI GENERALIST<span> - job post</span></h2>
+          <div data-testid="inlineHeader-companyName"><a href="#">Kviss Apparels Pvt Ltd.</a></div><div data-testid="inlineHeader-companyLocation">Delhi</div>
+          <main>""" + "Labelled fixture Indeed posting with Python, SQL and Power BI work for reporting teams. " * 6 + """</main></body></html>"""
+        ONLY_META = """<html><head><title>Data Lead - Pune - Indeed.com</title><meta property="og:title" content="Data Lead - Pune - Indeed.com"></head><body><main>""" + \
+            "Labelled fixture Indeed posting. " * 20 + "</main></body></html>"
+        RESUME_STEP = """<html><head><title>Add a resume | Indeed</title></head><body><h1>Add a resume for the employer</h1>
+          <label for="cv3">Resume</label><input id="cv3" type="file"></body></html>"""
+        REVIEW_STEP = """<html><head><title>Review your application</title></head><body><h1>Please review your application</h1></body></html>"""
+        fulfil = lambda b: lambda r: r.fulfill(status=200, content_type="text/html", body=b)  # noqa: E731
+        ctx.route(re.compile(r"https://in\.indeed\.com/viewjob\?jk=fixture1"), fulfil(INDEED))
+        ctx.route(re.compile(r"https://in\.indeed\.com/viewjob\?jk=fixture2"), fulfil(ONLY_META))
+        ctx.route("https://smartapply.indeed.com/beta/indeedapply/form/resume", fulfil(RESUME_STEP))
+        ctx.route("https://smartapply.indeed.com/beta/indeedapply/form/review", fulfil(REVIEW_STEP))
+        job_page.goto("https://in.indeed.com/viewjob?jk=fixture2")
+        job_page.bring_to_front()
+        panel.bring_to_front()
+        wait_text(panel, '#job-title', 'Data Lead')
+        check(panel.inner_text("#job-title") == "Data Lead", f"the page title alone: city and site removed: {panel.inner_text('#job-title')!r}")
+        check(panel.inner_text("#job-company") == "", f"'Indeed' is never the company: {panel.inner_text('#job-company')!r}")
+        job_page.goto("https://in.indeed.com/viewjob?jk=fixture1")
+        job_page.bring_to_front()
+        panel.bring_to_front()
+        wait_text(panel, '#job-company', 'Kviss')
+        check(panel.inner_text("#job-title") == "AI GENERALIST", f"Indeed title: {panel.inner_text('#job-title')!r}")
+        check("Delhi" in panel.inner_text("#job-chips") and "in.indeed.com" in panel.inner_text("#job-chips"), f"location: {panel.inner_text('#job-chips')!r}")
+        check("original resume" in panel.inner_text("#attach-note"), f"says the original will attach: {panel.inner_text('#attach-note')!r}")
+        panel.click("#btn-match")
+        wait_text(panel, '#match-box', '70%')
+        panel.click("#btn-tailor")
+        wait_text(panel, '#tailor-box', 'Rewords the summary')
+        panel.click("#btn-tl-apply")
+        wait_text(panel, '#tailor-box', 'change made')
+        indeed_file = panel.inner_text("#resume-name").replace(" (tailored for this job)", "")
+        check("Indeed" not in indeed_file and "Delhi" not in indeed_file, f"clean file name: {indeed_file!r}")
+        check(indeed_file in panel.inner_text("#attach-note") and "tailored" in panel.inner_text("#attach-note"), f"says the tailored one will attach: {panel.inner_text('#attach-note')!r}")
+        # the panel fits: a long file name and consultant name never make it scroll sideways
+        panel.set_viewport_size({"width": 340, "height": 900})
+        panel.evaluate("() => { const n = document.getElementById('resume-name'); n.dataset.was = n.textContent; n.textContent = 'Praveen_Valipireddy_AI_GENERALIST_Delhi_Indeed_com_and_more_words.docx (tailored for this job)'; }")
+        over = panel.evaluate("() => [...document.querySelectorAll('#view-main *')].filter(e => e.offsetParent && e.getBoundingClientRect().right > document.documentElement.clientWidth + 1).map(e => e.id || e.tagName)")
+        check(not over and panel.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"), f"nothing wider than the panel: {over}")
+        shots["indeed"] = os.path.join(tmp_dir, "panel_indeed.png")
+        panel.screenshot(path=shots["indeed"], full_page=True)
+        panel.evaluate("() => { const n = document.getElementById('resume-name'); n.textContent = n.dataset.was; }")
+        # same tab, Indeed's own apply steps
+        for step_url, label in (("https://smartapply.indeed.com/beta/indeedapply/form/resume", "resume step"), ("https://smartapply.indeed.com/beta/indeedapply/form/review", "review step")):
+            job_page.goto(step_url)
+            job_page.bring_to_front()
+            panel.bring_to_front()
+            panel.wait_for_timeout(1500)
+            check(panel.inner_text("#job-title") == "AI GENERALIST" and indeed_file in panel.inner_text("#resume-name"), f"{label} keeps the job and tailored resume: {panel.inner_text('#job-title')!r} {panel.inner_text('#resume-name')!r}")
+        job_page.goto("https://smartapply.indeed.com/beta/indeedapply/form/resume")
+        job_page.bring_to_front()
+        panel.bring_to_front()
+        panel.wait_for_timeout(1200)
+        panel.click("#btn-autofill")
+        panel.wait_for_selector("#applied-card:not([hidden])", timeout=20000)
+        check(job_page.eval_on_selector("#cv3", "e => e.files.length && e.files[0].name") == indeed_file, "the tailored resume attached on Indeed's step")
+        panel.click("#btn-applied")
+        wait_text(panel, '#applied-card', 'Marked as Applied')
+        # back on the posting, in the same tab: all still there, and the warning shows
+        job_page.goto("https://in.indeed.com/viewjob?jk=fixture1")
+        job_page.bring_to_front()
+        panel.bring_to_front()
+        wait_text(panel, '#job-status', 'already on this job')
+        check(indeed_file in panel.inner_text("#job-status") and indeed_file in panel.inner_text("#resume-name"), f"back on the posting: {panel.inner_text('#job-status')!r} {panel.inner_text('#resume-name')!r}")
+        # the same job opened in a new tab by another link
+        again = ctx.new_page()
+        ctx.route(re.compile(r"https://in\.indeed\.com/viewjob\?from=alert&jk=fixture1"), fulfil(INDEED))
+        again.goto("https://in.indeed.com/viewjob?from=alert&jk=fixture1")
+        again.bring_to_front()
+        panel.bring_to_front()
+        panel.wait_for_timeout(1500)
+        check(indeed_file in panel.inner_text("#resume-name"), f"a new tab, another link: the tailored resume is still there: {panel.inner_text('#resume-name')!r}")
+        again.close()
         ctx.close()
 
         conn = models.get_db_connection()

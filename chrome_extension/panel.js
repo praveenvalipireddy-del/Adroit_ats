@@ -146,6 +146,7 @@ const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); 
 const normTitle = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const GENERIC_TITLE = /\b(apply|application|careers?|jobs?|sign in|log ?in|create account|welcome|home|workday|icims|greenhouse|lever|taleo|smartrecruiters)\b/i;
 const isThin = (read) => !!read.isApplyStep || (read.description || '').length < 300;
+const APPLY_SITE = /^smartapply\./;       // a job board's own application steps (Indeed): always the job that opened them
 
 function remember(fields) {
   const rec = st.jobs[st.jobKey];
@@ -164,9 +165,10 @@ async function saveJobs() {
 // Is the page still the job we knew, further along (the form), or a new one?
 function continuesJob(known, read, openedByIt) {
   const a = normTitle(known.title), b = normTitle(read.title);
-  const sameHost = hostOf(known.url) === hostOf(read.url);
-  if (a && a === b && (!sameHost || known.company === read.company)) return true;
+  const sameHost = [hostOf(known.url), hostOf(known.formUrl)].includes(hostOf(read.url));
+  if (a && a === b && (!sameHost || !known.company || !read.company || known.company === read.company)) return true;
   if (sameHost || openedByIt) return isThin(read);
+  if (APPLY_SITE.test(hostOf(read.url))) return true;
   // the same tab, on another site: only an application form that doesn't name another job
   return (!!read.isApplyStep || (isThin(read) && read.fields >= 2)) && (!b || GENERIC_TITLE.test(read.title) || a.includes(b) || b.includes(a));
 }
@@ -178,7 +180,8 @@ function placeJob(tab, read) {
   const base = forced || (st.jobs[own] ? own : opener);
   const known = st.jobs[base];
   if (known && hostOf(known.job.url) !== hostOf(st.server) && (forced || continuesJob(known.job, read, !!opener))) {
-    known.job = isThin(read) ? { ...known.job, url: read.url, fields: read.fields, isApplyStep: read.isApplyStep }
+    // the job keeps its posting's link: an apply step's link changes, and Applied / "already on this job" go by the posting
+    known.job = isThin(read) ? { ...known.job, formUrl: read.url, fields: read.fields, isApplyStep: read.isApplyStep }
       : { ...read, company: read.company || known.job.company,
           description: (read.description || '').length >= (known.job.description || '').length ? read.description : known.job.description };
     known.used = Date.now();
@@ -187,7 +190,10 @@ function placeJob(tab, read) {
   }
   const seen = Object.keys(st.jobs).find((k) => {
     const j = st.jobs[k].job;
-    return j.url === read.url || (read.title && read.company && j.title === read.title && j.company === read.company);
+    if (j.url === read.url || j.formUrl === read.url) return true;
+    if (!read.title || j.title !== read.title) return false;
+    // the same job opened again by another link; without a company to compare, the same title on the same site
+    return read.company && j.company ? j.company === read.company : hostOf(j.url) === hostOf(read.url);
   });
   if (seen) {
     st.jobs[seen].used = Date.now();
@@ -202,9 +208,17 @@ function placeJob(tab, read) {
 }
 
 function showResumeName() {
-  if (st.tailored) { $('resume-name').textContent = `${st.tailored.filename} (tailored for this job)`; return; }
-  if (st.profile) $('resume-name').textContent = st.profile.profile.resume_filename || 'No resume on file - upload one in Job Hunt';
+  const original = st.profile && st.profile.profile.resume_filename;
+  if (st.tailored) $('resume-name').textContent = `${st.tailored.filename} (tailored for this job)`;
+  else if (st.profile) $('resume-name').textContent = original || 'No resume on file - upload one in Job Hunt';
+  // said beside Autofill, so nobody sends the original believing the tailored resume is attached
+  const note = $('attach-note');
+  note.className = 'attach-note' + (st.tailored && $('chk-resume').checked ? ' ok' : '');
+  note.textContent = !$('chk-resume').checked ? 'No resume will be attached.'
+    : st.tailored ? `Will attach the tailored resume: ${st.tailored.filename}`
+    : original ? `Will attach the original resume: ${original}` : 'No resume on file to attach.';
 }
+$('chk-resume').addEventListener('change', showResumeName);
 
 // this job's match, suggested changes and tailored resume, back on screen
 function showJobState() {
@@ -545,7 +559,7 @@ async function autofill(opened) {
       res.filled.push(...r.filled); res.questions.push(...r.questions); res.needsYou.push(...r.needsYou);
       res.resumeAttached = res.resumeAttached || r.resumeAttached; res.fieldsSeen += r.fieldsSeen;
     }
-    if (!res.fieldsSeen) {
+    if (!res.fieldsSeen && !res.resumeAttached) {
       // a job page with no form yet: click the site's Apply button once, wait for the form, fill it
       if (!opened) {
         const clicked = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.JH.clickApply() });

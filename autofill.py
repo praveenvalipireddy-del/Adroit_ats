@@ -146,13 +146,23 @@ def profile(cand: Dict, resume_filename: str = "") -> Dict:
 
 # ---- the job read from the page
 
+_BOARD_SUFFIX = re.compile(r"^(indeed|linkedin|glassdoor|naukri|foundit|monster|dice|ziprecruiter|simplyhired|shine|timesjobs)\b|[a-z0-9-]+\.(com|co\.in|in|co|org|io)$", re.I)
+
+
+def clean_title(title: str) -> str:
+    """"AI GENERALIST - Delhi - Indeed.com" is a job board's page title: the job is AI GENERALIST (it names the resume file)."""
+    text = re.sub(r"\s*-\s*job post$", "", re.sub(r"\s+", " ", str(title or "")).strip(), flags=re.I)
+    parts = re.split(r"\s+[|–—-]\s+", text)
+    return parts[0] if len(parts) > 1 and _BOARD_SUFFIX.search(parts[-1]) else text
+
+
 def clean_job(job: Dict) -> Dict:
     job = job if isinstance(job, dict) else {}
     url = str(job.get("url") or "").strip()[:1000]
     if url and not re.match(r"^https?://", url):
         url = ""
     return {
-        "title": re.sub(r"\s+", " ", str(job.get("title") or "")).strip()[:200],
+        "title": clean_title(job.get("title"))[:200],
         "company": re.sub(r"\s+", " ", str(job.get("company") or "")).strip()[:200],
         "location": re.sub(r"\s+", " ", str(job.get("location") or "")).strip()[:200],
         "url": url,

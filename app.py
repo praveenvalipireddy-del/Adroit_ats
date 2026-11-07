@@ -760,6 +760,47 @@ def _attach_skill_match(jobs, candidate_id):
         logger.error(f"Skills match failed: {e}")
 
 
+def _attach_applications(jobs, candidate_id):
+    """Marks the jobs this consultant is already on (applied, drafted, saved...), found the way the extension finds
+    them: the same job, the same link, else the same title + company (one posting seen on two portals). Never fails a search."""
+    cid = _int_or_none(candidate_id)
+    if not cid or not can_access_candidate(current_user(), cid):
+        return
+    try:
+        conn = models.get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT a.job_id, a.stage, a.apply_method, a.applied_date, a.drafted_at, a.updated_at, j.url, j.title, j.company "
+                        "FROM applications a JOIN jobs j ON j.id = a.job_id WHERE a.candidate_id = ?", (cid,))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        by_id, by_url, by_name = {}, {}, {}
+        for r in rows:
+            stage = r["stage"] or "Saved"
+            when = r["applied_date"] if stage not in ("Saved", "Drafted") else None
+            date = str(when or r["drafted_at"] or r["updated_at"] or "")[:10]
+            info = {"stage": stage, "label": application_tracker.STATUS_LABELS.get(stage, stage),
+                    "method": application_tracker.METHODS.get(r["apply_method"] or "", ""), "date": date}
+            by_id[r["job_id"]] = info
+            if r["url"]:
+                by_url[r["url"]] = info
+            name = ((r["title"] or "").strip().lower(), (r["company"] or "").strip().lower())
+            if name[0] and name[1]:
+                by_name[name] = info
+        if not by_id:
+            return
+        for j in jobs:
+            if not isinstance(j, dict):
+                continue
+            info = by_id.get(j.get("id")) or (by_url.get(j["url"]) if j.get("url") else None) \
+                or by_name.get(((j.get("title") or "").strip().lower(), (j.get("company") or "").strip().lower()))
+            if info:
+                j["application"] = info
+    except Exception as e:
+        logger.error(f"Applications on jobs failed: {e}")
+
+
 @app.route("/api/jobs/search", methods=["POST", "OPTIONS"])
 def api_jobs_search():
     if request.method == "OPTIONS":
@@ -866,6 +907,7 @@ def api_jobs_search():
 
     _tag_known_vendors(results, current_user())
     _attach_skill_match(results, data.get("candidate_id"))
+    _attach_applications(results, data.get("candidate_id"))
     # Company-site jobs carry the whole posting in full_description: the list sends the summary only
     # (the Resume Optimizer asks /api/jobs/<id>/full-description, which returns the stored text).
     for r in results:

@@ -88,7 +88,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.16" in page.content(), "cache-buster not bumped to 5.99.16")
+        check("app.js?v=5.99.17" in page.content(), "cache-buster not bumped to 5.99.17")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.wait_for_selector("#edu-panel", state="visible")

@@ -7266,7 +7266,10 @@ async function consPaneJobs(c, body) {
         f.exp = document.getElementById('cons-jf-exp').value;
     };
     const go = () => { read(); consPaneJobs(c, body); };
-    document.getElementById('cons-jf-go').addEventListener('click', go);
+    document.getElementById('cons-jf-go').addEventListener('click', () => {      // Search asks again: picks up applications made since (extension, job page)
+        Object.keys(consUi.jobs).filter(k => k.startsWith(`${c.id}|`)).forEach(k => delete consUi.jobs[k]);
+        go();
+    });
     ['cons-jf-query', 'cons-jf-loc'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') go(); }));
     ['cons-jf-posted', 'cons-jf-type', 'cons-jf-source', 'cons-jf-work', 'cons-jf-exp'].forEach(id => document.getElementById(id).addEventListener('change', go));
     document.getElementById('cons-jobs-live').addEventListener('click', () => { read(); consFindLiveJobs(c, f, country, body); });
@@ -7311,9 +7314,13 @@ function jobCardHtml(j, m) {
     const salary = j.salary && !/^Rate on Discussion/i.test(j.salary) ? j.salary : '';
     const type = j.type_label || j.job_type;
     const ago = j.scraped_at ? jobAgo(j.scraped_at) : '';
+    const a = j.application;
+    const done = jobAlreadyOn(j);
+    const when = a && a.date ? new Date(a.date + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
     return `
-        <div class="cons-job" data-id="${j.id}">
+        <div class="cons-job${done ? ' is-applied' : ''}" data-id="${j.id}">
             <div class="cons-job-main">
+                ${a ? `<div class="cons-job-status${done ? '' : ' saved'}" title="Already in this consultant's Applications">${done ? '✓' : '🔖'} ${escapeHtml(a.stage === 'Applied' && a.method ? a.method : a.label)}${when ? ' · ' + escapeHtml(when) : ''}</div>` : ''}
                 <button type="button" class="cons-job-title cons-job-open">${escapeHtml(j.title || 'Untitled requirement')}</button>
                 <div class="cons-job-meta">${[j.company, j.location, j.source].filter(Boolean).map(escapeHtml).join(' · ')}${ago ? ` · ${company ? 'posted' : 'found'} ${escapeHtml(ago)}` : ''}</div>
                 <div class="cons-tags">
@@ -7338,12 +7345,31 @@ function jobCardHtml(j, m) {
         </div>`;
 }
 
+// Already worked on (draft created, applied, interview...). A job only saved for later is not.
+function jobAlreadyOn(j) {
+    return !!(j.application && j.application.stage !== 'Saved');
+}
+
+function jobHideApplied() {
+    try { return localStorage.getItem('jh-hide-applied') === '1'; } catch (e) { return false; }
+}
+
 function renderJobResults(box, jobs, c, backTab) {
     const LIMIT = 200;
-    const scored = jobs.map(j => ({ j, m: c ? (j.skill_match || null) : null }));
-    if (c) scored.sort((a, b) => jobMatchRank(b.m) - jobMatchRank(a.m) || (b.m ? b.m.hit.length : 0) - (a.m ? a.m.hit.length : 0));      // best skills match first
-    box.innerHTML = scored.slice(0, LIMIT).map(({ j, m }) => jobCardHtml(j, m)).join('')
-        + (jobs.length > LIMIT ? `<div class="cons-empty small">Showing the first ${LIMIT} of ${jobs.length}. Narrow the search to see the rest.</div>` : '');
+    const appliedCount = c ? jobs.filter(jobAlreadyOn).length : 0;
+    const hide = appliedCount > 0 && jobHideApplied();
+    const scored = jobs.filter(j => !(hide && jobAlreadyOn(j))).map(j => ({ j, m: c ? (j.skill_match || null) : null }));
+    // jobs not yet applied first (best skills match first); the ones already applied go to the bottom
+    if (c) scored.sort((a, b) => jobAlreadyOn(a.j) - jobAlreadyOn(b.j) || jobMatchRank(b.m) - jobMatchRank(a.m) || (b.m ? b.m.hit.length : 0) - (a.m ? a.m.hit.length : 0));
+    const bar = appliedCount ? `<div class="cons-applied-bar"><span>✓ Already applied to <b>${appliedCount}</b> of these${hide ? ' - hidden' : ' - shown at the bottom'}</span>
+        <button type="button" class="link-btn cons-applied-toggle">${hide ? 'Show them' : 'Hide them'}</button></div>` : '';
+    box.innerHTML = bar + scored.slice(0, LIMIT).map(({ j, m }) => jobCardHtml(j, m)).join('')
+        + (!scored.length ? '<div class="cons-empty">Every job here is already applied to. Press <b>Show them</b>, or widen the search.</div>' : '')
+        + (scored.length > LIMIT ? `<div class="cons-empty small">Showing the first ${LIMIT} of ${scored.length}. Narrow the search to see the rest.</div>` : '');
+    box.querySelector('.cons-applied-toggle')?.addEventListener('click', () => {
+        try { localStorage.setItem('jh-hide-applied', hide ? '0' : '1'); } catch (e) { /* stays as is */ }
+        renderJobResults(box, jobs, c, backTab);
+    });
     const jobOf = el => jobs.find(x => x.id === parseInt(el.closest('.cons-job').dataset.id));
     const each = (cls, fn) => box.querySelectorAll(cls).forEach(btn => btn.addEventListener('click', () => {
         if (!c) { showToast('Pick a consultant first.', 'warning'); return; }
@@ -7362,6 +7388,7 @@ function renderJobResults(box, jobs, c, backTab) {
         if (!res.ok) { showToast(d.error || 'Could not save.', 'error'); return; }
         btn.textContent = '✓ Saved';
         btn.disabled = true;
+        if (!j.application) j.application = { stage: 'Saved', label: 'Saved', method: '', date: '' };
     });
 }
 
@@ -8175,6 +8202,7 @@ function jpOverview(pane) {
         const res = await fetch(`/api/jobs/${j.id}/apply-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, candidate_id: jp.candId }) });
         if (!res.ok) { showToast('Could not mark it applied.', 'error'); return; }
         showToast('Marked as Applied in the consultant\'s Applications.', 'success');
+        if (typeof consUi !== 'undefined') consUi.jobs = {};       // Matched jobs shows it as applied when you go back
         jpLoad();
     });
 }

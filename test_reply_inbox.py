@@ -199,7 +199,7 @@ ai_draft["body"] = None
 # ---- save in the same Gmail thread
 n_before = len(appended)
 r = client.post(f"/api/replies/{iv['id']}/save-draft", json={"body": "Hi Priya,\n\nTuesday 2-5 PM IST works.\n\nArun", "attach_resume": True}).get_json()
-check(r.get("success") and r["attached"] == "Arun_Resume.docx", f"saved: {r}")
+check(r.get("success") and r["attached"] == "Arun_Replytest_Resume.docx", f"saved: {r}")
 folder, m = appended[-1] if len(appended) > n_before else (None, None)
 check(m is not None and folder == '"[Gmail]/Drafts"' and m["To"] == REC_ADDR and m["Subject"].startswith("Re: ") and m["In-Reply-To"] == "<m1@acme>"
       and "<m1@acme>" in m["References"] and draft_mid in m["References"], f"threaded draft headers: {m and dict(m.items())}")
@@ -217,7 +217,7 @@ resp = client.post(f"/api/replies/{iv['id']}/save-draft", json={"body": "Hi,\n\n
 _, m2 = appended[-1] if len(appended) > n_before else (None, None)
 check(resp.status_code == 200 and m2 is not None and m2["Subject"] == "Re: Application: IT Technology Professionals - Abhinov (8 yrs exp)"
       and "\n" not in m2["References"], f"draft saved for a reply stored with a folded subject: {resp.status_code} {resp.get_json()}")
-check(m is not None and any(p.get_filename() == "Arun_Resume.docx" for p in m.iter_attachments()), "resume attached")
+check(m is not None and any(p.get_filename() == "Arun_Replytest_Resume.docx" for p in m.iter_attachments()), "resume attached")
 check(client.get(f"/api/replies/{iv['id']}").get_json()["handled"] == 1, "saved -> handled")
 check(not sent, "nothing sent in draft mode")
 
@@ -230,7 +230,7 @@ REC_ADDR_SAVE = REC_ADDR
 mail(4, f"Priya <{REC_ADDR}>", "Re: SRE", "Thanks - please send your resume in Word format.", "<m4@acme>")
 mail(5, f"Priya <{REC_ADDR}>", "Re: SRE", "Another question: what is his notice period?", "<m5@acme>")
 client.post("/api/applications/check-replies", json={"candidate_id": cid})
-check(len(sent) == 1 and sent[0]["In-Reply-To"] == "<m4@acme>" and any(p.get_filename() == "Arun_Resume.docx" for p in sent[0].iter_attachments()),
+check(len(sent) == 1 and sent[0]["In-Reply-To"] == "<m4@acme>" and any(p.get_filename() == "Arun_Replytest_Resume.docx" for p in sent[0].iter_attachments()),
       f"resume request answered automatically with the resume: {len(sent)}")
 q = next(x for x in client.get(f"/api/replies?candidate_id={cid}").get_json()["replies"] if x["subject"] == "Re: SRE" and x["category"] == "question")
 check(not q["sent_at"] and q["has_draft"], "a question is prepared, never sent automatically")

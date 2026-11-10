@@ -418,6 +418,8 @@ def create_candidate_draft(candidate_id: int, job_id: int, custom_to_email: Opti
     if file_data:
         mime_type, _ = mimetypes.guess_type(file_name)
         maintype, _, subtype = (mime_type or "application/octet-stream").partition("/")
+        import resume_versions
+        file_name = resume_versions.send_name(cand.get("name") or "", file_name)     # the client sees <Name>_Resume.docx
         msg.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=file_name)
         resume_attached = True
     else:

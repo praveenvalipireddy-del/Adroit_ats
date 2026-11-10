@@ -12,6 +12,7 @@ chose to SAVE after reviewing / editing the optimizer's output. Nothing is saved
 """
 import base64
 import io
+import os
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -114,6 +115,15 @@ def make_filename(consultant_name: str, skill: str, taken: List[str]) -> str:
         n += 1
         candidate = f"{base}_v{n}.docx"
     return candidate
+
+
+def send_name(consultant_name: str, filename: str = "") -> str:
+    """The name a resume file goes OUT with (email attachment, download, job-site upload): <First>_<Last>_Resume.docx.
+    Inside Job Hunt a tailored version keeps its job in the name, so the recruiter can tell versions apart; a client
+    or employer only ever sees the plain name - never the job title, "_v2" or "Optimized"."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    ext = ext if ext in (".docx", ".pdf", ".doc") else ".docx"
+    return f"{_clean(consultant_name) or 'Consultant'}_Resume{ext}"
 
 
 def _norm_lines(text: str) -> List[str]:

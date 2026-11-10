@@ -220,7 +220,7 @@ try:
         page.screenshot(path=shot)
         with page.expect_download() as dl:
             page.click("#btn-do-download")
-        check(dl.value.suggested_filename == "Karun_Testcase_Power_BI.docx", f"download name: {dl.value.suggested_filename}")
+        check(dl.value.suggested_filename == "Karun_Testcase_Resume.docx", f"download name: {dl.value.suggested_filename}")
         # the email is shown IN the Optimize window (step 4) before anything is drafted
         page.wait_for_function("document.getElementById('do-email-body').value.length > 40", timeout=15000)
         _optimize_steps.to_email(page)
@@ -235,7 +235,9 @@ try:
         sent_body = captured[-1].get_body(preferencelist=("plain",)).get_content() if len(captured) > n_before else ""
         check("EDITED IN THE PANEL" in sent_body, "the draft gets exactly the email shown (with my edit)")
         att = [x.get_filename() for x in captured[-1].iter_attachments()] if captured else []
-        check(att == ["Karun_Testcase_Power_BI.docx"] and captured and captured[-1]["To"] == "rec@example.invalid",
+        sent_file = [x.get_content() for x in captured[-1].iter_attachments()] if captured else []
+        tailored = resume_versions.get(resume_versions.list_for(karun_id)[0]["id"])["data"]
+        check(att == ["Karun_Testcase_Resume.docx"] and sent_file == [tailored] and captured and captured[-1]["To"] == "rec@example.invalid",
               f"draft to the row's recruiter with the tailored resume: {att}")
         check(len(resume_versions.list_for(karun_id)) == 1, "Download + Create Draft reused ONE saved version")
 

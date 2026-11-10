@@ -84,7 +84,7 @@ try:
     if captured:
         msg = email.message_from_bytes(captured[-1])
         names = [part.get_filename() for part in msg.walk() if part.get_filename()]
-        check(names == [fname], f"attachment in the draft: {names}")
+        check(names == ["Praveen_Drafttest_Resume.docx"], f"attachment in the draft: {names}")
     check(models.get_resume_file(cid) is not None, "file found on disk should be copied into the database (survives deploys)")
 
     # no resume anywhere -> honest note, still a draft

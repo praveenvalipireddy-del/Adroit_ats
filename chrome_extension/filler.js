@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 6) return;
+  if (window.JH && window.JH.version === 7) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -377,14 +377,16 @@
     if (resume && resume.base64 && files.length) {
       const target = resumeInput(files);
       const has = target && target.files && target.files.length;
-      if (target && has && target.getAttribute('data-jh-file') === resume.filename) {
+      // original and tailored resumes now share one file name (<Name>_Resume.docx): told apart by their key
+      const key = resume.key || resume.filename;
+      if (target && has && target.getAttribute('data-jh-file') === key) {
         result.resumeAttached = true;                               // already this resume (Autofill ran twice)
       } else if (target && has && !target.getAttribute('data-jh-file')) {
         result.needsYou.push('a resume is already attached on the page - Job Hunt left it as it is');
       } else if (target) {
         // empty, or holding the other resume Job Hunt attached before (e.g. the original, before "Tailor resume")
         result.resumeAttached = attachResume(target, resume);
-        if (result.resumeAttached) target.setAttribute('data-jh-file', resume.filename);
+        if (result.resumeAttached) target.setAttribute('data-jh-file', key);
         const box = target.closest('.field, .form-group, [class*="upload" i], [class*="file" i]') || target.parentElement;
         mark(isShown(target) ? target : box, result.resumeAttached ? GREEN : RED, result.resumeAttached ? 'Resume attached by Job Hunt' : 'Attach the resume here');
       }
@@ -543,6 +545,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 6, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+  window.JH = { version: 7, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
     _keyFor: keyFor, _labelOf: labelOf, _resumeInput: resumeInput };
 })();

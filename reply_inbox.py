@@ -461,11 +461,14 @@ def list_replies(conn, candidate_ids: List[int], unhandled_only: bool = False) -
 def _resume_for(conn, cand: Dict, reply: Dict):
     import models
     import resume_versions
+    found = None
     if reply.get("resume_version_id"):
         v = resume_versions.get(reply["resume_version_id"])
         if v and v.get("data"):
-            return v["filename"], v["data"]
-    return models.find_resume_file(cand)
+            found = v["filename"], v["data"]
+    found = found or models.find_resume_file(cand)
+    # the recruiter sees <Name>_Resume.docx, never the internal version name
+    return (resume_versions.send_name(cand.get("name") or "", found[0]), found[1]) if found else None
 
 
 def process_reply(conn, reply_id: int) -> Dict:

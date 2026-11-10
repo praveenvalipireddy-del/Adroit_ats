@@ -2905,7 +2905,8 @@ def api_ext_resume(cid):
     name, data = found
     mime = ("application/pdf" if name.lower().endswith(".pdf") else
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if name.lower().endswith(".docx") else "application/octet-stream")
-    return jsonify({"filename": name, "mime": mime, "base64": base64.b64encode(data).decode("ascii")})
+    return jsonify({"filename": resume_versions.send_name(cand.get("name") or "", name), "mime": mime,
+                    "base64": base64.b64encode(data).decode("ascii")})
 
 
 def _ext_resume_inputs(cand):
@@ -2966,7 +2967,9 @@ def api_ext_tailor():
         fname = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cand["id"]))
         vid = resume_versions.save(cand["id"], None, fname, data_out, skill, "", jd[:300], user["id"])
         changes = [{"before": c.get("before") or "", "after": c.get("after") or ""} for c in (res.get("changes") or [])][:20]
-        return jsonify({"changed": True, "version_id": vid, "filename": fname, "changes": changes,
+        # the job site gets <Name>_Resume.docx; saved_as is the version's name inside Job Hunt
+        return jsonify({"changed": True, "version_id": vid, "filename": resume_versions.send_name(cand.get("name") or "", fname),
+                        "saved_as": fname, "changes": changes,
                         "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         "base64": base64.b64encode(data_out).decode("ascii"),
                         "original_text": _original_lines(docx_bytes, resume_text),     # the preview highlights what differs
@@ -3160,7 +3163,8 @@ def api_optimized_resume_download(version_id):
     v = resume_versions.get(version_id)
     if not v or not can_access_candidate(user, v["candidate_id"]):
         return jsonify({"error": "Not found"}), 404
-    return send_file(io.BytesIO(v["data"]), as_attachment=True, download_name=v["filename"],
+    cand = models.get_candidate_by_id(v["candidate_id"]) or {}
+    return send_file(io.BytesIO(v["data"]), as_attachment=True, download_name=resume_versions.send_name(cand.get("name") or "", v["filename"]),
                      mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
@@ -3250,7 +3254,7 @@ def api_resume_bot_download_docx():
         return jsonify({"error": "No resume text provided"}), 400
 
     docx_io = resume_bot.create_docx_resume(resume_text, candidate_name)
-    safe_filename = f"{re.sub(r'[^a-zA-Z0-9_-]', '_', candidate_name)}_Optimized_Resume.docx"
+    safe_filename = resume_versions.send_name(candidate_name)
 
     return send_file(
         docx_io,

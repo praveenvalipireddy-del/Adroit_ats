@@ -151,7 +151,7 @@ try:
         page.fill("#pd-title", "Java Full Stack Developer")
         page.click("#btn-submit-paste-draft")
         page.wait_for_function("document.getElementById('modal-paste-draft').style.display === 'none'", timeout=15000)
-        check([x.get_filename() for x in captured[-1].iter_attachments()] == ["Koushik_Versionui_Java_Full_Stack_Developer_Spring_Boot.docx"], "draft attached the saved version")
+        check([(x.get_filename(), x.get_content()) for x in captured[-1].iter_attachments()] == [("Koushik_Versionui_Resume.docx", rv.get(saved[0]["id"])["data"])], "draft attached the saved version, as <Name>_Resume.docx")
 
         # reopening the modal goes back to the original; "use original instead"
         page.click("#btn-open-paste-draft-modal")

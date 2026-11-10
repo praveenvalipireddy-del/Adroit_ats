@@ -409,7 +409,7 @@ async function tailorApply() {
     const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids } });
     const box = $('tailor-box');
     if (!d.changed) { box.innerHTML = `<p class="warn">${esc(d.reason)}</p><p class="hint">Autofill attaches the original resume.</p>`; return; }
-    st.tailored = { version_id: d.version_id, filename: d.filename, mime: d.mime, base64: d.base64, original: d.original_text || '', changes: d.changes };
+    st.tailored = { version_id: d.version_id, key: `v${d.version_id}`, filename: d.filename, mime: d.mime, base64: d.base64, original: d.original_text || '', changes: d.changes };
     remember({ tailored: st.tailored });
     showResumeName();
     renderTailorDone();
@@ -441,6 +441,7 @@ async function currentResume() {
   if (!st.cid || !st.profile || !st.profile.profile.resume_filename) return null;
   if (st.original && st.original.cid === st.cid) return st.original.file;
   const file = await api(`/api/ext/consultants/${st.cid}/resume`);
+  file.key = `original-${st.cid}`;
   st.original = { cid: st.cid, file };
   return file;
 }

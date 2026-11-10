@@ -75,7 +75,7 @@ msg = captured[-1]
 plain = msg.get_body(preferencelist=("plain",)).get_content()
 html = msg.get_body(preferencelist=("html",)).get_content().strip()
 check("Hi Hiring Team," in plain and "Best regards," in plain, "plain text version unchanged")
-check(any(p.get_filename() == "Koushik_Mailtest.docx" for p in msg.iter_attachments()), "resume still attached")
+check(any(p.get_filename() == "Koushik_Mailtest_b_Resume.docx" for p in msg.iter_attachments()), "resume still attached")
 check(html.startswith('<div dir="ltr"><div>Hi Hiring Team,</div><div><br></div>'), f"Gmail-style lines: {html[:80]!r}")
 for banned in ("<table", "max-width", "width=", "font-family", "font-size", "text-align:center", "align=\"center\"", "<style", "<!--[if"):
     check(banned not in html, f"no newsletter layout: found {banned!r}")

@@ -111,7 +111,7 @@ check(prof["missing"] == [], f"nothing important missing: {prof['missing']}")
 
 # ---- 4. resume, answers, match, save, applied
 res = anon.get(f"/api/ext/consultants/{K}/resume", headers=H).get_json()
-check(base64.b64decode(res["base64"]) == RESUME_BYTES and res["filename"] == "Karun_Fixturetest.docx", "resume bytes")
+check(base64.b64decode(res["base64"]) == RESUME_BYTES and res["filename"] == "Karun_Fixturetest_Resume.docx", "resume bytes, sent as <Name>_Resume.docx")
 
 calls = []
 
@@ -298,7 +298,7 @@ try:
         v = lambda sel: job_page.eval_on_selector(sel, "e => e.value")  # noqa: E731
         check(v("#fn") == "Karun" and v("#ln") == "Fixturetest" and v("#em") == "karun.fixture@example.invalid"
               and v("#li") == "https://www.linkedin.com/in/karun-fixturetest" and v("#au") == "Yes", "the real extension filled the form")
-        check(job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == "Karun_Fixturetest.docx", "resume attached by the extension")
+        check(job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == "Karun_Fixturetest_Resume.docx", "resume attached by the extension, as <Name>_Resume.docx")
         check(v("#why") == "I build SQL and Power BI reports (fixture).", "AI answer filled by the extension")
         check(not job_page.evaluate("!!window.submitted"), "the extension never submits")
         shots["panel"] = os.path.join(tmp_dir, "panel.png")
@@ -322,6 +322,7 @@ try:
         panel.click("#btn-tl-apply")
         wait_text(panel, '#tailor-box', 'change made')
         tailored_name = panel.inner_text("#resume-name").replace(" (tailored for this job)", "")
+        check(tailored_name == "Karun_Fixturetest_Resume.docx", f"the tailored file goes out as <Name>_Resume.docx, no job title: {tailored_name!r}")
         check("Power BI dashboards" in panel.inner_text("#tailor-box") and tailored_name.endswith(".docx") and "tailored" in panel.inner_text("#resume-name"),
               f"panel: what changed + the tailored resume is the one attached: {panel.inner_text('#resume-name')!r}")
         shots["tailor"] = os.path.join(tmp_dir, "panel_tailor.png")
@@ -351,21 +352,22 @@ try:
         panel.wait_for_timeout(1500)
         panel.click("#btn-autofill")
         for _ in range(100):
-            if job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == tailored_name:
+            if job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].size") not in (0, len(RESUME_BYTES)):
                 break
             panel.wait_for_timeout(200)
-        check(job_page.eval_on_selector("#cv", "e => e.files.length && e.files[0].name") == tailored_name, f"Autofill attached the tailored resume ({tailored_name})")
+        cv = job_page.eval_on_selector("#cv", "e => e.files.length ? [e.files[0].name, e.files[0].size] : null")
+        check(cv and cv[0] == tailored_name and cv[1] != len(RESUME_BYTES), f"Autofill swapped in the tailored resume (same name, other file): {cv}")
         panel.wait_for_selector("#applied-card:not([hidden])", timeout=20000)
         check("Yes, I applied" in panel.inner_text("#applied-card"), f"the card asks again, it doesn't still say Marked: {panel.inner_text('#applied-card')!r}")
         panel.click("#btn-applied")
         wait_text(panel, '#applied-card', 'Marked as Applied')
-        wait_text(panel, '#job-status', tailored_name)
+        wait_text(panel, '#job-status', 'Senior_Data_Analyst')       # inside Job Hunt the version keeps its job name
         conn = models.get_db_connection()
         cur = conn.cursor()
         cur.execute("""SELECT r.filename, r.job_id, a.job_id FROM applications a JOIN jobs j ON j.id = a.job_id
                        JOIN optimized_resumes r ON r.id = a.resume_version_id WHERE a.candidate_id = ? AND j.url = ?""", (K, JOB["url"]))
         row = cur.fetchone()
-        check(row is not None and row[0] == tailored_name and row[1] == row[2], f"Applied records the tailored resume: {row and tuple(row)}")
+        check(row is not None and row[0].startswith("Karun_Fixturetest_Senior_Data_Analyst") and row[1] == row[2], f"Applied records the tailored resume: {row and tuple(row)}")
         conn.close()
 
         # -- another tab, then back: the tailored resume and match are still with this job, with no new AI call
@@ -516,7 +518,7 @@ try:
         job_page.bring_to_front()
         panel.bring_to_front()
         wait_text(panel, '#job-status', 'already on this job')
-        check(indeed_file in panel.inner_text("#job-status") and indeed_file in panel.inner_text("#resume-name"), f"back on the posting: {panel.inner_text('#job-status')!r} {panel.inner_text('#resume-name')!r}")
+        check("AI_GENERALIST" in panel.inner_text("#job-status") and indeed_file in panel.inner_text("#resume-name"), f"back on the posting: {panel.inner_text('#job-status')!r} {panel.inner_text('#resume-name')!r}")
         # the same job opened in a new tab by another link
         again = ctx.new_page()
         ctx.route(re.compile(r"https://in\.indeed\.com/viewjob\?from=alert&jk=fixture1"), fulfil(INDEED))

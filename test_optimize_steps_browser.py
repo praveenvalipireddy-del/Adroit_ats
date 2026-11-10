@@ -205,7 +205,8 @@ try:
         check(len(captured) == before + 1, "a draft was created")
         if len(captured) > before:
             att = [a.get_filename() for a in captured[-1].iter_attachments()]
-            check(att == ["arun_steptest.docx"], f"the original resume is attached: {att}")
+            sent = [a.get_content() for a in captured[-1].iter_attachments()]
+            check(att == ["Arun_Steptest_Resume.docx"] and sent == [models.get_resume_file(cid)["data"]], f"the original resume is attached: {att}")
         check(resume_versions.list_for(cid) == [], "no tailored version saved for 'as is'")
         browser.close()
 finally:

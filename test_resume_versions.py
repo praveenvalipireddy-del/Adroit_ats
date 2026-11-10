@@ -142,22 +142,35 @@ check(save(docx_base64="bm90IGEgZG9jeA==").status_code == 400, "a non-docx paylo
 lst = client.get(f"/api/optimized-resumes?candidate_id={cid}").get_json()["versions"]
 check([x["filename"] for x in lst][:3] == [r3["filename"], r2["filename"], r["filename"]] and "data" not in lst[0], "listed newest first, no file bytes")
 dl = client.get(f"/api/optimized-resumes/{r2['id']}/download")
-check(dl.status_code == 200 and "Koushik_Versiontest_Java_Full_Stack_v2.docx" in dl.headers.get("Content-Disposition", ""), "download with its name")
+check(dl.status_code == 200 and "Koushik_Versiontest_Resume.docx" in dl.headers.get("Content-Disposition", "") and dl.data == rv.get(r2["id"])["data"],
+      "download goes out as <Name>_Resume.docx, never the job or _v2")
 login(other)
 check(client.get(f"/api/optimized-resumes/{r2['id']}/download").status_code == 404, "other recruiter can't download")
 check(client.get(f"/api/optimized-resumes?candidate_id={cid}").status_code == 404, "other recruiter can't list")
 login(rec)
 check(models.get_resume_file(cid)["data"] == ORIGINAL, "the original resume is never touched")
 
+for name, fname, want in [("Praveen Valipireddy", "Praveen_Valipireddy_Digital_Marketing_Executive_v2.docx", "Praveen_Valipireddy_Resume.docx"),
+                          ("Praveen Valipireddy", "Praveen_Valipireddy_AI_Web_Developer_Resume.docx", "Praveen_Valipireddy_Resume.docx"),
+                          ("Asha  K. Rao", "cv final (3).PDF", "Asha_K_Rao_Resume.pdf"), ("", "", "Consultant_Resume.docx")]:
+    check(rv.send_name(name, fname) == want, f"send_name({name!r}, {fname!r}) = {rv.send_name(name, fname)!r}")
+
+
+def attached():
+    """(file name, bytes) of each attachment in the last draft: which file it is, told by its bytes."""
+    return [(p.get_filename(), p.get_content()) for p in captured[-1].iter_attachments()]
+
+
 # ---- Paste & Draft attaches the chosen version
 r = client.post("/api/outreach/paste-and-draft", json={"candidate_id": cid, "raw_jd_text": "Java Full Stack developer needed",
                                                          "recruiter_email": "rec@example.invalid", "job_title": "Java Full Stack Developer",
                                                          "optimized_resume_id": r2["id"]}).get_json()
-att = [p.get_filename() for p in captured[-1].iter_attachments()]
-check(r.get("success") and att == ["Koushik_Versiontest_Java_Full_Stack_v2.docx"] and r.get("resume_filename") == att[0], f"paste draft attaches v2: {att}")
+att = attached()
+check(r.get("success") and att == [("Koushik_Versiontest_Resume.docx", rv.get(r2["id"])["data"])]
+      and r.get("resume_filename") == "Koushik_Versiontest_Resume.docx", f"paste draft attaches v2 (as <Name>_Resume.docx): {[a[0] for a in att]}")
 r = client.post("/api/outreach/paste-and-draft", json={"candidate_id": cid, "raw_jd_text": "x", "recruiter_email": "rec@example.invalid",
                                                          "job_title": "Java Developer"}).get_json()
-check([p.get_filename() for p in captured[-1].iter_attachments()] == ["Koushik_original.docx"], "no version chosen -> the original")
+check(attached() == [("Koushik_Versiontest_Resume.docx", ORIGINAL)], "no version chosen -> the original, as <Name>_Resume.docx")
 cid2 = models.create_candidate("Other Versiontest", "other-ver@example.invalid", assigned_user_id=rec["id"])
 check(client.post("/api/outreach/paste-and-draft", json={"candidate_id": cid2, "raw_jd_text": "x", "recruiter_email": "rec@example.invalid",
                                                            "job_title": "Java Developer", "optimized_resume_id": r2["id"]}).status_code == 400,
@@ -168,10 +181,10 @@ jid = models.save_or_update_scraped_job({"title": "Java Full Stack Developer", "
                                          "url": "https://www.dice.com/job-detail/vertest", "recruiter_email": "rec2@example.invalid", "description": "Java"})
 jid = jid["id"] if isinstance(jid, dict) else jid
 client.post("/api/outreach/create-draft", json={"candidate_id": cid, "job_id": jid})
-check([p.get_filename() for p in captured[-1].iter_attachments()] == ["Koushik_original.docx"], "no version for the job -> original")
+check(attached() == [("Koushik_Versiontest_Resume.docx", ORIGINAL)], "no version for the job -> original")
 rj = save(job_id=jid).get_json()
 client.post("/api/outreach/create-draft", json={"candidate_id": cid, "job_id": jid})
-check([p.get_filename() for p in captured[-1].iter_attachments()] == [rj["filename"]], f"job draft attaches the version saved for it: {rj['filename']}")
+check(attached() == [("Koushik_Versiontest_Resume.docx", rv.get(rj["id"])["data"])], f"job draft attaches the version saved for it: {rj['filename']}")
 
 if failures:
     print(f"FAIL: {len(failures)} check(s) failed:")

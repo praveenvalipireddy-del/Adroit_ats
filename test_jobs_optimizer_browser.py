@@ -177,7 +177,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.17" in page.content(), "cache-buster not bumped to 5.99.17")
+        check("app.js?v=5.99.18" in page.content(), "cache-buster not bumped to 5.99.18")
 
         # 1. Browse Jobs on Karun (not the first consultant)
         page.click("a.nav-item[data-tab=candidates]")
@@ -225,6 +225,7 @@ try:
         page.wait_for_function("document.getElementById('do-email-body').value.length > 40", timeout=15000)
         _optimize_steps.to_email(page)
         check(page.is_visible("#do-email-box") and page.input_value("#do-email-to") == "rec@example.invalid", f"email preview in the same window, To = row's recruiter: {page.input_value('#do-email-to')}")
+        check(page.is_visible("#btn-do-email-find"), "the tailor window's email step offers Find recruiter (Apollo)")
         page.locator("#do-email-box").scroll_into_view_if_needed()
         page.screenshot(path=os.path.join(tmp_dir, "email_preview.png"))
         print("EMAIL_PREVIEW_SHOT", os.path.join(tmp_dir, "email_preview.png"))

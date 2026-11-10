@@ -105,7 +105,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.17" in page.content(), "cache-buster not bumped to 5.99.17")
+        check("app.js?v=5.99.18" in page.content(), "cache-buster not bumped to 5.99.18")
         page.wait_for_function("typeof openOptimizePanel === 'function'", timeout=15000)
         # job A starts optimizing (slow)...
         page.evaluate(f"openOptimizePanel({{ mode: 'job', candId: {cid}, jobId: {ja}, title: 'A', jdText: {json.dumps(JD_A)} }})")

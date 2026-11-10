@@ -6186,9 +6186,12 @@ function emailBox(prefix, ctx) {
                 <div id="${prefix}-email-checklist" style="display:none; font-size:0.8rem; line-height:1.6; padding:8px 10px; border-radius:8px; background:#f8fafc; border:1px solid #e2e8f0; margin-bottom:8px;"></div>
                 <div id="${prefix}-email-thinking" style="display:none; font-size:0.8rem; line-height:1.6; padding:8px 10px; border-radius:8px; background:#eef2ff; border:1px solid #c7d2fe; color:#1e1b4b; margin-bottom:8px;"></div>
                 <div style="display:grid; grid-template-columns: 1fr 1.4fr; gap:8px; margin-bottom:8px;">
-                    <div><label style="font-size:0.75rem; font-weight:700; color:#475569;">To</label><input id="${prefix}-email-to" class="form-control" style="font-size:0.85rem;" placeholder="recruiter@company.com"></div>
+                    <div><div style="display:flex; justify-content:space-between; align-items:baseline; gap:6px;"><label style="font-size:0.75rem; font-weight:700; color:#475569;">To</label>
+                        <button type="button" class="link-btn em-find-btn" id="btn-${prefix}-email-find" style="display:none; font-size:0.78rem; padding:0;" title="The hiring team at this company (Apollo). Searching is free; each new email is 1 credit.">🔍 Find recruiter (Apollo)</button></div>
+                        <input id="${prefix}-email-to" class="form-control" style="font-size:0.85rem;" placeholder="recruiter@company.com"></div>
                     <div><label style="font-size:0.75rem; font-weight:700; color:#475569;">Subject</label><input id="${prefix}-email-subject" class="form-control" style="font-size:0.85rem; font-weight:600;"></div>
                 </div>
+                <div id="${prefix}-email-team" class="em-team" style="display:none;"></div>
                 <textarea id="${prefix}-email-body" rows="12" class="form-control" style="font-size:0.84rem; line-height:1.55;"></textarea>
                 <div id="${prefix}-email-chat" style="display:none; margin-top:8px; max-height:220px; overflow-y:auto; padding:8px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; font-size:0.8rem; flex-direction:column; gap:6px;"></div>
                 <div style="display:flex; gap:8px; margin-top:8px;">
@@ -6199,6 +6202,7 @@ function emailBox(prefix, ctx) {
                 <div style="font-size:0.75rem; color:#64748b; margin-top:6px;">The AI remembers this job's conversation and learns from your edits for this consultant<span${isAdmin() ? '' : ' style="display:none;"'}> - see <a href="#" id="${prefix}-email-rules" style="font-weight:700;">📌 Rules</a></span>.</div>
             </div>`;
         $(`btn-${prefix}-email-rewrite`).addEventListener('click', () => box.generate());
+        $(`btn-${prefix}-email-find`).addEventListener('click', () => box.findTeam());
         $(`btn-${prefix}-email-ai`).addEventListener('click', () => box.ask());
         $(`btn-${prefix}-email-review`).addEventListener('click', () => box.ask(CHAT_REVIEW));
         $(`${prefix}-email-rules`).addEventListener('click', (e) => { e.preventDefault(); openRules(ctx().candidate_id, 'email'); });
@@ -6214,7 +6218,87 @@ function emailBox(prefix, ctx) {
             $(`${prefix}-email-note`).textContent = prev ? '↶ Undone' : '';
         });
     };
-    box.reset = () => { box.seq++; box.undo = []; box.chatKey = null; const el = $(`${prefix}-email-box`); if (el) el.style.display = 'none'; if (box.rendered) { $(`${prefix}-email-body`).value = ''; } };
+    box.reset = () => { box.seq++; box.teamSeq = (box.teamSeq || 0) + 1; box.undo = []; box.chatKey = null; const el = $(`${prefix}-email-box`); if (el) el.style.display = 'none'; if (box.rendered) { $(`${prefix}-email-body`).value = ''; box.teamReady(); } };
+    // "Find recruiter (Apollo)" next to To: the hiring team at the job's company, the same search as Super Apply.
+    // Searching is free; saved people with a verified email fill To at no cost; a new email is 1 credit, asked first.
+    box.teamReady = () => {
+        if (!box.rendered) return;
+        const team = $(`${prefix}-email-team`);
+        team.style.display = 'none';
+        team.innerHTML = '';
+        $(`btn-${prefix}-email-find`).style.display = ctx().job_id ? '' : 'none';
+    };
+    const useEmail = (email, who) => {
+        $(`${prefix}-email-to`).value = email;
+        $(`${prefix}-email-note`).textContent = `To: ${who || email}`;
+        $(`${prefix}-email-team`).querySelectorAll('.em-person').forEach(r => r.classList.toggle('picked', r.dataset.email === email));
+    };
+    box.findTeam = async () => {
+        const jobId = ctx().job_id;
+        if (!jobId) return;
+        const team = $(`${prefix}-email-team`);
+        const seq = box.teamSeq = (box.teamSeq || 0) + 1;
+        team.style.display = '';
+        team.innerHTML = '<div class="em-team-status">Looking up recruiters and HR at this company (free)…</div>';
+        let d = {}, res = null;
+        try {
+            res = await fetch('/api/super-apply/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: jobId }) });
+            d = await res.json().catch(() => ({}));
+        } catch (e) { d = { error: 'Could not reach Job Hunt. Try again.' }; }
+        if (seq !== box.teamSeq) return;
+        const close = '<button type="button" class="link-btn em-team-close">Close</button>';
+        const company = d.company || '';
+        if (!res || !res.ok) {
+            const apollo = 'https://app.apollo.io/#/people?qKeywords=' + encodeURIComponent(company);
+            const linkedin = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(`recruiter ${company}`);
+            team.innerHTML = `<div class="em-team-status"><span class="sa-err">${escapeHtml(d.error || 'Apollo search failed.')}</span>${close}</div>`
+                + (d.plan_blocked ? `<div class="em-team-status"><span>Find a recruiter yourself: <a href="${apollo}" target="_blank" rel="noopener">Search in Apollo ↗</a>
+                    or <a href="${linkedin}" target="_blank" rel="noopener">Recruiters on LinkedIn ↗</a>, then paste their verified email in <b>To</b>.</span></div>` : '');
+        } else if (!(d.people || []).length) {
+            team.innerHTML = `<div class="em-team-status"><span>Apollo found no recruiters or HR at <b>${escapeHtml(company)}</b>. No credits used.</span>${close}</div>`;
+        } else {
+            team.innerHTML = `<div class="em-team-status"><span>${d.people.length} at <b>${escapeHtml(company)}</b> - recruiters first. Pick one for <b>To</b>.</span>${close}</div>`
+                + d.people.map(p => `
+                <div class="em-person" data-id="${escapeHtml(p.id)}" data-email="${escapeHtml(p.email || '')}">
+                    <div class="em-p-main"><b>${escapeHtml(p.name)}</b> <span>${escapeHtml(p.title || '')}${p.location ? ' · ' + escapeHtml(p.location) : ''}</span>
+                        ${p.linkedin_url ? `<a href="${escapeHtml(p.linkedin_url)}" target="_blank" rel="noopener">LinkedIn ↗</a>` : ''}</div>
+                    <div class="em-p-act">${p.saved && p.verified && p.email
+                        ? `<span class="em-mail">✓ ${escapeHtml(p.email)}</span><button type="button" class="btn btn-primary btn-sm em-use">Use</button>`
+                        : p.saved ? '<span class="sa-warn">No verified email (checked before)</span>'
+                        : p.has_email === false ? '<span class="cons-muted">no email in Apollo</span>'
+                        : '<button type="button" class="btn btn-secondary btn-sm em-reveal">Get email · 1 credit</button>'}</div>
+                </div>`).join('');
+            team.querySelectorAll('.em-use').forEach(b => b.addEventListener('click', () => {
+                const row = b.closest('.em-person');
+                useEmail(row.dataset.email, row.querySelector('b').textContent);
+            }));
+            team.querySelectorAll('.em-reveal').forEach(b => b.addEventListener('click', () => box.reveal(b, jobId)));
+        }
+        team.querySelector('.em-team-close')?.addEventListener('click', () => { team.style.display = 'none'; });
+    };
+    box.reveal = async (btn, jobId) => {
+        const row = btn.closest('.em-person');
+        const name = row.querySelector('b').textContent;
+        if (!confirm(`Get ${name}'s email from Apollo?\n\nThis uses 1 Apollo credit (none if Apollo can't match the person). Only a verified email is used.`)) return;
+        btn.disabled = true;
+        btn.textContent = 'Getting email…';
+        const act = row.querySelector('.em-p-act');
+        try {
+            const res = await fetch('/api/super-apply/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: jobId, person_id: row.dataset.id }) });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) { act.innerHTML = `<span class="sa-err">${escapeHtml(d.error || 'Apollo error')}</span>`; return; }
+            if (!d.verified) { act.innerHTML = `<span class="sa-warn">${escapeHtml(d.note || 'No verified email - nothing filled in.')}</span>`; return; }
+            if (d.name) row.querySelector('b').textContent = d.name;
+            row.dataset.email = d.email;
+            act.innerHTML = `<span class="em-mail">✓ ${escapeHtml(d.email)}</span><button type="button" class="btn btn-primary btn-sm em-use">Use</button>`;
+            act.querySelector('.em-use').addEventListener('click', () => useEmail(d.email, d.name || name));
+            useEmail(d.email, d.name || name);
+        } catch (e) {
+            btn.disabled = false;
+            btn.textContent = 'Get email · 1 credit';
+        }
+    };
     box.memKey = () => { const c = ctx(); return `em:${c.candidate_id}:${c.job_id || _hash(((c.job_title || '') + '|' + (c.jd_text || '').slice(0, 600)).trim())}`; };
     const chatLine = (m) => {
         const mine = m.role === 'user';
@@ -6244,6 +6328,7 @@ function emailBox(prefix, ctx) {
         $(`${prefix}-email-box`).style.display = '';
         if ($(`${prefix}-email-body`).value && $(`${prefix}-email-body`).value !== v.body) { box.undo.push({ subject: $(`${prefix}-email-subject`).value, body: $(`${prefix}-email-body`).value }); $(`btn-${prefix}-email-undo`).disabled = false; }
         $(`${prefix}-email-to`).value = v.to || '';
+        $(`btn-${prefix}-email-find`).style.display = ctx().job_id ? '' : 'none';
         $(`${prefix}-email-subject`).value = v.subject || '';
         $(`${prefix}-email-body`).value = v.body || '';
         $(`${prefix}-email-checklist`).innerHTML = v.checklist || '';
@@ -6266,12 +6351,14 @@ function emailBox(prefix, ctx) {
             $(`${prefix}-email-to`).value = d.to || '';
             $(`${prefix}-email-subject`).value = d.subject || '';
             $(`${prefix}-email-body`).value = d.body || '';
+            $(`btn-${prefix}-email-find`).style.display = ctx().job_id ? '' : 'none';
             const items = d.checklist || [];
             $(`${prefix}-email-checklist`).innerHTML = items.length ? '<b style="color:#334155;">What this job asks</b><br>' + items.map(i =>
                 `<span style="color:${i.ok ? '#059669' : '#b45309'};">${i.ok ? '✓' : '⚠'} ${escapeHtml(i.text)}</span>`).join('<br>') : '';
             $(`${prefix}-email-checklist`).style.display = items.length ? '' : 'none';
             $(`${prefix}-email-status`).innerHTML = 'Check and edit the email - the draft gets exactly this email and the resume shown as attached.'
-                + (d.fallback ? ' <span style="color:#b45309;">(Standard email used - the AI could not write one that only uses facts from the resume.)</span>' : '');
+                + (d.fallback ? ' <span style="color:#b45309;">(Standard email used - the AI could not write one that only uses facts from the resume.)</span>' : '')
+                + (!d.to && ctx().job_id ? ' <b style="color:#b45309;">No recruiter email yet - use 🔍 Find recruiter (Apollo) above To.</b>' : '');
             // what the AI thought about: the plan / check notes, and rules that repeat or contradict each other
             const notes = (d.notes || []).map(n => '• ' + escapeHtml(n));
             const clash = isAdmin() ? (d.rule_conflicts || []).map(n => '⚠ ' + escapeHtml(n) + ' - open 📌 Rules to clean them up') : [];

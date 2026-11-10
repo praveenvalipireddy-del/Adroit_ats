@@ -209,15 +209,29 @@ def list_for(candidate_id: int) -> List[Dict]:
         conn.close()
 
 
-def latest_for_job(candidate_id: int, job_id: int) -> Optional[Dict]:
+# A version is "for this job" when it was saved against the job itself, the same posting link, or the same title +
+# company - one job seen twice (the extension saved the LinkedIn / Indeed page, Job Hunt found it on another portal).
+_SAME_JOB = """SELECT r.id FROM optimized_resumes r JOIN jobs j ON j.id = r.job_id, jobs t
+               WHERE r.candidate_id = ? AND t.id = ?
+                 AND (r.job_id = t.id OR (j.url <> '' AND j.url = t.url)
+                      OR (LOWER(TRIM(j.title)) = LOWER(TRIM(t.title)) AND LOWER(TRIM(j.company)) = LOWER(TRIM(t.company))
+                          AND TRIM(j.company) <> '' AND j.company <> '(company not shown)'))"""
+
+
+def ids_for_job(candidate_id: int, job_id: int) -> List[int]:
+    """This consultant's versions tailored for this job (or the same job on another portal), newest first."""
     conn = models.get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM optimized_resumes WHERE candidate_id = ? AND job_id = ? ORDER BY id DESC LIMIT 1", (candidate_id, job_id))
-        r = cur.fetchone()
+        cur.execute(_SAME_JOB + " ORDER BY r.id DESC", (candidate_id, job_id))
+        return [r[0] for r in cur.fetchall()]
     finally:
         conn.close()
-    return get(r[0]) if r else None
+
+
+def latest_for_job(candidate_id: int, job_id: int) -> Optional[Dict]:
+    ids = ids_for_job(candidate_id, job_id)
+    return get(ids[0]) if ids else None
 
 
 def decode_docx(b64: str) -> Optional[bytes]:

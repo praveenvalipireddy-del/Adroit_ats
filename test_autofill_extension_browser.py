@@ -191,6 +191,28 @@ check(autofill.clean_job({"title": "AI GENERALIST - Delhi - Indeed.com"})["title
 check(autofill.clean_job({"title": "C# Developer - ASP.NET"})["title"] == "C# Developer - ASP.NET", "a real title keeps its parts")
 check(anon.post("/api/ext/tailor", json={"candidate_id": K, "job": JOB}).status_code == 401, "tailor needs the connection key")
 
+# ---- one tailored resume per job: the extension's version is found by Job Hunt (no second tailoring)
+_v = _rv.get(tp["version_id"])
+_cn = models.get_db_connection()
+_cu = _cn.cursor()
+_cu.execute("SELECT id FROM jobs WHERE url = ?", (JOB["url"],))
+EXT_JOB = _cu.fetchone()[0]
+_cn.close()
+check(_v["job_id"] == EXT_JOB, f"the extension saves its tailored resume against the job right away: {_v['job_id']} / {EXT_JOB}")
+SAME = models.save_or_update_scraped_job({"title": "senior data analyst (fixture) ", "company": "SAMPLE FIXTURE CO", "source": "Naukri",
+                                          "url": "https://www.naukri.com/job-listings-same-fixture-1", "country": "United States",
+                                          "description": "The same job found on another portal (fixture)."}, match_title_company=False)
+SAME = SAME["id"] if isinstance(SAME, dict) else SAME
+DIFF = models.save_or_update_scraped_job({"title": "Senior Data Analyst (Fixture)", "company": "Another Fixture Co", "source": "Dice",
+                                          "url": "https://www.dice.com/job-detail/other-fixture-1", "country": "United States", "description": "Other."})
+DIFF = DIFF["id"] if isinstance(DIFF, dict) else DIFF
+fj = client.get(f"/api/optimized-resumes/for-job?candidate_id={K}&job_id={SAME}").get_json()
+check(fj["version"] and fj["version"]["id"] == tp["version_id"], f"the same job on another portal: the tailor window opens the extension's version: {fj}")
+check(client.get(f"/api/optimized-resumes/for-job?candidate_id={K}&job_id={DIFF}").get_json()["version"] is None, "another company's job: not this version")
+pg_ = client.get(f"/api/jobs/{SAME}/page?candidate_id={K}").get_json()
+check([v["id"] for v in pg_["versions"] if v["for_job"]] == [tp["version_id"]], f"job page: tailored for this job: {pg_['versions']}")
+check(app_module._resume_version_for({"id": REC}, K, None, SAME)[2] == tp["version_id"], "email drafts for the job attach the extension's version")
+
 sv = anon.post("/api/ext/save-job", headers=H, json={"candidate_id": K, "job": JOB}).get_json()
 conn = models.get_db_connection()
 cur = conn.cursor()
@@ -547,7 +569,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.18" in page.content(), "cache-buster not bumped to 5.99.18")
+        check("app.js?v=5.99.19" in page.content(), "cache-buster not bumped to 5.99.19")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

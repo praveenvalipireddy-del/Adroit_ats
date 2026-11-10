@@ -8100,7 +8100,7 @@ async function jpLoad() {
         if (!res.ok) { showToast(d.error || 'Could not open the job.', 'error'); return; }
         jp.data = d;
         jp.job = { ...jp.job, ...d.job };
-        const forJob = (d.versions || []).find(v => v.job_id === jp.job.id);
+        const forJob = (d.versions || []).find(v => v.for_job || v.job_id === jp.job.id);
         if (!jp.resume) jp.resume = forJob ? String(forJob.id) : 'original';
     } catch (e) {
         if (seq === jp.seq) showToast('Could not reach Job Hunt.', 'error');
@@ -8111,7 +8111,7 @@ async function jpLoad() {
 function jpSteps() {
     const d = jp.data || {};
     const app = d.application || {};
-    const tailored = (d.versions || []).some(v => v.job_id === jp.job.id);
+    const tailored = (d.versions || []).some(v => v.for_job || v.job_id === jp.job.id);
     return {
         resume: !!(d.resume && d.resume.on_file),
         tailored,
@@ -8172,7 +8172,7 @@ function jpOverview(pane) {
     const steps = jpSteps();
     const done = [steps.resume, steps.tailored, steps.emailed, steps.applied].filter(Boolean).length;
     const company = (j.source || '').toLowerCase().startsWith('company site');
-    const forJob = (d.versions || []).filter(v => v.job_id === j.id);
+    const forJob = (d.versions || []).filter(v => v.for_job || v.job_id === j.id);
     const desc = (j.full_description || j.description || '').trim();
     const saved = (d.contacts || []);
     const step = (n, ok, title, sub, action) => `

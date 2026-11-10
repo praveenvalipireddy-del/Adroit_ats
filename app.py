@@ -2631,8 +2631,9 @@ def api_job_page(job_id):
             found = models.find_resume_file(cand) if cand else None
             out["resume"] = {"on_file": bool(found) or bool((cand or {}).get("resume_text")),
                              "filename": found[0] if found else ((cand or {}).get("resume_filename") or "")}
-            out["versions"] = [{"id": v["id"], "filename": v["filename"], "job_id": v["job_id"], "created_at": v["created_at"]}
-                               for v in resume_versions.list_for(cid)]
+            same_job = set(resume_versions.ids_for_job(cid, job_id))      # this job, or the same job on another portal
+            out["versions"] = [{"id": v["id"], "filename": v["filename"], "job_id": v["job_id"], "created_at": v["created_at"],
+                                "for_job": v["id"] in same_job} for v in resume_versions.list_for(cid)]
             cur.execute("SELECT id, stage, apply_method, drafted_at, applied_date FROM applications WHERE job_id = ? AND candidate_id = ?",
                         (job_id, cid))
             r = cur.fetchone()
@@ -2965,7 +2966,10 @@ def api_ext_tailor():
             data_out = buf.getvalue() if hasattr(buf, "getvalue") else bytes(buf)
         skill = resume_versions.primary_skill(res, cand, jd, job_title=job.get("title") or "")
         fname = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cand["id"]))
-        vid = resume_versions.save(cand["id"], None, fname, data_out, skill, "", jd[:300], user["id"])
+        # saved against the job right away (not only at "Yes, I applied"): the job page, Super Apply and email drafts
+        # then find this version instead of tailoring again
+        jid = _ext_save_job(cand, job) if job.get("title") and job.get("url") else None
+        vid = resume_versions.save(cand["id"], jid, fname, data_out, skill, "", jd[:300], user["id"])
         changes = [{"before": c.get("before") or "", "after": c.get("after") or ""} for c in (res.get("changes") or [])][:20]
         # the job site gets <Name>_Resume.docx; saved_as is the version's name inside Job Hunt
         return jsonify({"changed": True, "version_id": vid, "filename": resume_versions.send_name(cand.get("name") or "", fname),

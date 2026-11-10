@@ -68,7 +68,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.18" in page.content(), "cache-buster not bumped to 5.99.18")
+        check("app.js?v=5.99.19" in page.content(), "cache-buster not bumped to 5.99.19")
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_function("document.getElementById('jobs-side-consultant').options.length >= 2", timeout=15000)
         page.select_option("#jobs-side-consultant", "")

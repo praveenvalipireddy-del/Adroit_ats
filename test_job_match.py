@@ -58,6 +58,23 @@ check(m["asked"] == 3 and "Azure DevOps" in m["missing"] and "Azure" not in m["m
 m = jm.match(jm.consultant_profile({}), "SQL, Python and Airflow required.")
 check(m["no_profile"] and m["pct"] is None, f"no skills on file: {m}")
 
+# ---- non-IT jobs (marketing, HR, finance) are read too, not just technology
+MKT_JD = ("AI-Powered Digital Content & Social Media Marketing Specialist. Plan a monthly content calendar, content creation for "
+          "Instagram and LinkedIn, SEO, Google Analytics, Meta Ads. Tools: Canva, CapCut, ChatGPT, Midjourney, HeyGen. Claude a plus.")
+ai_eng = jm.consultant_profile({"primary_skills": "AI Automation, n8n, Python, Prompt Engineering",
+                                "resume_text": "AI Automation Engineer. n8n workflows, Claude and Gemini, ChatGPT prompts, ElevenLabs voice, "
+                                               "Instagram Reels automation, social media marketing posts generated with AI."})
+m = jm.match(ai_eng, MKT_JD)
+check(m["pct"] is not None and m["asked"] >= 9, f"a marketing job gets a percentage: {m}")
+check({"Social Media Marketing", "ChatGPT", "Claude"} <= set(m["hit"]), f"what the resume shows counts: {m['hit']}")
+check({"SEO", "Canva", "Content Calendar", "Google Analytics"} <= set(m["missing"]), f"the marketing skills it lacks are named: {m['missing']}")
+check(sum(1 for n in m["hit"] + m["missing"] if n.lower() in ("social media marketing", "social media management")) == 1, "one skill, two names")
+m = jm.match(jm.consultant_profile({"primary_skills": "Recruitment"}),
+             "Talent Acquisition specialist: Boolean search, onboarding of new hires, payroll basics, HRIS. GST and Tally for invoices.")
+check({"Talent Acquisition", "Boolean Search", "HRIS", "GST", "Tally"} <= set(m["missing"]) and m["pct"] is not None, f"HR + finance skills read: {m}")
+m = jm.match(ai_eng, "We excel at onboarding clients; our seo-friendly team tallies results and shares CRM-free updates with the payroll of joy.")
+check(not ({"Excel", "Onboarding", "Tally", "SEO", "Payroll"} & set(m["hit"] + m["missing"])), f"everyday words are not skills: {m}")
+
 # ---- speed: a consultant search over many stored postings must not slow the Jobs list
 prof = jm.consultant_profile({"primary_skills": "SQL, Power BI, Python", "resume_text": "Python Airflow Snowflake dbt " * 200})
 posting = ("We are looking for someone to build reliable reporting with Python and SQL across several business teams. " * 60)

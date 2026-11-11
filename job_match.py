@@ -17,13 +17,31 @@ MAX_SCORED = 500
 _VERSIONS = {"Java 21", "Java 17", "React 19", "GPT-4o"}
 _EXTRA = ["AI", "ML", "Machine Learning", "Artificial Intelligence", "Deep Learning", "Generative AI", "NLP", "ETL", "SAP", "Looker", "Scala",
           "C++", "Pandas", "NumPy", "Git", "Jira", "Informatica", "SSIS", "Alteryx", "DevOps", "SRE", "PowerShell", "Bash", "Postgres", "K8s"]
+# Skills of non-IT jobs (marketing, content, HR, sales, finance), so their match isn't blind. Named skills and tools
+# only - never everyday words ("communication", "sales", "team player") that every posting has.
+_MARKETING = ["Digital Marketing", "Social Media Marketing", "Social Media Management", "Content Marketing", "Content Creation",
+              "Content Strategy", "Content Writing", "Copywriting", "Content Calendar", "SEO", "Search Engine Optimization", "SEM",
+              "Google Ads", "Meta Ads", "Facebook Ads", "Google Analytics", "Email Marketing", "Performance Marketing",
+              "Influencer Marketing", "Affiliate Marketing", "Brand Strategy", "Market Research", "Marketing Automation",
+              "Canva", "Adobe Photoshop", "Photoshop", "Adobe Illustrator", "Premiere Pro", "After Effects", "Figma", "Video Editing",
+              "CapCut", "Mailchimp", "WordPress", "Shopify", "Hootsuite", "Midjourney", "ChatGPT", "HeyGen", "ElevenLabs", "Synthesia",
+              "AI Video", "Graphic Design"]
+_HR = ["Talent Acquisition", "End-to-End Recruitment", "Technical Recruiting", "Boolean Search", "Onboarding", "Payroll", "HRIS",
+       "Employee Engagement", "Performance Management", "Applicant Tracking System", "Bench Sales", "US IT Recruitment"]
+_SALES = ["Lead Generation", "Cold Calling", "Business Development", "Account Management", "B2B Sales", "CRM", "Zoho CRM", "Apollo.io"]
+_FINANCE = ["Tally", "GST", "Accounts Payable", "Accounts Receivable", "Financial Modeling", "Financial Analysis", "Bookkeeping",
+            "QuickBooks", "Advanced Excel", "MS Excel", "Excel", "Reconciliation"]
 # Ordinary words or company names unless written exactly like the technology ("react quickly", "Oracle Health" stays a known risk).
-_EXACT_CASE = {"AI", "ML", "React", "Spark", "Claude", "Gemini", "Oracle", "RAG", "MCP", "SAP", "Git", "Bash", "Scala", "Looker", "Flask", "Maven"}
+_EXACT_CASE = {"AI", "ML", "React", "Spark", "Claude", "Gemini", "Oracle", "RAG", "MCP", "SAP", "Git", "Bash", "Scala", "Looker", "Flask", "Maven",
+               "SEO", "SEM", "GST", "CRM", "HRIS", "Tally", "Canva", "Excel", "Shopify", "Onboarding", "Payroll"}
 # Different names for one skill.
 _SAME = {"amazon web services": "aws", "google cloud": "gcp", "machine learning": "ml", "artificial intelligence": "ai",
-         "postgres": "postgresql", "k8s": "kubernetes"}
+         "postgres": "postgresql", "k8s": "kubernetes",
+         "search engine optimization": "seo", "social media management": "social media marketing", "facebook ads": "meta ads",
+         "adobe photoshop": "photoshop", "advanced excel": "excel", "ms excel": "excel", "applicant tracking system": "ats",
+         "end-to-end recruitment": "talent acquisition"}
 
-_KNOWN = [t for t in dict.fromkeys(list(resume_bot.TECH_KEYWORDS) + _EXTRA) if t not in _VERSIONS]
+_KNOWN = [t for t in dict.fromkeys(list(resume_bot.TECH_KEYWORDS) + _EXTRA + _MARKETING + _HR + _SALES + _FINANCE) if t not in _VERSIONS]
 
 
 def _pattern(terms: Iterable[str], flags=0):

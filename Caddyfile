@@ -1,0 +1,5 @@
+# HTTPS in front of Job Hunt on the AWS server. Caddy gets and renews the certificate for the domain itself.
+{$DOMAIN:jobhunt.stepss.in} {
+	encode gzip
+	reverse_proxy app:5000
+}

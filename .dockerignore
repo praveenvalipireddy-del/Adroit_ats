@@ -1,0 +1,10 @@
+.git
+.env
+.env.hold
+*.db
+__pycache__
+*.pyc
+test_*.py
+java_spring_boot
+java_spring_boot.zip
+build_all_formats.py

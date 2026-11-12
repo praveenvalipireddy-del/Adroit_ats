@@ -1,0 +1,34 @@
+# Job Hunt on one AWS server: the app plus Caddy (HTTPS). Start/update with aws/deploy.sh.
+services:
+  app:
+    image: jobhunt-app                  # built by aws/deploy.sh
+    build: .
+    restart: always
+    env_file: ${ENV_FILE:-.env}           # the keys live only in .env on the server, never in git
+    environment:
+      ENV: ${APP_ENV:-production}
+      # Caddy sits in front: trust its "this came in over https" header, so Google sign-in returns to https://.
+      # Safe because the app's port is not open to the internet - only Caddy reaches it.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - ./data:/app/data                  # Gmail logins and resumes survive rebuilds
+    expose:
+      - "5000"
+
+  caddy:
+    image: caddy:2.8.4
+    restart: always
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-jobhunt.stepss.in}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                  # the HTTPS certificate
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

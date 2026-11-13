@@ -113,7 +113,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.19" in page.content(), "cache-buster not bumped to 5.99.19")
+        check("app.js?v=5.99.20" in page.content(), "cache-buster not bumped to 5.99.20")
         page.wait_for_function("state.consultants && state.consultants.length >= 2", timeout=15000)
 
         # Consultants -> Applications & Inbox (Visakh): a short list, details in the side panel

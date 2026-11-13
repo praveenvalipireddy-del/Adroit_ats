@@ -42,6 +42,7 @@ import gmail_multi_manager
 import us_job_scrapers
 import india_job_scrapers
 import sourcing_tracker
+import linkedin_outreach
 import vendors
 import job_experience
 from datetime import datetime, timedelta, timezone, date as date_cls
@@ -4295,6 +4296,67 @@ def api_sourcing_add_to_bench(profile_id):
                         f"{c['name']} added to the bench from Sourcing")
     return jsonify({**c, "candidate_id": cand_id})
 
+
+
+def _sourcing_mark_linkedin(user, profile_id):
+    mode = ((request.get_json(silent=True) or {}).get("mode") or "").strip()
+    conn = models.get_db_connection()
+    try:
+        return jsonify(sourcing_tracker.mark_linkedin(conn, profile_id, user, mode))
+    except sourcing_tracker.TrackerError as ex:
+        return jsonify({"error": str(ex)}), 400
+    except LookupError:
+        return jsonify({"error": "Candidate not found"}), 404
+    finally:
+        conn.close()
+
+
+@app.route("/api/sourcing/profiles/<int:profile_id>/linkedin-sent", methods=["POST", "OPTIONS"])
+def api_sourcing_linkedin_sent(profile_id):
+    """The recruiter sent this candidate a LinkedIn note / message (mode: note | message) - logged on the card."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    return _sourcing_mark_linkedin(user, profile_id)
+
+
+@app.route("/api/ext/sourcing/<int:profile_id>/linkedin-sent", methods=["POST"])
+def api_ext_sourcing_linkedin_sent(profile_id):
+    """The same, from the Chrome extension's LinkedIn helper ("I sent it - mark in Job Hunt")."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Connect the extension to Job Hunt again (key expired or password changed)."}), 401
+    return _sourcing_mark_linkedin(user, profile_id)
+
+
+@app.route("/api/sourcing/profiles/<int:profile_id>/linkedin-draft", methods=["POST", "OPTIONS"])
+def api_sourcing_linkedin_draft(profile_id):
+    """AI draft of the first LinkedIn message (a few tokens - a fraction of a cent). Body: role, mode, company."""
+    if request.method == "OPTIONS":
+        return make_response("", 200)
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    body = request.get_json(silent=True) or {}
+    mode = "message" if body.get("mode") == "message" else "note"
+    role = (body.get("role") or "").strip()[:150]
+    if not role:
+        return jsonify({"error": "Type the role you're hiring for first."}), 400
+    conn = models.get_db_connection()
+    try:
+        c = sourcing_tracker.card(conn, profile_id)
+    finally:
+        conn.close()
+    if not c:
+        return jsonify({"error": "Candidate not found"}), 404
+    try:
+        text = linkedin_outreach.ai_draft(c, role, mode, user.get("name") or "", (body.get("company") or "").strip()[:100])
+    except Exception as ex:   # AI down / no key: the recruiter still has the template
+        logger.warning("LinkedIn draft failed: %s", ex)
+        return jsonify({"error": "The AI couldn't write a draft right now - use your template or type the message."}), 502
+    return jsonify({"message": text, "limit": linkedin_outreach.limit_for(mode)})
 
 # ---------------------------------------------------------------- Vendors (private per recruiter)
 

@@ -113,7 +113,7 @@ try:
         page = browser.new_page(viewport={"width": 1500, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, ADMIN_EMAIL, ADMIN_PW)
-        check("app.js?v=5.99.19" in page.content(), "cache-buster not bumped to 5.99.19")
+        check("app.js?v=5.99.20" in page.content(), "cache-buster not bumped to 5.99.20")
         check(page.locator("#consultants-table-body .btn-trigger-reassign").count() >= 3, "admin sees ✎ Change on every consultant")
         page.click(ROW.format("Visakh Assigntest") + " .btn-trigger-reassign")
         page.wait_for_function("document.getElementById('modal-reassign-consultant').style.display !== 'none'", timeout=5000)

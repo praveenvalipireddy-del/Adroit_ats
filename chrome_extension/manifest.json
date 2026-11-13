@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Job Hunt Autofill",
-  "version": "1.4.2",
-  "description": "Fills job application forms with your consultant's details from Job Hunt. You check and submit.",
+  "version": "1.5.0",
+  "description": "Fills job application forms from Job Hunt, and types your LinkedIn messages to sourced candidates. You check and send.",
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": { "default_title": "Job Hunt Autofill", "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" } },
   "side_panel": { "default_path": "panel.html" },

@@ -152,7 +152,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.19" in page.content(), "cache-buster not bumped to 5.99.19")
+        check("app.js?v=5.99.20" in page.content(), "cache-buster not bumped to 5.99.20")
         page.locator(".cons-card:has-text('Kai Matchfixture')").first.click()
         page.wait_for_selector("#cons-jobs-list .cons-job", timeout=15000)
         cards = page.locator("#cons-jobs-list .cons-job")

@@ -4356,7 +4356,7 @@ function trkFollowUp(dateStr) {
 function trkActivityHtml(thread) {
     const me = window.CURRENT_USER || {};
     if (!thread.length) return '<div style="color:#64748b; font-size:12px;">No activity yet.</div>';
-    const iconFor = { status: '🔄', field: '✏️', owner: '👤', bench: '➕' };
+    const iconFor = { status: '🔄', field: '✏️', owner: '👤', bench: '➕', linkedin: '💬' };
     return thread.map(c => c.kind === 'comment'
         ? `<div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin:6px 0;">
                <div style="font-size:12px; color:#64748b; margin-bottom:3px;"><b style="color:#0f172a;">💬 ${escapeHtml(c.author)}</b> · ${escapeHtml(c.at)}
@@ -4382,6 +4382,7 @@ function trkSelect(id, options, value, placeholder) {
 function trkRenderCard(c, warnings) {
     const drawer = document.getElementById('trk-drawer');
     if (!drawer) return;
+    liCard = c;
     const me = window.CURRENT_USER || {};
     const f = c.fields || {};
     const o = c.options || {};
@@ -4412,6 +4413,7 @@ function trkRenderCard(c, warnings) {
           <div><label style="${lbl}">Owner</label><div style="font-size:13px; color:#0f172a; padding:6px 0;">${ownerCtl}</div></div>
         </div>
         ${ownerNote}
+        ${liReachOutHtml(c)}
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 12px; margin-top:6px;">
           <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-email">Email</label><input id="trk-email" class="trk-input" type="email" value="${escapeHtml(f.contact_email)}" placeholder="name@example.com"></div>
           <div style="grid-column:1 / -1;"><label style="${lbl}" for="trk-phone">Phone (with country code)</label><input id="trk-phone" class="trk-input" type="tel" value="${escapeHtml(trkPhoneDisplay(f.contact_phone))}" placeholder="+1 469 555 0100"></div>
@@ -4580,6 +4582,197 @@ async function trkDeleteResume() {
     showToast('Resume removed.', 'success');
 }
 
+// ---- Message a sourced candidate on LinkedIn ----
+// Job Hunt drafts the message; the extension (1.5+) opens the profile in the recruiter's own LinkedIn and types it
+// into LinkedIn's box. The recruiter clicks Send on LinkedIn - nothing is sent from here or by the extension.
+const LI_NOTE_LIMIT = 300;
+const LI_MESSAGE_LIMIT = 1200;
+const LI_DEFAULT_TEMPLATE = "Hi {first_name}, your background as {title} caught my eye. I'm hiring for a {role} role and think you could be a great fit. Open to a quick chat this week? - {my_name}";
+let liCard = null;
+let liWaiting = false;
+
+function liGet(key) { try { return localStorage.getItem(key) || ''; } catch (e) { return ''; } }
+function liSet(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* private window */ } }
+
+function liReachOutHtml(c) {
+    const s = c.linkedin_sent;
+    const quick = (act, label) => `<button type="button" class="trk-li-quick" data-act="${act}" style="height:32px; padding:0 10px; border:1px solid #cbd5e1; border-radius:8px; background:#ffffff; color:#334155; font-size:12px; font-weight:600; cursor:pointer;">${label}</button>`;
+    return `<div id="trk-li" style="margin-top:12px; padding:12px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
+        ${s ? `<div id="trk-li-sent" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; color:#065f46; margin-bottom:10px;">
+                 <span style="padding:3px 10px; border-radius:9999px; background:#ecfdf5; border:1px solid #a7f3d0; font-weight:700;">Messaged on LinkedIn</span>
+                 <span style="color:#475569;">${escapeHtml(s.at)} · ${escapeHtml(s.author)}</span></div>
+               <div style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:6px;">When they reply</div>
+               <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">${quick('Interested', 'Interested')}${quick('Not interested', 'Not interested')}${quick('No response', 'No response')}${quick('followup', 'Follow up in 3 days')}</div>` : ''}
+        <button type="button" id="trk-li-open" style="height:38px; padding:0 14px; border:none; border-radius:8px; background:#2563eb; color:#ffffff; font-weight:700; cursor:pointer;">💬 ${s ? 'Message again on LinkedIn' : 'Message on LinkedIn'}</button>
+        <div style="font-size:11px; color:#64748b; margin-top:6px;">Opens a draft. You send it from your own LinkedIn.</div>
+    </div>`;
+}
+
+function liFill(template, c) {
+    const role = document.getElementById('li-role')?.value.trim() || '[role]';
+    const me = (window.CURRENT_USER || {}).name || '';
+    const first = (c.name || '').trim().split(/\s+/)[0] || '';
+    return template.replace(/\{first_name\}/g, first).replace(/\{name\}/g, c.name || '')
+        .replace(/\{title\}/g, c.headline || 'a professional').replace(/\{company\}/g, c.company || '')
+        .replace(/\{role\}/g, role).replace(/\{my_name\}/g, me.split(/\s+/)[0] || me)
+        .replace(/\{my_company\}/g, document.getElementById('li-company')?.value.trim() || '');
+}
+
+function liMode() { return document.querySelector('input[name="li-mode"]:checked')?.value || 'note'; }
+function liLimit() { return liMode() === 'note' ? LI_NOTE_LIMIT : LI_MESSAGE_LIMIT; }
+
+function liCount() {
+    const box = document.getElementById('li-text');
+    const out = document.getElementById('li-count');
+    if (!box || !out) return;
+    const n = box.value.length, lim = liLimit();
+    out.textContent = `${n} / ${lim}`;
+    out.style.color = n > lim ? '#b91c1c' : '#047857';
+    document.getElementById('li-go').disabled = !box.value.trim() || n > lim;
+}
+
+function liClose() { document.getElementById('li-modal')?.remove(); }
+
+function liOpenDraft() {
+    const c = liCard;
+    if (!c) return;
+    const me = window.CURRENT_USER || {};
+    if (c.linkedin_sent && c.linkedin_sent.user_id !== me.id
+        && !confirm(`${c.linkedin_sent.author} already messaged ${c.name} on LinkedIn (${c.linkedin_sent.at}). Message them anyway?`)) return;
+    liClose();
+    const m = document.createElement('div');
+    m.id = 'li-modal';
+    m.setAttribute('style', 'position:fixed; inset:0; z-index:1300; background:rgba(15,23,42,0.6); display:flex; align-items:center; justify-content:center; padding:16px;');
+    const lbl = 'display:block; font-size:12px; font-weight:600; color:#334155; margin:0 0 4px;';
+    const inp = 'width:100%; height:38px; box-sizing:border-box; border:1px solid #cbd5e1; border-radius:8px; padding:0 10px; font-size:13px; color:#0f172a;';
+    const pill = 'display:flex; gap:6px; align-items:center; padding:8px 12px; border:1px solid #cbd5e1; border-radius:10px; font-size:13px; cursor:pointer; flex:1 1 220px;';
+    m.innerHTML = `<section role="dialog" aria-modal="true" aria-labelledby="li-title" style="width:min(640px, 100%); max-height:100%; overflow:auto; background:#ffffff; border-radius:14px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.15);">
+      <header style="display:flex; justify-content:space-between; align-items:flex-start; padding:18px 22px; border-bottom:1px solid #e2e8f0;">
+        <div><h3 id="li-title" style="margin:0; font-size:1.1rem; color:#0f172a;">Message on LinkedIn</h3>
+             <div style="font-size:13px; color:#64748b;">${escapeHtml([c.name, c.headline].filter(Boolean).join(' · '))}</div></div>
+        <button type="button" id="li-x" aria-label="Close" style="border:none; background:none; font-size:22px; color:#64748b; cursor:pointer; line-height:1;">×</button>
+      </header>
+      <div style="padding:16px 22px; display:flex; flex-direction:column; gap:12px;">
+        <div role="radiogroup" aria-label="How LinkedIn will send it" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <label style="${pill}"><input type="radio" name="li-mode" value="note" checked> <span><b>Connection note</b><br><span style="font-size:12px; color:#64748b;">Not connected · max 300 characters (200 on a free account)</span></span></label>
+          <label style="${pill}"><input type="radio" name="li-mode" value="message"> <span><b>Message / InMail</b><br><span style="font-size:12px; color:#64748b;">Already connected, or Premium</span></span></label>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <div style="flex:2 1 240px;"><label for="li-role" style="${lbl}">Role you're hiring for</label><input id="li-role" style="${inp}" maxlength="150" placeholder="e.g. Senior Java Developer, Hyderabad (hybrid)" value="${escapeHtml(liGet('jh-li-role'))}"></div>
+          <div style="flex:1 1 160px;"><label for="li-company" style="${lbl}">Your company (optional)</label><input id="li-company" style="${inp}" maxlength="100" value="${escapeHtml(liGet('jh-li-company'))}"></div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" id="li-ai" style="height:34px; padding:0 14px; border-radius:9999px; border:1px solid #2563eb; background:#eff6ff; color:#1d4ed8; font-weight:600; cursor:pointer;">✨ AI draft</button>
+          <button type="button" id="li-tpl" style="height:34px; padding:0 14px; border-radius:9999px; border:1px solid #cbd5e1; background:#ffffff; color:#475569; font-weight:600; cursor:pointer;">My template</button>
+          <button type="button" id="li-tpl-save" style="height:34px; padding:0 10px; border:none; background:none; color:#1d4ed8; font-size:12px; cursor:pointer;">Save this as my template</button>
+        </div>
+        <div><label for="li-text" style="${lbl}">Message (you can edit)</label>
+          <textarea id="li-text" rows="6" style="width:100%; box-sizing:border-box; border:1px solid #cbd5e1; border-radius:10px; padding:10px 12px; font-size:14px; line-height:1.55; font-family:inherit; color:#0f172a; resize:vertical;"></textarea>
+          <div style="display:flex; justify-content:space-between; gap:8px; font-size:12px; color:#64748b; margin-top:4px;">
+            <span>Template words: {first_name} {title} {company} {role} {my_name} {my_company}</span><span id="li-count" style="font-weight:700;"></span></div>
+        </div>
+        <div style="font-size:12px; color:#475569; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px 10px;">The Job Hunt extension (1.5 or newer) opens the profile and types this into LinkedIn's box. <b>You click Send on LinkedIn.</b> No extension? Use Copy text and paste it.</div>
+      </div>
+      <footer style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; padding:14px 22px; background:#f8fafc; border-top:1px solid #e2e8f0;">
+        <button type="button" id="li-sent" style="border:none; background:none; color:#1d4ed8; font-size:13px; cursor:pointer; padding:0;">I already sent it - mark it</button>
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="li-copy" style="height:40px; padding:0 16px; border:1px solid #cbd5e1; border-radius:10px; background:#ffffff; color:#334155; font-weight:600; cursor:pointer;">Copy text</button>
+          <button type="button" id="li-go" style="height:40px; padding:0 16px; border:none; border-radius:10px; background:#2563eb; color:#ffffff; font-weight:600; cursor:pointer;">Open in LinkedIn →</button>
+        </div>
+      </footer>
+    </section>`;
+    document.body.appendChild(m);
+    const box = document.getElementById('li-text');
+    box.value = liFill(liGet('jh-li-template') || LI_DEFAULT_TEMPLATE, c);
+    liCount();
+    m.addEventListener('input', (e) => {
+        if (e.target.id === 'li-text') liCount();
+        if (e.target.id === 'li-role') liSet('jh-li-role', e.target.value.trim());
+        if (e.target.id === 'li-company') liSet('jh-li-company', e.target.value.trim());
+    });
+    m.addEventListener('change', (e) => { if (e.target.name === 'li-mode') liCount(); });
+    m.addEventListener('click', (e) => {
+        const id = e.target.closest('button')?.id;
+        if (e.target === m || id === 'li-x') liClose();
+        else if (id === 'li-tpl') { box.value = liFill(liGet('jh-li-template') || LI_DEFAULT_TEMPLATE, c); liCount(); }
+        else if (id === 'li-tpl-save') liSaveTemplate();
+        else if (id === 'li-ai') liAiDraft(e.target.closest('button'));
+        else if (id === 'li-copy') navigator.clipboard?.writeText(box.value).then(() => showToast('Copied - paste it on LinkedIn.', 'success'));
+        else if (id === 'li-go') liGo();
+        else if (id === 'li-sent') liMarkSent();
+    });
+    document.getElementById('li-role').focus();
+}
+
+function liSaveTemplate() {
+    const c = liCard;
+    let t = document.getElementById('li-text').value;
+    // this candidate's details go back to template words, so the template fits the next person
+    const first = (c.name || '').trim().split(/\s+/)[0];
+    const role = document.getElementById('li-role').value.trim();
+    if (role) t = t.split(role).join('{role}');
+    if (c.headline) t = t.split(c.headline).join('{title}');
+    if (first) t = t.split(first).join('{first_name}');
+    liSet('jh-li-template', t);
+    showToast('Saved as your template (on this browser).', 'success');
+}
+
+async function liAiDraft(btn) {
+    const role = document.getElementById('li-role').value.trim();
+    if (!role) { showToast("Type the role you're hiring for first.", 'warning'); document.getElementById('li-role').focus(); return; }
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = 'Writing…';
+    try {
+        const data = await trkRequest(`/api/sourcing/profiles/${liCard.id}/linkedin-draft`,
+            { role, mode: liMode(), company: document.getElementById('li-company').value.trim() });
+        if (data && data.message) { document.getElementById('li-text').value = data.message; liCount(); }
+    } finally { btn.disabled = false; btn.textContent = label; }
+}
+
+function liGo() {
+    const c = liCard, text = document.getElementById('li-text').value.trim();
+    if (!c.linkedin_url) { showToast('This candidate has no LinkedIn address.', 'error'); return; }
+    const payload = encodeURIComponent(JSON.stringify({ p: c.id, k: liMode(), m: text, n: c.name || '' }));
+    window.open(c.linkedin_url.split('#')[0] + '#jh-li=' + payload, '_blank', 'noopener');
+    liWaiting = true;
+    liClose();
+    showToast('LinkedIn opened. Click Send there, then press "I sent it" in the Job Hunt box on LinkedIn.', 'info', 8000);
+}
+
+async function liMarkSent() {
+    const data = await trkRequest(`/api/sourcing/profiles/${liCard.id}/linkedin-sent`, { mode: liMode() });
+    if (!data) return;
+    liClose();
+    trkRenderCard(data, []);
+    showToast('Marked: messaged on LinkedIn.', 'success');
+    trkRefreshTable();
+}
+
+async function liQuick(act) {
+    if (act === 'followup') {
+        const d = new Date(Date.now() + 3 * 86400000);
+        const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const data = await trkRequest(`/api/sourcing/profiles/${trkCurrentId}/card`, { follow_up_date: ymd });
+        if (!data) return;
+        trkRenderCard(data, data.warnings || []);
+        showToast(`Follow-up set for ${ymd}.`, 'success');
+        trkRefreshTable();
+    } else {
+        trkSetStatus(trkCurrentId, act, null);
+    }
+}
+
+async function liRefreshOnReturn() {
+    // back from LinkedIn: show the "Messaged on LinkedIn" mark the extension saved
+    if (!liWaiting || !trkCurrentId) return;
+    liWaiting = false;
+    const res = await fetch(`/api/sourcing/profiles/${trkCurrentId}/card`);
+    if (!res.ok) return;
+    trkRenderCard(await res.json(), []);
+    trkRefreshTable();
+}
+
 function initSourcingTracker() {
     const tbody = document.getElementById('edu-results');
     const drawer = document.getElementById('trk-drawer');
@@ -4599,7 +4792,10 @@ function initSourcingTracker() {
         else if (e.target.closest('#trk-bench')) trkAddToBench();
         else if (e.target.closest('.trk-del')) trkDeleteComment(e.target.closest('.trk-del').getAttribute('data-cid'));
         else if (e.target.closest('#trk-resume-del')) trkDeleteResume();
+        else if (e.target.closest('#trk-li-open')) liOpenDraft();
+        else if (e.target.closest('.trk-li-quick')) liQuick(e.target.closest('.trk-li-quick').getAttribute('data-act'));
     });
+    window.addEventListener('focus', liRefreshOnReturn);
     drawer.addEventListener('change', (e) => {
         if (e.target.id === 'trk-resume') trkUploadResume(e.target);
         else if (e.target.id === 'trk-card-status') trkSetStatus(trkCurrentId, e.target.value, null);

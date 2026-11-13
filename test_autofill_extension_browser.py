@@ -247,7 +247,7 @@ tailor_calls.clear()
 # ---- 5. zip
 z = client.get("/extension/jobhunt-autofill.zip")
 names = zipfile.ZipFile(io.BytesIO(z.data)).namelist()
-check(z.status_code == 200 and {"jobhunt-autofill/manifest.json", "jobhunt-autofill/panel.js", "jobhunt-autofill/filler.js",
+check(z.status_code == 200 and {"jobhunt-autofill/manifest.json", "jobhunt-autofill/panel.js", "jobhunt-autofill/filler.js", "jobhunt-autofill/linkedin.js", "jobhunt-autofill/background.js",
                                 "jobhunt-autofill/config.js", "jobhunt-autofill/icons/icon128.png"} <= set(names), f"zip contents: {names}")
 check(b'"http://localhost"' in zipfile.ZipFile(io.BytesIO(z.data)).read("jobhunt-autofill/config.js"), "config.js points at this server")
 check(anon.get("/extension/jobhunt-autofill.zip").status_code == 302, "zip needs login")
@@ -569,7 +569,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.19" in page.content(), "cache-buster not bumped to 5.99.19")
+        check("app.js?v=5.99.20" in page.content(), "cache-buster not bumped to 5.99.20")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

@@ -11,7 +11,9 @@ One card per candidate (linkedin_profiles row), shared by the whole team:
   owns the candidate, so two recruiters don't call the same person. Others can still view, edit
   and comment; admins can reassign.
 - Activity: every status change, owner change, field change (who changed which fields) and comment,
-  newest first (table sourcing_comments, kinds: comment / status / field / owner / bench).
+  newest first (table sourcing_comments, kinds: comment / status / field / owner / bench / linkedin).
+- LinkedIn message: the recruiter sends it from their own LinkedIn (the extension only types it); marking it
+  sent logs kind 'linkedin', moves a New candidate to Contacted and claims the owner, so nobody messages twice.
 - Duplicate warnings: an email or phone that already belongs to another sourced candidate or to a
   bench consultant is reported when saving.
 - Add to Bench: creates the consultant from the card (owned by the recruiter) and links them.
@@ -162,6 +164,7 @@ def card(conn, profile_id: int) -> Optional[Dict]:
     rrow = cur.fetchone()
     resume = ({"filename": rrow["filename"], "uploaded_by": rrow["uploaded_by"] or "",
                "at": str(rrow["updated_at"] or "")[:16]} if rrow else None)
+    thread_rows = thread(cur, profile_id)
     return {
         "id": p["id"], "name": p["name"], "linkedin_url": p["linkedin_url"],
         "headline": p.get("current_title") or p.get("headline") or "", "company": p.get("current_company") or "",
@@ -169,7 +172,9 @@ def card(conn, profile_id: int) -> Optional[Dict]:
         "status": p.get("tracking_status") or "New",
         "owner_user_id": p.get("owner_user_id"), "owner_name": p.get("owner_name") or "",
         "bench_candidate_id": p.get("bench_candidate_id"),
-        "fields": fields, "thread": thread(cur, profile_id), "resume": resume,
+        "fields": fields, "thread": thread_rows, "resume": resume,
+        "linkedin_sent": next(({"at": t["at"], "author": t["author"], "user_id": t["user_id"], "text": t["text"]}
+                               for t in thread_rows if t["kind"] == "linkedin"), None),
         "options": {"statuses": STATUSES, "visa": VISA_OPTIONS, "relocate": RELOCATE_OPTIONS,
                     "availability": AVAILABILITY_OPTIONS, "work_mode": WORK_MODE_OPTIONS,
                     "marital": MARITAL_OPTIONS},
@@ -198,6 +203,26 @@ def set_status(conn, profile_id: int, user: Dict, status: str) -> Dict:
         if status != "New":
             _claim(cur, p, user)
         conn.commit()
+    return card(conn, profile_id)
+
+
+LINKEDIN_MODES = {"note": "Connection request + note sent on LinkedIn", "message": "Message sent on LinkedIn"}
+
+
+def mark_linkedin(conn, profile_id: int, user: Dict, mode: str) -> Dict:
+    """The recruiter sent a LinkedIn note / message to this candidate (from their own LinkedIn)."""
+    if mode not in LINKEDIN_MODES:
+        raise TrackerError("Unknown LinkedIn message type.")
+    cur = conn.cursor()
+    p = _profile(cur, profile_id)
+    if not p:
+        raise LookupError("Candidate not found")
+    _log(cur, profile_id, user["id"], "linkedin", LINKEDIN_MODES[mode])
+    if (p.get("tracking_status") or "New") == "New":
+        cur.execute("UPDATE linkedin_profiles SET tracking_status = ? WHERE id = ?", ("Contacted", profile_id))
+        _log(cur, profile_id, user["id"], "status", "Status: New → Contacted")
+    _claim(cur, p, user)
+    conn.commit()
     return card(conn, profile_id)
 
 

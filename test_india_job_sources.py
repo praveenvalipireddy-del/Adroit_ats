@@ -80,7 +80,7 @@ check(r["sources"] == {"Naukri": {"count": 0, "error": ij.LAST_ERROR["Naukri"], 
       f"reason reported: {r['sources']}")
 calls.clear()
 r = ij.run_multi_source_india_scrape(["Cloud DevOps Engineer"], save_to_db=False)
-check(calls == ["naukri", "foundit", "indeed", "linkedin"] and "Recruiter Post" not in r["sources"] and r["sources"]["LinkedIn"]["count"] == 1
+check(sorted(calls) == ["foundit", "indeed", "linkedin", "naukri"] and "Recruiter Post" not in r["sources"] and r["sources"]["LinkedIn"]["count"] == 1
       and r["sources"]["Foundit"] == {"count": 0, "error": "", "note": ""},
       f"'All' searches every portal: {calls} {r['sources']}")
 check("token on the server is not valid" in ij.explain_apify_error(401, "") and "too long" in ij.explain_apify_error(408, ""), "other reasons in words")
@@ -138,7 +138,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.20" in page.content(), "cache-buster not bumped to 5.99.20")
+        check("app.js?v=5.99.21" in page.content(), "cache-buster not bumped to 5.99.21")
         page.click("a.nav-item[data-tab=jobs]")
         page.fill("#filter-query", "Platform Engineer")
         calls.clear()

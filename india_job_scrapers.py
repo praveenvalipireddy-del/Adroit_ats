@@ -262,11 +262,23 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
     for name in wanted:                        # a portal that can't filter the wanted type isn't searched
         if job_types.portal_code(name, job_type) is None:
             status[name]["error"] = job_types.skip_reason(name, job_type)
-    for kw in keywords:
-        for name in wanted:
-            if job_types.portal_code(name, job_type) is None:
-                continue
-            found = scrapers[name](kw, location=location, limit=8, job_type=job_type)
+    # The portals are searched at the same time: one after another, four Apify runs of up to 150 s each went past
+    # the server's 240 s request limit, the request was cut off and nothing found was saved.
+    from concurrent.futures import ThreadPoolExecutor
+    tasks = [(kw, name) for kw in keywords for name in wanted if job_types.portal_code(name, job_type) is not None]
+
+    def _one(task):
+        kw, name = task
+        try:
+            return scrapers[name](kw, location=location, limit=8, job_type=job_type)
+        except Exception as ex:
+            LAST_ERROR[name] = f"the search failed ({ex.__class__.__name__})"
+            logger.error(f"India scrape {name} '{kw}' failed: {ex}")
+            return []
+
+    with ThreadPoolExecutor(max_workers=max(1, min(len(tasks), 5))) as pool:
+        results = list(pool.map(_one, tasks))
+    for (kw, name), found in zip(tasks, results):
             status[name]["count"] += len(found)
             status[name]["note"] = LAST_NOTE.get(name, "")
             if not found and LAST_ERROR.get(name):

@@ -7701,7 +7701,10 @@ async function consFindLiveJobs(c, f, country, body) {
                 no_scrape: false, type_filter: f.type, my_experience: f.exp === '' ? null : parseInt(f.exp), include_unstated: true }) });
         const d = await res.json().catch(() => ({}));
         const parts = Object.entries(d.scrape_sources || {}).map(([name, v]) => v.error ? `${name}: ${v.error}` : `${name}: ${v.count} found`);
-        showToast(res.ok ? `Portal search done${parts.length ? ' - ' + parts.join(' · ') : ''}.` : (d.error || 'The portal search failed.'), res.ok ? 'success' : 'error', 9000);
+        const failed = d.error || ([502, 503, 504].includes(res.status)
+            ? 'The portal search took too long and the server stopped it - pick one portal in Source and search again.'
+            : `The portal search failed (server answered ${res.status}).`);
+        showToast(res.ok ? `Portal search done${parts.length ? ' - ' + parts.join(' · ') : ''}.` : failed, res.ok ? 'success' : 'error', 9000);
     } catch (e) {
         showToast('The portal search didn\'t finish - try again.', 'error');
     } finally {

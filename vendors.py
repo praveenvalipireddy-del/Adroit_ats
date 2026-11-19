@@ -49,11 +49,13 @@ class VendorError(ValueError):
     pass
 
 
-REGIONS = ("USA", "India")
+REGIONS = ("USA", "India", "Canada")
 
 
 def norm_region(value: Optional[str], default: str = "USA") -> str:
     v = (value or "").strip().lower()
+    if v in ("canada", "ca"):
+        return "Canada"
     return "India" if v in ("india", "in") else ("USA" if v in ("usa", "us", "united states") else default)
 
 
@@ -67,6 +69,8 @@ def guess_region(phone: Optional[str], email: Optional[str]) -> str:
     A bare 10-digit number is NOT a signal: US area codes can start with 6-9 too (949...)."""
     p = (phone or "").strip()
     digits = re.sub(r"\D", "", p)
+    if email_domain(email).endswith(".ca"):          # +1 is shared with the US: only a .ca email says Canada
+        return "Canada"
     if p.startswith("+91") or p.startswith("0091") or (len(digits) == 12 and digits.startswith("91") and digits[2] in "6789"):
         return "India"
     if p.startswith("+1") or (len(digits) == 11 and digits.startswith("1")):

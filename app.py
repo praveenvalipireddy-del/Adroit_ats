@@ -41,6 +41,7 @@ import education_match
 import gmail_multi_manager
 import us_job_scrapers
 import india_job_scrapers
+import canada_job_scrapers
 import sourcing_tracker
 import linkedin_outreach
 import vendors
@@ -145,10 +146,10 @@ def _team_country_problem(user, country):
         team = regions.user_region(conn, user["id"])
     finally:
         conn.close()
-    if team == "Both":                    # works for both teams
-        return ""
     target = regions.candidate_region({"country": country})
-    mine = team
+    if target in regions.team_set(team):  # one of this recruiter's teams
+        return ""
+    mine = regions.team_label(team)
     if target != mine:
         return (f"This consultant's country ({country or 'not set'}) belongs to the {target} team, and you are on the {mine} team. "
                 f"Ask an admin to add or move this consultant.")
@@ -306,8 +307,8 @@ def dashboard():
         c_status = gmail_multi_manager.is_candidate_connected(c["id"])
         c["gmail_connected"] = c_status.get("connected", False)
 
-    recruiters = [r for r in models.get_users() if regions.normalize(r.get("region")) in view_regions or "Admin" in (r.get("role") or "")
-                  or regions.normalize_team(r.get("region")) == "Both"] if is_admin else []
+    recruiters = [r for r in models.get_users() if (regions.team_set(r.get("region")) & view_regions) or "Admin" in (r.get("role") or "")
+                  ] if is_admin else []
     conn = models.get_db_connection()
     try:
         my_team = regions.user_region(conn, user["id"])
@@ -325,6 +326,7 @@ def dashboard():
             selected_recruiter_id=selected_recruiter_id if is_admin else None,
             view_region=view_region,
             can_switch_team=can_switch_team,
+            switch_teams=[r for r in regions.REGIONS if "Admin" in (user.get("role") or "") or r in regions.team_set(my_team)],
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
@@ -703,8 +705,8 @@ def api_candidate_gmail_status(candidate_id):
 # --- US IT Job Searching & Live Scrapers ---
 
 def _job_region(job) -> str:
-    """A job's vendor list: India jobs -> India vendors, everything else -> USA vendors."""
-    return "India" if (job.get("country") or "").strip().lower() == "india" else "USA"
+    """A job's vendor list: India jobs -> India vendors, Canada jobs -> Canada vendors, everything else -> USA vendors."""
+    return regions.job_region(job.get("country"))
 
 
 def _cand_region(candidate_id) -> str:
@@ -828,6 +830,8 @@ def api_jobs_search():
         # "Bengaluru", not "Bengaluru, India".
         if location.lower() in ("india", "all india", "anywhere in india"):
             location = ""
+    if country.lower() == "canada" and location.lower() in ("canada", "all canada", "anywhere in canada"):
+        location = ""
     # Job type (Full-time / Contract / Part-time, '' = all) replaces the old "contract only" switch. A page
     # that doesn't send it yet keeps the old behaviour: US = Contract, India = all types.
     if "type_filter" in data:
@@ -861,7 +865,7 @@ def api_jobs_search():
     # (automatic searches - opening the tab, changing a filter - send no_scrape), and never right after the
     # page's own Live 24h Scrape. US portals are read for free, so they keep scraping on an empty result.
     us_picked = _us_sources_for(source)
-    paid = country.lower() == "india" or any(s in us_job_scrapers.US_SOURCES and s not in us_job_scrapers.US_FREE_SOURCES for s in us_picked or [])
+    paid = country.lower() == "india" or (country.lower() == "canada" and (source or "All").lower() != "linkedin") or any(s in us_job_scrapers.US_SOURCES and s not in us_job_scrapers.US_FREE_SOURCES for s in us_picked or [])
     no_scrape = (bool(data.get("no_scrape")) and paid) or company_sites     # company sites: read by the career-board sync, never a portal scrape
     if (len(results) == 0 and not no_scrape) or (live_scrape and not company_sites):
         scrape_query = query or (roles[0].split(" / ")[0] if roles else "") or "Software Engineer"
@@ -872,6 +876,12 @@ def api_jobs_search():
                     keywords=[scrape_query], location=location or "India", save_to_db=True, sources=picked or None,
                     job_type=type_filter
                 )
+                scrape_sources = scrape_res.get("sources")
+            elif country.lower() == "canada":
+                picked = [p for p in canada_job_scrapers.SOURCES if source and source != "All" and p.lower() == source.lower()]
+                scrape_res = canada_job_scrapers.run_multi_source_canada_scrape(
+                    keywords=[scrape_query], location=location or "Canada", save_to_db=True, sources=picked or None,
+                    job_type=type_filter)
                 scrape_sources = scrape_res.get("sources")
             else:
                 scrape_res = us_job_scrapers.run_multi_source_us_scrape(
@@ -932,7 +942,7 @@ def _capture_vendor(user, job, email="", cand=None, vendor_company="", client=""
     if not user or not job:
         return None
     try:
-        region = regions.candidate_region(cand) if cand else ("India" if (job.get("country") or "").lower() == "india" else "USA")
+        region = regions.candidate_region(cand) if cand else regions.job_region(job.get("country"))
         conn = models.get_db_connection()
         try:
             return vendors.capture_from_job(conn, user["id"], region, job, email=email, vendor_company=vendor_company, client=client)
@@ -1035,6 +1045,26 @@ def api_trigger_india_scrape():
         "saved_to_db": scrape_res.get("saved_to_db", 0),
         "message": f"Successfully scraped {scrape_res.get('count', 0)} fresh India jobs."
     })
+
+
+@app.route("/api/jobs/scrape-canada", methods=["POST"])
+def api_trigger_canada_scrape():
+    """Live Canada jobs: LinkedIn (free), Indeed Canada and LinkedIn recruiter posts (Apify credit) -
+    the picked portal only; "All" = LinkedIn + Indeed Canada."""
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json or {}
+    source = str(data.get("source") or "All")
+    picked = [p for p in canada_job_scrapers.SOURCES if source != "All" and p.lower() == source.lower()]
+    scrape_res = canada_job_scrapers.run_multi_source_canada_scrape(
+        keywords=data.get("keywords"), location=data.get("location") or "Canada", save_to_db=True,
+        sources=picked or None, job_type=job_types.canonical(data.get("type_filter")))
+    models.log_activity(user["id"], user["name"], "Scraped Canada Jobs", "Scraper", 0,
+                        f"Scraped {scrape_res.get('count', 0)} Canada roles ({', '.join(scrape_res.get('sources') or {})})")
+    return jsonify({"success": True, "sources": scrape_res.get("sources"), "count": scrape_res.get("count", 0),
+                    "saved_to_db": scrape_res.get("saved_to_db", 0),
+                    "message": f"Successfully scraped {scrape_res.get('count', 0)} fresh Canada jobs."})
 
 # --- In-Table Quick Email & Contact Update API ---
 
@@ -2502,7 +2532,7 @@ def api_job_role_counts():
     data = request.get_json(silent=True) or {}
     country = _job_country_for(user, (data.get("country") or "United States").strip())
     location = (data.get("location") or "").strip()
-    if country.lower() == "india" and location.lower() in ("india", "all india", "anywhere in india"):
+    if location.lower() in ("india", "all india", "anywhere in india", "canada", "all canada", "anywhere in canada"):
         location = ""
     source = data.get("source") or "All"
     max_age = _int_or_none(data.get("posted_within_hours"))
@@ -3721,7 +3751,7 @@ def api_admin_recruiter_region(recruiter_id):
         return jsonify({"error": "Admin permission required."}), 403
     region = regions.normalize_team((request.get_json(silent=True) or {}).get("region"))
     if not region:
-        return jsonify({"error": "Team must be USA, India or Both."}), 400
+        return jsonify({"error": "Pick at least one team: USA, India or Canada."}), 400
     conn = models.get_db_connection()
     try:
         cur = conn.cursor()
@@ -3729,13 +3759,13 @@ def api_admin_recruiter_region(recruiter_id):
         conn.commit()
     finally:
         conn.close()
-    models.log_activity(user["id"], user["name"], "Recruiter Region", "User", recruiter_id, f"Moved to the {region} team")
+    models.log_activity(user["id"], user["name"], "Recruiter Region", "User", recruiter_id, f"Teams: {regions.team_label(region)}")
     return jsonify({"success": True, "region": region})
 
 
 @app.route("/api/view-region", methods=["POST"])
 def api_view_region():
-    """Admins and 'Both' recruiters: which team to look at - USA, India or Both."""
+    """Admins and multi-team recruiters: which team to look at - one of theirs, or all of them ('')."""
     user = current_user()
     if not user:
         return jsonify({"error": "Login required"}), 401
@@ -3747,6 +3777,8 @@ def api_view_region():
     if not regions.can_switch(user, team):
         return jsonify({"error": "Your account works for one team only."}), 403
     region = regions.normalize((request.get_json(silent=True) or {}).get("region"))
+    if region and region not in regions.view_regions(user, team, None):
+        return jsonify({"error": f"You are not on the {region} team."}), 403
     if region:
         session["view_region"] = region
     else:
@@ -3831,7 +3863,8 @@ def _assign_problem(cand, target_user) -> str:
     finally:
         conn.close()
     cand_team = regions.candidate_region(cand)
-    if team != "Both" and team != cand_team:
+    if cand_team not in regions.team_set(team):
+        team = regions.team_label(team)
         return (f"{target_user['name']} is on the {team} team and {cand['name']} is a {cand_team} consultant, so "
                 f"{target_user['name']} wouldn't see them. Change {target_user['name']}'s team in Admin & Settings first.")
     return ""

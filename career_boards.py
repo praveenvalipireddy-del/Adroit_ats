@@ -217,17 +217,26 @@ _US_WORDS = re.compile(r"\b(united states|u\.s\.a?\.?|usa|us-remote|remote[\s,-]
 _IN_WORDS = re.compile(r"\b(india|bengaluru|bangalore|hyderabad|pune|mumbai|gurgaon|gurugram|noida|chennai|delhi|new delhi|kolkata|"
                        r"ahmedabad|kochi|coimbatore|jaipur|chandigarh|indore|trivandrum|thiruvananthapuram|mysore|vadodara|nagpur|"
                        r"bhubaneswar|visakhapatnam|telangana|karnataka|maharashtra|tamil nadu|haryana|uttar pradesh|kerala)\b", re.I)
+_CA_WORDS = re.compile(r"\b(canada|toronto|vancouver|montreal|montréal|ottawa|calgary|edmonton|mississauga|brampton|markham|"
+                       r"waterloo|kitchener|winnipeg|halifax|quebec city|victoria, bc|burnaby|surrey, bc|oakville|london, on|"
+                       r"ontario|british columbia|alberta|quebec|québec|manitoba|nova scotia|saskatchewan|new brunswick)\b", re.I)
+_CA_PROV_ABBR = re.compile(r",\s*(ON|BC|QC|AB|MB|NS|NB|NL|PE|SK)\b")
 _US_STATE_ABBR = re.compile(r",\s*(" + "|".join(_US_STATES) + r")\b")
 
 
 def country_of(location: str, code: str = "") -> Optional[str]:
-    """'United States' / 'India' / None (another country, or nothing says where)."""
+    """'United States' / 'India' / 'Canada' / None (another country, or nothing says where)."""
     c = (code or "").strip().upper()
     if c in ("US", "USA"):
         return "United States"
     if c in ("IN", "IND"):
         return "India"
+    if c in ("CA", "CAN"):
+        return "Canada"
     loc = location or ""
+    ca = _CA_WORDS.search(loc) or _CA_PROV_ABBR.search(loc)
+    if ca and not (_US_STATE_ABBR.search(loc) or _IN_WORDS.search(loc)):
+        return "Canada"
     us = _US_WORDS.search(loc) or _US_STATE_ABBR.search(loc)
     ind = _IN_WORDS.search(loc)
     if us and ind:
@@ -323,7 +332,7 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
             for j in page:
                 code = ((j.get("location") or {}).get("country") or "").upper()
                 posted = _iso(j.get("releasedDate"))
-                if code in ("US", "IN") and not (posted and posted < cutoff):
+                if code in ("US", "IN", "CA") and not (posted and posted < cutoff):
                     picked.append((j, posted, code))
             offset += 100
             if len(page) < 100:

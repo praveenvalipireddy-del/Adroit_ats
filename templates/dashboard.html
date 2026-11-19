@@ -166,12 +166,12 @@
                 <div class="header-actions">
                     {% if 'Admin' in (user.role or '') or can_switch_team %}
                     <select id="view-region-switch" class="form-control" title="Which team to look at" style="width:auto; height:34px; font-size:0.82rem; font-weight:700;">
-                        <option value="" {{ 'selected' if view_region == 'Both' }}>🌐 Both teams</option>
-                        <option value="USA" {{ 'selected' if view_region == 'USA' }}>🇺🇸 USA team</option>
-                        <option value="India" {{ 'selected' if view_region == 'India' }}>🇮🇳 India team</option>
+                        <option value="" {{ 'selected' if view_region == 'Both' }}>🌐 All teams</option>
+                        {% for t in switch_teams %}<option value="{{ t }}" {{ 'selected' if view_region == t }}>{{ {'USA': '🇺🇸', 'India': '🇮🇳', 'Canada': '🇨🇦'}[t] }} {{ t }} team</option>
+                        {% endfor %}
                     </select>
                     {% else %}
-                    <span id="team-badge" style="font-size:0.8rem; font-weight:700; padding:6px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">{{ '🇮🇳 India team' if view_region == 'India' else '🇺🇸 USA team' }}</span>
+                    <span id="team-badge" style="font-size:0.8rem; font-weight:700; padding:6px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">{{ {'USA': '🇺🇸 USA team', 'India': '🇮🇳 India team', 'Canada': '🇨🇦 Canada team'}.get(view_region, '🇺🇸 USA team') }}</span>
                     {% endif %}
                     <button class="btn btn-success btn-sm" id="btn-open-paste-draft-modal" style="box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
@@ -189,7 +189,7 @@
                     {% endif %}
                     <button class="btn btn-primary btn-sm" id="btn-header-scrape-us">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                        Scrape 24h US Jobs
+                        Scrape 24h {{ {'India': 'India', 'Canada': 'Canada'}.get(view_region, 'US') }} Jobs
                     </button>
                 </div>
             </header>
@@ -210,6 +210,7 @@
                             <select id="filter-country" class="form-control">
                                 <option value="United States">United States</option>
                                 <option value="India">India</option>
+                                <option value="Canada">Canada</option>
                             </select>
                         </div>
                         <span id="jobs-who" class="cons-muted"></span>
@@ -734,7 +735,7 @@
                         <div>
                             <h2>Vendors</h2>
                             <p id="vendors-subtitle">Your own vendor contacts - only you see them. When a requirement comes from one of these companies, its contacts are BCC'd on your draft.</p>
-                            <p style="font-size:0.82rem; color:#475569; margin-top:4px;">Two separate lists: US jobs only use USA vendors, India jobs only India vendors.</p>
+                            <p style="font-size:0.82rem; color:#475569; margin-top:4px;">Separate lists: US jobs only use USA vendors, India jobs only India vendors, Canada jobs only Canada vendors.</p>
                         </div>
                     </div>
                     <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px;">
@@ -752,6 +753,7 @@
                     <div style="display:flex; gap:8px; align-items:center; margin:0 0 12px;">
                         <button type="button" class="vendors-region-tab" data-region="USA" id="vendors-tab-usa" style="padding:7px 16px; border:1px solid #cbd5e1; border-radius:999px; background:#fff; font-weight:700; font-size:0.85rem; cursor:pointer;">USA vendors <span class="vrt-count"></span></button>
                         <button type="button" class="vendors-region-tab" data-region="India" id="vendors-tab-india" style="padding:7px 16px; border:1px solid #cbd5e1; border-radius:999px; background:#fff; font-weight:700; font-size:0.85rem; cursor:pointer;">India vendors <span class="vrt-count"></span></button>
+                        <button type="button" class="vendors-region-tab" data-region="Canada" id="vendors-tab-canada" style="padding:7px 16px; border:1px solid #cbd5e1; border-radius:999px; background:#fff; font-weight:700; font-size:0.85rem; cursor:pointer;">Canada vendors <span class="vrt-count"></span></button>
                         <span style="flex:1"></span>
                         <a class="btn btn-secondary btn-sm" id="vendors-export" href="/api/vendors?format=xlsx">Download this list (Excel)</a>
                     </div>
@@ -767,7 +769,7 @@
                             <input class="form-control" id="vf-phone" placeholder="Phone">
                             <input class="form-control" id="vf-title" placeholder="Title">
                             <input class="form-control" id="vf-notes" placeholder="Notes">
-                            <select class="form-control" id="vf-region" title="Which list this contact belongs to"><option value="USA">USA list</option><option value="India">India list</option></select>
+                            <select class="form-control" id="vf-region" title="Which list this contact belongs to"><option value="USA">USA list</option><option value="India">India list</option><option value="Canada">Canada list</option></select>
                         </div>
                         <div style="margin-top:10px; display:flex; gap:8px;">
                             <button class="btn btn-primary btn-sm" id="vf-save" type="button">Save</button>
@@ -1092,8 +1094,9 @@
                                 <option value="" disabled selected>-- Select country --</option>
                                 <option value="United States">United States</option>
                                 <option value="India">India</option>
+                                <option value="Canada">Canada</option>
                             </select>
-                            <small class="form-hint">Decides which job market (US or India postings) this consultant is matched against.</small>
+                            <small class="form-hint">Decides which job market (US, India or Canada postings) this consultant is matched against, and which team sees them.</small>
                         </div>
                     </div>
                     <div class="form-row">
@@ -1520,12 +1523,13 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Team</label>
-                        <select id="rec-region" class="form-control">
-                            <option value="USA" selected>🇺🇸 USA</option>
-                            <option value="India">🇮🇳 India</option>
-                            <option value="Both">🌐 Both (USA + India)</option>
-                        </select>
+                        <label>Teams <span class="form-hint" style="font-weight:400;">(tick one or more)</span></label>
+                        <div id="rec-region" class="rec-teams" style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:6px; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; cursor:pointer;"><input type="checkbox" value="USA" checked> USA</label>
+                            <label style="display:flex; align-items:center; gap:6px; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; cursor:pointer;"><input type="checkbox" value="India"> India</label>
+                            <label style="display:flex; align-items:center; gap:6px; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; cursor:pointer;"><input type="checkbox" value="Canada"> Canada</label>
+                        </div>
+                        <small class="form-hint">One team: the recruiter is locked to it. Two or more: they get the team switcher in the top bar.</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -1575,7 +1579,7 @@
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'name': user.name, 'admin': ('Admin' in (user.role or ''))} | tojson }};
         window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.21"></script>
+    <script src="/static/js/app.js?v=5.99.22"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

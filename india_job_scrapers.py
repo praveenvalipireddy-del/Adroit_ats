@@ -248,13 +248,19 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
     """Mirrors run_multi_source_us_scrape in us_job_scrapers.py, for the India market.
     sources: only these portals (e.g. ["Naukri"] when the recruiter picked Naukri) - no Apify credit is
     spent on portals that weren't asked for. Returns {count, saved_to_db, jobs, sources: {portal: {count, error}}}."""
-    import models  # local import: avoids a hard dependency for callers that only need scrape_*
-
     if not keywords:
         keywords = ["Java", "Python Developer", "Data Analyst", "React Developer"]
     wanted = [x for x in SOURCES if (x in sources if sources else x in ALL_SOURCES)]
     scrapers = {"Naukri": scrape_naukri, "Foundit": scrape_foundit, "Indeed": scrape_indeed_india, "LinkedIn": scrape_linkedin_india,
                 "Recruiter Post": lambda kw, location="India", limit=8, job_type="": scrape_recruiter_posts(kw, "India", job_type)}
+
+    return run_portals(scrapers, wanted, keywords, location, job_type, save_to_db, "India")
+
+
+def run_portals(scrapers: Dict, wanted: List[str], keywords: List[str], location: str, job_type: str, save_to_db: bool,
+                market: str) -> Dict:
+    """Searches the wanted portals at the same time and saves what they found - shared by the India and Canada markets."""
+    import models
 
     all_jobs = []
     seen_keys = set()
@@ -273,7 +279,7 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
             return scrapers[name](kw, location=location, limit=8, job_type=job_type)
         except Exception as ex:
             LAST_ERROR[name] = f"the search failed ({ex.__class__.__name__})"
-            logger.error(f"India scrape {name} '{kw}' failed: {ex}")
+            logger.error(f"{market} scrape {name} '{kw}' failed: {ex}")
             return []
 
     with ThreadPoolExecutor(max_workers=max(1, min(len(tasks), 5))) as pool:
@@ -298,6 +304,6 @@ def run_multi_source_india_scrape(keywords: Optional[List[str]] = None, location
                 job_data["id"] = job_id
                 saved_count += 1
             except Exception as e:
-                logger.error(f"Error saving India job {job_data.get('title')}: {e}")
+                logger.error(f"Error saving {market} job {job_data.get('title')}: {e}")
 
     return {"count": len(all_jobs), "saved_to_db": saved_count, "jobs": all_jobs, "sources": status}

@@ -29,7 +29,7 @@ def _salary(it: Dict) -> str:
     lo, hi = s.get("min"), s.get("max")
     if not lo and not hi:
         return ""
-    cur = {"USD": "$", "INR": "₹"}.get(s.get("currencyCode") or "", (s.get("currencyCode") or "") + " ")
+    cur = {"USD": "$", "INR": "₹", "CAD": "CA$"}.get(s.get("currencyCode") or "", (s.get("currencyCode") or "") + " ")
     unit = {"HOUR": "/hr", "YEAR": "/yr", "MONTH": "/month", "DAY": "/day", "WEEK": "/week"}.get(s.get("unitOfWork") or "", "")
     fmt = lambda v: f"{cur}{v:,.0f}" if isinstance(v, (int, float)) else f"{cur}{v}"  # noqa: E731
     return (f"{fmt(lo)} - {fmt(hi)}" if lo and hi and lo != hi else fmt(lo or hi)) + unit
@@ -38,7 +38,7 @@ def _salary(it: Dict) -> str:
 def _location(it: Dict, default: str) -> str:
     loc = it.get("location")
     if isinstance(loc, dict):
-        parts = [loc.get("city"), loc.get("admin1Code") if (loc.get("countryCode") or "").upper() == "US" else None]
+        parts = [loc.get("city"), loc.get("admin1Code") if (loc.get("countryCode") or "").upper() in ("US", "CA") else None]
         text = ", ".join(p for p in parts if p)
         return text or loc.get("countryName") or default
     return ij._first(it, "location", "formattedLocation", default=default)
@@ -53,8 +53,11 @@ def _text(v) -> str:
 def scrape_indeed(keyword: str, location: str = "United States", country: str = "United States", limit: int = 25,
                   job_type: str = "") -> List[Dict]:
     india = country.lower() == "india"
-    loc = "" if location.strip().lower() in ("", "united states", "usa", "us", "india", "all india") else location.strip()
-    payload = {"country": "in" if india else "us",
+    canada = country.lower() == "canada"
+    code = "in" if india else ("ca" if canada else "us")
+    market = "India" if india else ("Canada" if canada else "United States")
+    loc = "" if location.strip().lower() in ("", "united states", "usa", "us", "india", "all india", "canada", "all canada") else location.strip()
+    payload = {"country": code,
                "title": keyword + (" contract" if job_type == "Contract" and "contract" not in keyword.lower() else ""),
                "location": loc, "limit": limit, "datePosted": "3" if india else "1"}
     items, err = ij._run_actor_sync(ACTOR, payload)
@@ -66,7 +69,7 @@ def scrape_indeed(keyword: str, location: str = "United States", country: str = 
     for idx, it in enumerate(items):
         title = ij._first(it, "title", "jobTitle", "positionName")
         key = ij._first(it, "key", "jobKey", "id")
-        url = ij._first(it, "url", "jobUrl", "link") or (f"https://{'in' if india else 'www'}.indeed.com/viewjob?jk={key}" if key else "")
+        url = ij._first(it, "url", "jobUrl", "link") or (f"https://{'www' if code == 'us' else code}.indeed.com/viewjob?jk={key}" if key else "")
         if not title or not url:
             dropped += 1
             continue
@@ -75,7 +78,7 @@ def scrape_indeed(keyword: str, location: str = "United States", country: str = 
         types = it.get("jobTypes")
         types = ", ".join(str(v) for v in types.values()) if isinstance(types, dict) else ij._first(it, "jobType", "jobTypes")
         desc = _text(it.get("description")) or ij._first(it, "descriptionText", "snippet")
-        where = _location(it, "India" if india else "United States")
+        where = _location(it, market)
         jobs.append({
             "title": title,
             "company": company,
@@ -90,7 +93,7 @@ def scrape_indeed(keyword: str, location: str = "United States", country: str = 
             "matched_skills": keyword,
             "match_score": 95 - idx,
             "is_24h": 1,
-            "country": "India" if india else "United States",
+            "country": market,
         })
     if dropped:
         logger.warning(f"Indeed: {dropped} of {len(items)} results had no title or link; fields seen: {sorted(items[0].keys())[:30]}")

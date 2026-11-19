@@ -46,7 +46,7 @@ candidates / resumes. NOT requirements: job seekers ("open to work", "I am looki
 course ads, motivational posts, news, event posts, and posts that only celebrate someone's new job.
 Read the whole post. Never invent anything: a field the post doesn't state is "".
 Return ONLY JSON: {"posts": [{"n": <the post number>, "is_requirement": true/false, "why": "a few words",
-"title": "", "company": "", "location": "", "market": "USA" | "India" | "Other" | "Unknown",
+"title": "", "company": "", "location": "", "market": "USA" | "India" | "Canada" | "Other" | "Unknown",
 "employment_type": "C2C / W2 / Contract / Full-time / Part-time / unknown", "experience": "",
 "skills": [""], "recruiter_email": "only an address written in the post", "recruiter_phone": "only a number written in the post",
 "how_to_apply": "", "summary": "the requirement in 2-4 short lines"}]}"""
@@ -102,7 +102,9 @@ def search(keyword: str, market: str = "United States", max_posts: int = None, p
     max_posts = max(5, min(int(max_posts or MAX_POSTS), 200))
     out = {"jobs": [], "read": 0, "returned": 0, "worth_reading": 0, "requirements": 0, "not_requirements": 0, "other_market": 0,
            "ai_failed": 0, "cost_usd": 0.0, "error": "", "widened": False}
-    payload = {"searchQueries": [build_query(keyword)], "maxPosts": max_posts, "postedLimit": posted, "sortBy": "date", "profileScraperMode": "short"}
+    # Canada: the word narrows LinkedIn's search to Canadian posts (most hiring posts are US / India)
+    query = build_query(keyword) + (" Canada" if market.lower() == "canada" else "")
+    payload = {"searchQueries": [query], "maxPosts": max_posts, "postedLimit": posted, "sortBy": "date", "profileScraperMode": "short"}
     items, err = ij._run_actor_sync(ACTOR, payload, timeout=200)
     searches = 1
     if not err and not items and posted == "24h":
@@ -142,7 +144,8 @@ def search(keyword: str, market: str = "United States", max_posts: int = None, p
     with ThreadPoolExecutor(max_workers=4) as pool:
         for part in pool.map(_ai_batch, batches):
             verdicts.update(part)
-    want_india = market.lower() == "india"
+    target = {"india": "india", "canada": "canada"}.get(market.lower(), "usa")
+    country = {"india": "India", "canada": "Canada"}.get(target, "United States")
     for p in todo:
         v = verdicts.get(p["n"])
         if v is None:
@@ -152,7 +155,7 @@ def search(keyword: str, market: str = "United States", max_posts: int = None, p
             out["not_requirements"] += 1
             continue
         mk = (v.get("market") or "Unknown").strip().lower()
-        if mk == "other" or (mk == "india" and not want_india) or (mk == "usa" and want_india):
+        if mk == "other" or (mk in ("usa", "india", "canada") and mk != target):
             out["other_market"] += 1
             continue
         out["requirements"] += 1
@@ -178,7 +181,7 @@ def search(keyword: str, market: str = "United States", max_posts: int = None, p
             "matched_skills": ", ".join(skills)[:500] or keyword,
             "match_score": 90,
             "is_24h": 1,
-            "country": "India" if want_india else "United States",
+            "country": country,
         })
     logger.info(f"LinkedIn posts for {keyword!r} ({market}): {json.dumps({k: v for k, v in out.items() if k != 'jobs'})}")
     return out

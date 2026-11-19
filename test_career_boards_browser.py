@@ -95,6 +95,7 @@ FEEDS = {
         {"jobSeqNo": "FXCA3ENUS", "jobId": "JP-3", "title": "Toronto Role (Fixture Phenom)", "cityStateCountry": "Toronto, Ontario, Canada",
          "postedDate": NOW.strftime("%Y-%m-%dT%H:%M:%S.000+0000"), "type": "Contractor"}]}}},
     ("phenom-detail", "FXUS1ENUS"): {"jobDetail": {"data": {"job": {"description": "<p>Java, Spring and Kafka. Labelled fixture.</p>"}}}},
+    ("phenom-detail", "FXCA3ENUS"): {"jobDetail": {"data": {"job": {"description": "<p>Python on AWS. Labelled fixture.</p>"}}}},
     "https://fixturewd.wd5.myworkdayjobs.com/wday/cxs/fixturewd/Ext/jobs": {"total": 2, "jobPostings": [
         {"title": "Cloud Engineer (Fixture WD)", "externalPath": "/job/Austin/Cloud_1", "postedOn": "Posted Today", "locationsText": "Austin, TX"},
         {"title": "Stale (Fixture WD)", "externalPath": "/job/Austin/Old_2", "postedOn": "Posted 30+ Days Ago", "locationsText": "Austin, TX"}]},
@@ -131,10 +132,11 @@ check(not any("Old_2" in u for u in calls), "an old Workday posting's details ar
 check(not any(u.endswith("/fixturegh/jobs/2") or u.endswith("/fixturegh/jobs/3") for u in calls),
       "greenhouse: an old or non-US/India posting's description is never fetched")
 ph = cb.fetch_board("phenom", "fixtureph.example.com|us|en_us|Systems & Software", "Fixture Phenom")
-check([j["title"] for j in ph] == ["Java Developer (Fixture Phenom)"] and ph[0]["country"] == "United States" and ph[0]["job_type"] == "Contractor"
-      and "Kafka" in ph[0]["description"] and "<p>" not in ph[0]["description"]
-      and ph[0]["url"] == "https://fixtureph.example.com/us/en/job/JP-1", f"phenom: recent US job only, with its description: {ph}")
-check(not any(c.endswith(":FXUS2ENUS") or c.endswith(":FXCA3ENUS") for c in calls), "phenom: an old or Canada posting's description is never fetched")
+check([j["title"] for j in ph] == ["Java Developer (Fixture Phenom)", "Toronto Role (Fixture Phenom)"] and ph[0]["country"] == "United States"
+      and ph[0]["job_type"] == "Contractor" and "Kafka" in ph[0]["description"] and "<p>" not in ph[0]["description"]
+      and ph[0]["url"] == "https://fixtureph.example.com/us/en/job/JP-1" and ph[1]["country"] == "Canada",
+      f"phenom: recent US and Canada jobs (Canada team), with their descriptions: {ph}")
+check(not any(c.endswith(":FXUS2ENUS") for c in calls), "phenom: an old posting's description is never fetched")
 check(cb._careers_url("phenom", "careers.teksystems.com|us|en_us|") == "https://careers.teksystems.com/us/en", "phenom careers link")
 _plain = cb.http_text
 cb.http_text = lambda url: ("https://careers.fixturephenom.com/us/en", '<script>var phApp = {"locale":"en_us","country":"us"};</script>')
@@ -250,7 +252,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.21" in page.content(), "cache-buster not bumped to 5.99.21")
+        check("app.js?v=5.99.22" in page.content(), "cache-buster not bumped to 5.99.22")
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_selector("#jobs-side-consultant")
         check(page.is_hidden("#jobs-table-view") and page.is_visible("#jobs-cards"), "cards are the default Jobs view")

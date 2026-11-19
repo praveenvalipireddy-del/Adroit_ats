@@ -159,7 +159,8 @@ async function initConsultants() {
 
     const btnHeaderScrape = document.getElementById('btn-header-scrape-us');
     if (btnHeaderScrape) {
-        btnHeaderScrape.addEventListener('click', () => triggerUsScrape());
+        // follows the team being viewed: India / Canada teams scrape their own market
+        btnHeaderScrape.addEventListener('click', () => (['India', 'Canada'].includes(window.VIEW_REGION) ? triggerIndiaScrape(window.VIEW_REGION) : triggerUsScrape()));
     }
 
     const btnHeaderPasteDraft = document.getElementById('btn-open-paste-draft-modal');
@@ -423,6 +424,8 @@ function renderConsultantsGrid() {
 // hidden and nothing is saved for it. Older saved values (e.g. "OPT/CPT") stay selectable as
 // "(previously saved)" instead of being dropped.
 const US_VISA_OPTIONS = ["US Citizen", "Green Card", "H1B", "H1B Transfer", "H4 EAD", "L1", "L2", "OPT", "STEM OPT", "CPT", "TN", "B1/B2"];
+// Canada-based consultants: Canadian statuses (no US visa types).
+const CA_WORK_OPTIONS = ["Open work permit", "Permanent resident", "Canadian citizen", "Closed work permit"];
 
 function syncVisaOptionsForCountry(currentValue = '') {
     const countrySelect = document.getElementById('c-country');
@@ -435,9 +438,10 @@ function syncVisaOptionsForCountry(currentValue = '') {
     const rateLabel = document.getElementById('c-rate-label');
     const rateInput = document.getElementById('c-rate');
     const india = country === 'India';
-    // India: salaries, not $/hr C2C rates; and no visa / relocation question.
-    if (rateLabel) rateLabel.innerText = india ? 'Expected Salary (CTC)' : 'Target Rate ($/hr) *';
-    if (rateInput) rateInput.placeholder = india ? 'e.g. ₹12 LPA' : 'e.g. $65/hr (C2C)';
+    const canada = country === 'Canada';
+    // India: salaries, not $/hr C2C rates; and no visa / relocation question. Canada: CA$ rates, Canadian work permits.
+    if (rateLabel) rateLabel.innerText = india ? 'Expected Salary (CTC)' : canada ? 'Target Rate (CA$/hr) *' : 'Target Rate ($/hr) *';
+    if (rateInput) rateInput.placeholder = india ? 'e.g. ₹12 LPA' : canada ? 'e.g. CA$75/hr (Incorporated)' : 'e.g. $65/hr (C2C)';
     if (visaGroup) visaGroup.style.display = india ? 'none' : '';
     visaSelect.required = !india;
     if (india) {
@@ -451,8 +455,8 @@ function syncVisaOptionsForCountry(currentValue = '') {
         return;
     }
 
-    const options = US_VISA_OPTIONS;
-    if (visaLabel) visaLabel.innerText = 'Visa / Work Authorization *';
+    const options = canada ? CA_WORK_OPTIONS : US_VISA_OPTIONS;
+    if (visaLabel) visaLabel.innerText = canada ? 'Work Authorization *' : 'Visa / Work Authorization *';
 
     let html = `<option value="" disabled ${!currentValue ? 'selected' : ''}>-- Select visa / work authorization --</option>`;
     html += options.map(o => `<option value="${escapeHtml(o)}" ${o === currentValue ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('');
@@ -665,13 +669,14 @@ function closePasteDraftModal() {
 function syncJobsMarketUi() {
     const country = document.getElementById('filter-country')?.value || 'United States';
     const isIndia = country === 'India';
+    const isCanada = country === 'Canada';
     const locLabel = document.getElementById('filter-location-label');
     const locInput = document.getElementById('filter-location');
     const sourceSelect = document.getElementById('filter-source');
 
     if (locInput) {
-        locInput.placeholder = isIndia ? 'Hyderabad, Remote…' : 'Dallas, Remote…';
-        if (locInput.value === 'United States' || locInput.value === 'India') locInput.value = '';     // empty = the whole market
+        locInput.placeholder = isIndia ? 'Hyderabad, Remote…' : isCanada ? 'Toronto, Remote…' : 'Dallas, Remote…';
+        if (['United States', 'India', 'Canada'].includes(locInput.value)) locInput.value = '';     // empty = the whole market
     }
     if (sourceSelect) {
         sourceSelect.innerHTML = isIndia
@@ -680,6 +685,12 @@ function syncJobsMarketUi() {
                <option value="Foundit">Foundit / Monster India</option>
                <option value="Indeed">Indeed India</option>
                <option value="LinkedIn">LinkedIn (Live)</option>
+               <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
+               <option value="Company site">🏢 Company career sites</option>`
+            : isCanada
+            ? `<option value="All">All Canada portals</option>
+               <option value="LinkedIn">LinkedIn (free)</option>
+               <option value="Indeed">Indeed Canada</option>
                <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
                <option value="Company site">🏢 Company career sites</option>`
             : `<option value="All">All portals</option>
@@ -701,7 +712,8 @@ const PORTAL_COST = {
 };
 function jobsPortalCostHint() {
     const src = document.getElementById('filter-source')?.value || 'All';
-    const india = (document.getElementById('filter-country')?.value || '') === 'India';
+    const market = document.getElementById('filter-country')?.value || '';
+    const india = market === 'India';
     let el = document.getElementById('jobs-portal-cost');
     const sel = document.getElementById('filter-source');
     if (!sel) return;
@@ -711,7 +723,8 @@ function jobsPortalCostHint() {
         el.style.cssText = 'font-size:0.74rem; color:#92400e; margin-top:3px; max-width:280px; line-height:1.3;';
         sel.insertAdjacentElement('afterend', el);
     }
-    el.textContent = PORTAL_COST[src] || (india && src === 'All' ? 'Naukri, Foundit and Indeed are paid per job found (Apify credit).' : '');
+    el.textContent = PORTAL_COST[src] || (india && src === 'All' ? 'Naukri, Foundit and Indeed are paid per job found (Apify credit).'
+        : market === 'Canada' && src === 'All' ? 'LinkedIn is free; Indeed Canada is about $0.004 per search (Apify credit).' : '');
 }
 
 function initJobsTable() {
@@ -899,20 +912,23 @@ async function triggerJobScrape() {
     const country = document.getElementById('filter-country')?.value || 'United States';
     if (country === 'India') {
         await triggerIndiaScrape();
+    } else if (country === 'Canada') {
+        await triggerIndiaScrape('Canada');
     } else {
         await triggerUsScrape();
     }
 }
 
-async function triggerIndiaScrape() {
+// India (Naukri, Foundit, Indeed, LinkedIn) or Canada (LinkedIn, Indeed Canada): the picked portal only.
+async function triggerIndiaScrape(market = 'India') {
     const source = document.getElementById('filter-source')?.value || 'All';
-    const portalName = source === 'All' ? 'Naukri, Foundit, LinkedIn' : (document.getElementById('filter-source')?.selectedOptions[0]?.textContent || source);
-    showToast(`🚀 Running Live India Requisition Scraper (${portalName})...`, 'info', 6000);
+    const portalName = source === 'All' ? (market === 'Canada' ? 'LinkedIn, Indeed Canada' : 'Naukri, Foundit, LinkedIn') : (document.getElementById('filter-source')?.selectedOptions[0]?.textContent || source);
+    showToast(`🚀 Running Live ${market} Requisition Scraper (${portalName})...`, 'info', 6000);
     const query = document.getElementById('filter-query')?.value?.trim() || 'Software Engineer';
-    const location = document.getElementById('filter-location')?.value?.trim() || 'India';
+    const location = document.getElementById('filter-location')?.value?.trim() || market;
     let sources = null;
     try {
-        const res = await fetch('/api/jobs/scrape-india', {
+        const res = await fetch(market === 'Canada' ? '/api/jobs/scrape-canada' : '/api/jobs/scrape-india', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ keywords: [query], location: location, source, type_filter: document.getElementById('filter-job-type')?.value || '' })
@@ -921,13 +937,13 @@ async function triggerIndiaScrape() {
         sources = data.sources || null;
         const problems = Object.entries(sources || {}).filter(([, v]) => v.error).map(([n, v]) => `${n}: ${v.error}`);
         if (data.success) {
-            showToast(`✅ Scraped & saved ${data.count || 0} fresh India requisitions.` + (problems.length ? ` ⚠ ${problems.join(' · ')}` : ''),
+            showToast(`✅ Scraped & saved ${data.count || 0} fresh ${market} requisitions.` + (problems.length ? ` ⚠ ${problems.join(' · ')}` : ''),
                 problems.length ? 'warning' : 'success', problems.length ? 12000 : 5000);
         } else {
-            showToast(data.error || data.message || 'India scrape did not return results.', data.error ? 'error' : 'info');
+            showToast(data.error || data.message || `${market} scrape did not return results.`, data.error ? 'error' : 'info');
         }
     } catch (err) {
-        showToast('Error during live India scrape: ' + err.message, 'error');
+        showToast(`Error during live ${market} scrape: ` + err.message, 'error');
     } finally {
         searchJobs(false, { noScrape: true, sources });      // just scraped - show it, don't scrape again
     }
@@ -2941,11 +2957,9 @@ async function loadRecruiters() {
                         </span>
                     </td>
                     <td style="padding: 14px 18px;">
-                        <select class="form-control recruiter-region" data-id="${r.id}" style="width:auto; font-size:0.8rem;" onchange="setRecruiterRegion(${r.id}, this.value)">
-                            <option value="USA" ${(r.region || 'USA') === 'USA' ? 'selected' : ''}>🇺🇸 USA</option>
-                            <option value="India" ${r.region === 'India' ? 'selected' : ''}>🇮🇳 India</option>
-                            <option value="Both" ${r.region === 'Both' ? 'selected' : ''}>🌐 Both</option>
-                        </select>
+                        <span class="recruiter-region" data-id="${r.id}" style="display:inline-flex; gap:10px; font-size:0.8rem; white-space:nowrap;">
+                            ${TEAMS.map(t => `<label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" value="${t}" ${teamList(r.region).includes(t) ? 'checked' : ''} onchange="onRecruiterTeamsChange(${r.id}, this)"> ${t}</label>`).join('')}
+                        </span>
                     </td>
                     <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">${r.consultant_count || 0} consultants</td>
                     <td style="padding: 14px 18px;">
@@ -2996,8 +3010,12 @@ async function submitAddRecruiter(e) {
     const email = document.getElementById('rec-email')?.value?.trim();
     const password = document.getElementById('rec-password')?.value?.trim();
     const role = document.getElementById('rec-role')?.value || 'Recruiter';
-    const region = document.getElementById('rec-region')?.value || 'USA';
+    const region = [...document.querySelectorAll('#rec-region input[type=checkbox]:checked')].map(b => b.value).join(',');
 
+    if (!region) {
+        showToast('Tick at least one team.', 'error');
+        return;
+    }
     if (!name || !email || !password) {
         showToast('Name, email, and password are required.', 'error');
         return;
@@ -3153,7 +3171,7 @@ async function consRecruiters() {
     }
     return consBulk.recruiters;
 }
-const consRecruiterLabel = (r) => `${r.name} - ${(r.role || '').includes('Admin') ? 'Admin' : r.region === 'Both' ? 'USA + India' : (r.region || 'USA') + ' team'}`;
+const consRecruiterLabel = (r) => `${r.name} - ${(r.role || '').includes('Admin') ? 'Admin' : teamList(r.region).length > 1 ? teamList(r.region).join(' + ') : teamList(r.region)[0] + ' team'}`;
 
 function consBulkRefresh() {
     const bar = document.getElementById('cons-bulk-bar');
@@ -3270,7 +3288,7 @@ function renderConsultantsTable() {
                 ${c.experience_years ? c.experience_years + '+ Yrs' : '—'}
             </td>
             <td style="padding: 14px 18px; color: #64748b; font-size: 0.85rem;">
-                <span title="${(c.country || 'United States') === 'India' ? 'India market' : 'US market'}">${(c.country || 'United States') === 'India' ? '🇮🇳' : '🇺🇸'}</span>
+                <span title="${consMarket(c)} market">${{ India: '🇮🇳', Canada: '🇨🇦' }[consMarket(c)] || '🇺🇸'}</span>
                 ${escapeHtml(c.location || 'United States')}
             </td>
             <td style="padding: 14px 18px;">
@@ -7238,14 +7256,31 @@ async function rqRecheck(btn) {
 // USA / India teams (regions.py): admins switch the team they look at; recruiters are locked to theirs.
 // The Jobs market follows the team (US jobs for USA, India jobs for India).
 // =========================================================================
-const TEAM_JOB_COUNTRY = { USA: 'United States', India: 'India' };
+const TEAM_JOB_COUNTRY = { USA: 'United States', India: 'India', Canada: 'Canada' };
+const TEAMS = ['USA', 'India', 'Canada'];
+// A user's stored teams: 'USA' / 'USA,Canada' / the older 'Both' (= USA + India).
+function teamList(v) {
+    if (v === 'Both') return ['USA', 'India'];
+    const t = String(v || 'USA').split(',').map(x => x.trim()).filter(x => TEAMS.includes(x));
+    return t.length ? t : ['USA'];
+}
 
 async function setRecruiterRegion(id, region) {
     const res = await fetch(`/api/admin/recruiters/${id}/region`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ region }) });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) { showToast(d.error || 'Could not change the team.', 'error'); return; }
-    showToast(d.region === 'Both' ? 'Now works for both teams (USA + India)' : `Moved to the ${d.region} team`, 'success');
+    if (!res.ok) { showToast(d.error || 'Could not change the team.', 'error'); return false; }
+    const t = teamList(d.region);
+    showToast(t.length > 1 ? `Now works for ${t.join(' + ')}` : `Moved to the ${t[0]} team`, 'success');
+    return true;
 }
+
+async function onRecruiterTeamsChange(id, box) {
+    const wrap = box.closest('.recruiter-region');
+    const picked = [...wrap.querySelectorAll('input:checked')].map(b => b.value);
+    if (!picked.length) { box.checked = true; showToast('A recruiter needs at least one team.', 'warning'); return; }
+    if (!(await setRecruiterRegion(id, picked.join(',')))) box.checked = !box.checked;
+}
+window.onRecruiterTeamsChange = onRecruiterTeamsChange;
 
 function applyTeamLock() {
     const country = TEAM_JOB_COUNTRY[window.VIEW_REGION];
@@ -7324,7 +7359,8 @@ function consNeedsAttention(c) {
     return !c.gmail_connected || !(c.resume_filename || c.resume_path) || ((consUi.overview[c.id] || {}).replies_waiting > 0);
 }
 
-function consMarket(c) { return (c.country || 'United States') === 'India' ? 'India' : 'US'; }
+function consMarket(c) { const k = c.country || 'United States'; return k === 'India' ? 'India' : k === 'Canada' ? 'Canada' : 'US'; }
+function consCountry(c) { return { India: 'India', Canada: 'Canada' }[consMarket(c)] || 'United States'; }
 
 function setConsView(view) {
     consUi.view = view;
@@ -7342,16 +7378,16 @@ function renderConsultantCards() {
     if (!box) return;
     const all = state.consultants || [];
     const counts = { all: all.length, us: all.filter(c => consMarket(c) === 'US').length, india: all.filter(c => consMarket(c) === 'India').length,
-        attention: all.filter(consNeedsAttention).length };
+        canada: all.filter(c => consMarket(c) === 'Canada').length, attention: all.filter(consNeedsAttention).length };
     const chips = document.getElementById('cons-chips');
     if (chips) {
-        chips.innerHTML = [['all', 'All'], ['us', 'US bench'], ['india', 'India'], ['attention', 'Needs attention']]
+        chips.innerHTML = [['all', 'All'], ['us', 'US bench'], ['india', 'India'], ...(counts.canada ? [['canada', 'Canada']] : []), ['attention', 'Needs attention']]
             .map(([k, l]) => `<button type="button" class="cons-chip ${consUi.chip === k ? 'active' : ''}" data-chip="${k}">${l} (${counts[k]})</button>`).join('');
         chips.querySelectorAll('.cons-chip').forEach(b => b.addEventListener('click', () => { consUi.chip = b.dataset.chip; renderConsultantCards(); }));
     }
     const q = (document.getElementById('filter-consultants-search')?.value || '').toLowerCase().trim();
     const list = all.filter(c => consUi.chip === 'all' || (consUi.chip === 'us' && consMarket(c) === 'US') ||
-        (consUi.chip === 'india' && consMarket(c) === 'India') || (consUi.chip === 'attention' && consNeedsAttention(c)));
+        (consUi.chip === 'india' && consMarket(c) === 'India') || (consUi.chip === 'canada' && consMarket(c) === 'Canada') || (consUi.chip === 'attention' && consNeedsAttention(c)));
     if (!all.length) {
         box.innerHTML = '<div class="cons-empty">No consultants yet. Click <b>+ Add Consultant Profile</b> to add your first bench consultant.</div>';
         return;
@@ -7520,7 +7556,7 @@ const CONS_JOB_SOURCES = [['All', 'All portals'], ['Company site', '🏢 Company
     ['Dice', 'Dice (US)'], ['Naukri', 'Naukri (India)'], ['Recruiter Post', 'LinkedIn recruiter posts'], ['Email', 'Requirement emails']];
 
 async function consPaneJobs(c, body) {
-    const country = consMarket(c) === 'India' ? 'India' : 'United States';
+    const country = consCountry(c);
     consUi.jf = consUi.jf || {};
     const f = consUi.jf[c.id] = consUi.jf[c.id] || { query: consCoreTitle(c.title), location: '', posted: '24', type: '', source: 'All', work: '', roles: [], exp: jobExpValue(c.experience_years) };
     const sel = (id, opts, val) => `<select id="${id}" class="form-control">${opts.map(([v, l]) => `<option value="${v}" ${String(val) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
@@ -7528,7 +7564,7 @@ async function consPaneJobs(c, body) {
         <div class="cons-filter">
             <div class="cf-q"><label>Role / skills</label><input type="text" id="cons-jf-query" class="form-control" value="${escapeHtml(f.query)}" placeholder="e.g. Data Analyst, Python, Power BI"></div>
             <div><label>Roles</label><div id="cons-jf-roles"></div></div>
-            <div><label>Location</label><input type="text" id="cons-jf-loc" class="form-control" value="${escapeHtml(f.location)}" placeholder="${country === 'India' ? 'Hyderabad, Remote…' : 'Dallas, Remote…'}"></div>
+            <div><label>Location</label><input type="text" id="cons-jf-loc" class="form-control" value="${escapeHtml(f.location)}" placeholder="${country === 'India' ? 'Hyderabad, Remote…' : country === 'Canada' ? 'Toronto, Remote…' : 'Dallas, Remote…'}"></div>
             <div><label>Posted within</label>${sel('cons-jf-posted', [['24', 'Last 24 hours'], ['72', 'Last 3 days'], ['168', 'Last week'], ['336', 'Last 2 weeks']], f.posted)}</div>
             <div><label>Work model</label>${sel('cons-jf-work', [['', 'Any'], ['remote', 'Remote'], ['hybrid', 'Hybrid'], ['onsite', 'On-site']], f.work)}</div>
             <div><label>Job type</label>${sel('cons-jf-type', [['', 'All types'], ['Contract', 'Contract'], ['Full-time', 'Full-time'], ['Part-time', 'Part-time']], f.type)}</div>
@@ -7691,6 +7727,7 @@ async function consFindLiveJobs(c, f, country, body) {
     if (!keyword) { showToast('Type a role or skill (or pick a role) first.', 'warning'); return; }
     const india = country === 'India';
     const cost = PORTAL_COST[src] || (india ? 'Naukri, Foundit and Indeed India are read through Apify: about $0.001 per job found plus about $0.004 per Indeed search (Apify credit).'
+        : country === 'Canada' ? 'LinkedIn is free; Indeed Canada is about $0.004 per search (Apify credit).'
         : 'LinkedIn and Dice are free; Indeed is about $0.004 per search (Apify credit).');
     if (!confirm(`Search the job portals now for "${keyword}" in ${country}${src !== 'All' ? ' (' + src + ')' : ''}?\n\n${cost}\n\nIt can take 1-2 minutes.`)) return;
     btn.disabled = true;
@@ -7852,7 +7889,7 @@ function jobsApplyConsultant(c) {
     jobsMountRoles();
     setJobsExperience(c ? c.experience_years : null);
     const market = document.getElementById('filter-country');
-    if (market && c && !market.disabled) market.value = consMarket(c) === 'India' ? 'India' : 'United States';
+    if (market && c && !market.disabled) market.value = consCountry(c);
     syncJobsMarketUi();
     jobsFillConsultants();
 }

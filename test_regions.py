@@ -111,7 +111,7 @@ client.post("/api/view-region", json={"region": "India"})
 check([c["email"] for c in client.get("/api/vendors").get_json()["contacts"]] == ["b@in-vendor.example"], "admin India view: India vendors only")
 client.post("/api/view-region", json={"region": ""})
 both = client.get("/api/vendors").get_json()
-check(both["region"] == "USA" and both["region_counts"] == {"USA": 1, "India": 1}, f"Both: opens on the USA list, counts for both tabs: {both}")
+check(both["region"] == "USA" and both["region_counts"] == {"USA": 1, "India": 1, "Canada": 0}, f"Both: opens on the USA list, counts for both tabs: {both}")
 login(in_rec)
 check(client.post("/api/view-region", json={"region": "USA"}).status_code == 403, "recruiters can't switch team")
 

@@ -67,11 +67,11 @@ def names():
 # ---- 1. admin sets the team
 as_user(ADMIN, "Ada", "Admin", ADMIN_EMAIL)
 r = client.post(f"/api/admin/recruiters/{MAHESH}/region", json={"region": "Both"})
-check(r.status_code == 200 and r.get_json()["region"] == "Both", f"Mahesh on Both: {r.get_json()}")
+check(r.status_code == 200 and r.get_json()["region"] == "USA,India", f"Mahesh on Both (stored as USA,India): {r.get_json()}")
 r = client.post(f"/api/admin/recruiters/{MAHESH}/region", json={"region": "Mars"})
-check(r.status_code == 400 and "USA, India or Both" in r.get_json()["error"], "only USA / India / Both")
+check(r.status_code == 400 and "USA, India or Canada" in r.get_json()["error"], "only USA / India / Canada")
 roster = {u["email"]: u.get("region") for u in client.get("/api/admin/recruiters").get_json()}
-check(roster.get(MAHESH_EMAIL) == "Both", f"roster shows Both: {roster.get(MAHESH_EMAIL)}")
+check(roster.get(MAHESH_EMAIL) == "USA,India", f"roster shows USA,India: {roster.get(MAHESH_EMAIL)}")
 for cid in (us_c, in_c):
     r = client.post(f"/api/admin/candidates/{cid}/reassign", json={"assigned_user_id": MAHESH})
     check(r.status_code == 200, f"a Both recruiter can get a {'US' if cid == us_c else 'Indian'} consultant: {r.get_json()}")
@@ -121,7 +121,7 @@ try:
         page = browser.new_page(viewport={"width": 1500, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, MAHESH_EMAIL, MAHESH_PW)
-        check("app.js?v=5.99.21" in page.content(), "cache-buster not bumped to 5.99.21")
+        check("app.js?v=5.99.22" in page.content(), "cache-buster not bumped to 5.99.22")
         check(page.is_visible("#view-region-switch") and not page.locator("#team-badge").count(), "the Both recruiter has the team switcher")
         page.click("a.nav-item[data-tab=candidates]")
         page.click("#cons-view-table")       # the table view (cards are the default)
@@ -147,8 +147,9 @@ try:
         login(page3, ADMIN_EMAIL, ADMIN_PW)
         page3.evaluate("loadRecruiters()")
         page3.wait_for_selector(f".recruiter-region[data-id='{MAHESH}']", state="attached", timeout=10000)
-        check(page3.eval_on_selector(f".recruiter-region[data-id='{MAHESH}']", "s => s.value") == "Both", "admin roster shows Both for Mahesh")
-        check("Both (USA + India)" in page3.inner_html("#rec-region"), "Add Recruiter offers Both")
+        ticked = page3.eval_on_selector(f".recruiter-region[data-id='{MAHESH}']", "s => [...s.querySelectorAll('input:checked')].map(b => b.value)")
+        check(ticked == ["USA", "India"], f"admin roster ticks USA + India for Mahesh: {ticked}")
+        check(page3.locator("#rec-region input[type=checkbox]").count() == 3, "Add Recruiter offers USA / India / Canada tick boxes")
         browser.close()
 finally:
     server.shutdown()

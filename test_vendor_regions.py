@@ -126,7 +126,7 @@ with client.session_transaction() as s:
 lst = client.get("/api/vendors?region=India").get_json()
 check(sorted(c["email"] for c in lst["contacts"]) == ["both@globex.example", "in1@globex.example"] and lst["region"] == "India",
       f"India list: {lst['contacts']}")
-check(lst["region_counts"] == {"USA": 3, "India": 2}, f"counts: {lst['region_counts']}")
+check(lst["region_counts"] == {"USA": 3, "India": 2, "Canada": 0}, f"counts: {lst['region_counts']}")
 us_list = client.get("/api/vendors?region=USA").get_json()["contacts"]
 hint = {c["email"]: c["region_hint"] for c in us_list}
 check(hint.get("inph@globex.example") == "India" and hint.get("us1@globex.example") == "", f"looks-like-India hint: {hint}")
@@ -186,7 +186,7 @@ class _PgLikeConn:
         return _PgLikeCursor()
 
 
-check(vendors.region_counts(_PgLikeConn(), ADMIN) == {"USA": 3, "India": 2}, "counts work with Postgres-style rows")
+check(vendors.region_counts(_PgLikeConn(), ADMIN) == {"USA": 3, "India": 2, "Canada": 0}, "counts work with Postgres-style rows")
 
 with client.session_transaction() as s:
     s["user"] = US_REC
@@ -210,7 +210,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.21" in page.content(), "cache-buster not bumped to 5.99.21")
+        check("app.js?v=5.99.22" in page.content(), "cache-buster not bumped to 5.99.22")
         page.click("a.nav-item[data-tab=vendors]")
         page.wait_for_function("document.getElementById('vendors-count').innerText.includes('USA list')", timeout=10000)
         check(page.inner_text("#vendors-tab-usa") == "USA vendors (4)" and page.inner_text("#vendors-tab-india") == "India vendors (4)",

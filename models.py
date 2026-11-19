@@ -1201,7 +1201,7 @@ def create_user(name, email, password, role="Recruiter", avatar_url=None, region
         p_hash,
         role,
         avatar_url or "",
-        region if region in ("USA", "India") else "USA"
+        __import__("regions").normalize_team(region) or "USA"
     ))
     conn.commit()
     user_id = cursor.lastrowid

@@ -198,7 +198,8 @@ def _article(word: str) -> str:
 
 
 def _is_us_based(candidate: Dict) -> bool:
-    return (candidate.get("country") or "United States").strip().lower() in ("united states", "usa", "us")
+    """US or Canada based: their visa / work permit is worth stating (India-based consultants have none)."""
+    return (candidate.get("country") or "United States").strip().lower() in ("united states", "usa", "us", "canada")
 
 
 def _linkedin_of(candidate: Dict) -> str:

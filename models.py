@@ -112,11 +112,74 @@ class PgCursorWrapper:
         self._cursor.close()
 
 
+# Postgres connections are reused (a small pool) instead of opened for every lookup: opening one costs ~1 s when
+# the database is far from the server (AWS Sydney -> Supabase Oregon), and one extension click made 5-6 of them.
+# close() hands the connection back, rolled back, so nothing uncommitted carries over - the same as closing it.
+import threading as _threading
+import time as _pool_time
+
+_PG_IDLE = []                     # [(raw connection, last used)]
+_PG_IDLE_LOCK = _threading.Lock()
+PG_POOL_MAX = int(os.getenv("DB_POOL_MAX", "8") or 8)
+PG_PING_AFTER_SECONDS = 30        # a connection idle longer than this is checked before reuse (the server may have dropped it)
+
+
+def _pg_take():
+    """A pooled connection that still works, or None."""
+    while True:
+        with _PG_IDLE_LOCK:
+            item = _PG_IDLE.pop() if _PG_IDLE else None
+        if item is None:
+            return None
+        conn, used = item
+        if conn.closed:
+            continue
+        if _pool_time.monotonic() - used > PG_PING_AFTER_SECONDS:
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.fetchone()
+                cur.close()
+                conn.rollback()
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                continue
+        return conn
+
+
+def _pg_give(conn):
+    """Back to the pool (rolled back), or closed when it is broken or the pool is full."""
+    try:
+        if conn.closed:
+            return
+        import psycopg2.extensions as _ext
+        if conn.get_transaction_status() != _ext.TRANSACTION_STATUS_IDLE:
+            conn.rollback()
+        if conn.get_transaction_status() == _ext.TRANSACTION_STATUS_IDLE:
+            with _PG_IDLE_LOCK:
+                if len(_PG_IDLE) < PG_POOL_MAX:
+                    _PG_IDLE.append((conn, _pool_time.monotonic()))
+                    return
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
 class PgConnectionWrapper:
     def __init__(self, raw_conn):
         self._conn = raw_conn
+        self._closed = False
 
     def cursor(self):
+        if self._closed:
+            import psycopg2
+            raise psycopg2.InterfaceError("connection already closed")
         return PgCursorWrapper(self._conn.cursor(), self._conn)
 
     def commit(self):
@@ -126,7 +189,9 @@ class PgConnectionWrapper:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
+        if not self._closed:
+            self._closed = True
+            _pg_give(self._conn)
 
 
 def is_postgres(conn):
@@ -150,7 +215,8 @@ def get_db_connection():
             if wait:
                 _time.sleep(wait)
             try:
-                return PgConnectionWrapper(psycopg2.connect(config.DATABASE_URL, connect_timeout=10))
+                pooled = _pg_take()
+                return PgConnectionWrapper(pooled or psycopg2.connect(config.DATABASE_URL, connect_timeout=10))
             except Exception as e:
                 last = e
                 logger.warning("PostgreSQL connection failed (%s); retrying.", e.__class__.__name__)

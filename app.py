@@ -3141,7 +3141,7 @@ def api_ext_answers():
     if not cand:
         return jsonify({"error": "Consultant not found"}), 404
     questions = autofill.clean_questions(data.get("questions"))
-    if not questions or individuals.is_individual(user):   # Individual plan: no AI answers
+    if not questions:
         return jsonify({"answers": {}})
     _ensure_resume_text(cand)
     job = autofill.clean_job(data.get("job"))

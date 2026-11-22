@@ -8,7 +8,7 @@
    Contacts list are not.
 3. Jobs: free sources only (US: Dice + LinkedIn, India / Canada: LinkedIn), whatever source is asked for; a daily
    limit on live portal searches; a search needs a login (it can start a paid scrape).
-4. Extension: lists only their profile; tailoring works (own profile only); no AI form answers.
+4. Extension: lists only their profile; tailoring and AI form answers work (own profile only).
 5. Disabled: can't log in, and an open session stops working.
 6. Edge: the Individual's screen (My profile, Jobs, My applications, Autofill extension; no recruiter buttons;
    free sources; usage counter), saving the profile, My applications; the admin's Add-user form and roster.
@@ -169,8 +169,13 @@ me = client.get("/api/ext/me", headers=H).get_json()
 check([c["id"] for c in me["consultants"]] == [IVY_CAND], f"the extension lists only their profile: {me['consultants']}")
 check(client.post("/api/ext/tailor", headers=H, json={"candidate_id": IVY_CAND}).status_code != 403, "extension tailoring is open")
 check(client.post("/api/ext/tailor", headers=H, json={"candidate_id": OTHER}).status_code == 404, "but not for someone else")
-r = client.post("/api/ext/answers", headers=H, json={"candidate_id": IVY_CAND, "questions": [{"id": "q1", "label": "Why do you want this job?"}]})
-check(r.status_code == 200 and r.get_json() == {"answers": {}}, f"no AI answers: {r.get_json()}")
+ai_calls = []
+app_module._ext_ai = lambda system, prompt, max_tokens: ai_calls.append(prompt) or '{"q1": "I enjoy turning data into decisions."}'
+r = client.post("/api/ext/answers", headers=H, json={"candidate_id": IVY_CAND, "questions": [{"id": "q1", "label": "Why do you want this job?"}],
+                                                      "job": {"title": "Data Analyst", "company": "Example Co", "description": "SQL " * 30}})
+check(r.status_code == 200 and len(ai_calls) == 1, f"AI form answers work for an Individual: {r.status_code} {r.get_json()}")
+check(client.post("/api/ext/answers", headers=H, json={"candidate_id": OTHER, "questions": [{"id": "q1", "label": "Why?"}]}).status_code == 404,
+      "but not for someone else's profile")
 r = client.post("/api/ext/match", headers=H, json={"candidate_id": IVY_CAND, "job": {"title": "Data Analyst", "description": "SQL Python Power BI " * 10}})
 check(r.status_code == 200, f"match works without AI (keyword check): {r.status_code}")
 

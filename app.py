@@ -45,6 +45,7 @@ import canada_job_scrapers
 import sourcing_tracker
 import linkedin_outreach
 import vendors
+import individuals
 import job_experience
 from datetime import datetime, timedelta, timezone, date as date_cls
 from flask.json.provider import DefaultJSONProvider
@@ -185,6 +186,40 @@ def require_login_for_student_api():
         return jsonify({"error": "Login required"}), 401
 
 
+@app.before_request
+def _individual_plan_scope():
+    """Individual plan (individuals.py): only the routes on its allowlist, and a disabled account is signed out."""
+    if request.method == "OPTIONS" or not request.endpoint or request.endpoint == "static":
+        return None
+    user = current_user()
+    if not user and request.path.startswith("/api/ext/"):
+        user = _ext_user()
+    if not individuals.is_individual(user):
+        return None
+    conn = models.get_db_connection()
+    try:
+        disabled = individuals.is_disabled(conn, user["id"])
+    finally:
+        conn.close()
+    if disabled:
+        if current_user():
+            session.clear()
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "This account is disabled. Contact your administrator."}), 401
+        return redirect(url_for("login"))
+    if not individuals.allowed(request.endpoint, request.method):
+        if request.path.startswith("/api/") or request.path.startswith("/extension/"):
+            return jsonify({"error": "This isn't part of the Individual plan."}), 403
+        return redirect(url_for("dashboard"))
+    return None
+
+
+def _individual_profile_id(user):
+    """An Individual's one profile (the consultant assigned to them), or None."""
+    rows = models.get_candidates(user_id=user["id"], is_admin=False) if user else []
+    return rows[0]["id"] if rows else None
+
+
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -240,6 +275,18 @@ def login():
         email = email.strip()
 
         user = models.authenticate_user(email, password)
+        if user and individuals.is_individual(user):
+            conn = models.get_db_connection()
+            try:
+                if individuals.is_disabled(conn, user["id"]):
+                    user, error_msg = None, "This account is disabled. Contact your administrator."
+            finally:
+                conn.close()
+            if error_msg:
+                if request.is_json:
+                    return jsonify({"error": error_msg}), 401
+                return render_template("login.html", error=error_msg, has_azure=config.HAS_AZURE_AUTH,
+                                       allow_dev_login=config.ALLOW_DEV_LOGIN, env=config.ENV)
         if user:
             session["user"] = user
             # "Keep me signed in": the login survives closing the browser (30 days); otherwise it ends with the browser.
@@ -316,6 +363,14 @@ def dashboard():
         conn.close()
     can_switch_team = regions.can_switch(user, my_team)
     view_region = (session.get("view_region") or "Both") if can_switch_team else next(iter(view_regions))
+    is_individual = individuals.is_individual(user)
+    individual_usage = None
+    if is_individual:
+        conn = models.get_db_connection()
+        try:
+            individual_usage = individuals.usage(conn, user["id"])
+        finally:
+            conn.close()
 
     return render_template(
             "dashboard.html",
@@ -327,6 +382,10 @@ def dashboard():
             view_region=view_region,
             can_switch_team=can_switch_team,
             switch_teams=[r for r in regions.REGIONS if "Admin" in (user.get("role") or "") or r in regions.team_set(my_team)],
+            is_individual=is_individual,
+            my_profile_id=(candidates[0]["id"] if is_individual and candidates else None),
+            individual_usage=individual_usage,
+            autofill_fields=[{"key": k, "label": v[0], "max": v[1]} for k, v in autofill.AUTOFILL_FIELDS.items()],
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
             has_google_oauth=gmail_multi_manager.oauth_configured(),
@@ -808,6 +867,10 @@ def _attach_applications(jobs, candidate_id):
 def api_jobs_search():
     if request.method == "OPTIONS":
         return jsonify({}), 200
+    user = current_user()
+    if not user:   # a search can start a portal scrape (India / Canada ones are paid) - never for a stranger
+        return jsonify({"error": "Login required"}), 401
+    indiv = individuals.is_individual(user)
 
     data = request.json or {}
     query = data.get("query", "").strip()
@@ -818,6 +881,10 @@ def api_jobs_search():
     is_24h_only = data.get("is_24h_only", False)
     live_scrape = data.get("live_scrape", False)
     country = _job_country_for(current_user(), (data.get("country") or "United States").strip())
+    if indiv:
+        # Individual plan: free sources only, and the matching is always for their own profile.
+        source = individuals.free_source(country, source)
+        data["candidate_id"] = _individual_profile_id(user)
     my_experience = _int_or_none(data.get("my_experience"))
     include_unstated = data.get("include_unstated", True) is not False
     # "Posted within" (hours): wider than the default last 24h - 3 days, a week, two weeks
@@ -866,8 +933,23 @@ def api_jobs_search():
     # page's own Live 24h Scrape. US portals are read for free, so they keep scraping on an empty result.
     us_picked = _us_sources_for(source)
     paid = country.lower() == "india" or (country.lower() == "canada" and (source or "All").lower() != "linkedin") or any(s in us_job_scrapers.US_SOURCES and s not in us_job_scrapers.US_FREE_SOURCES for s in us_picked or [])
+    if indiv:
+        paid = False   # free_source() above left only free portals (India / Canada: LinkedIn)
     no_scrape = (bool(data.get("no_scrape")) and paid) or company_sites     # company sites: read by the career-board sync, never a portal scrape
-    if (len(results) == 0 and not no_scrape) or (live_scrape and not company_sites):
+    will_scrape = (len(results) == 0 and not no_scrape) or (live_scrape and not company_sites)
+    limit_reached, usage = False, None
+    if indiv:
+        conn = models.get_db_connection()
+        try:
+            if will_scrape:
+                if individuals.searches_today(conn, user["id"]) >= individuals.daily_limit(conn, user["id"]):
+                    will_scrape, limit_reached = False, True
+                else:
+                    individuals.count_search(conn, user["id"])
+            usage = individuals.usage(conn, user["id"])
+        finally:
+            conn.close()
+    if will_scrape:
         scrape_query = query or (roles[0].split(" / ")[0] if roles else "") or "Software Engineer"
         try:
             if country.lower() == "india":
@@ -933,7 +1015,10 @@ def api_jobs_search():
         "scrape_sources": scrape_sources,
         "query": query,
         "contract_only": contract_only,
-        "is_24h_only": is_24h_only
+        "is_24h_only": is_24h_only,
+        "source": source,
+        "limit_reached": limit_reached,
+        "usage": usage
     })
 
 def _capture_vendor(user, job, email="", cand=None, vendor_company="", client=""):
@@ -3033,7 +3118,7 @@ def api_ext_match():
         return jsonify({"error": "Couldn't read the job description on this page."}), 400
     resume_text, docx_bytes, custom = _ext_resume_inputs(cand)
     result = None
-    if docx_bytes is not None or resume_text:
+    if (docx_bytes is not None or resume_text) and not individuals.is_individual(user):   # Individual plan: no AI
         try:
             res = resume_bot.analyze_for_review(resume_text, job["description"], custom_instructions=custom, docx_bytes=docx_bytes)
             if res.get("error"):
@@ -3056,7 +3141,7 @@ def api_ext_answers():
     if not cand:
         return jsonify({"error": "Consultant not found"}), 404
     questions = autofill.clean_questions(data.get("questions"))
-    if not questions:
+    if not questions or individuals.is_individual(user):   # Individual plan: no AI answers
         return jsonify({"answers": {}})
     _ensure_resume_text(cand)
     job = autofill.clean_job(data.get("job"))
@@ -3728,6 +3813,10 @@ def api_admin_recruiters():
 
         if not name or not email or not password:
             return jsonify({"error": "Name, email, and password are required."}), 400
+        if role not in ("Recruiter", "Admin", individuals.ROLE):
+            return jsonify({"error": "Account type must be Recruiter, Admin or Individual."}), 400
+        if role == individuals.ROLE:
+            return _create_individual(user, name, email, password, data)
 
         try:
             new_user = models.create_user(name, email, password, role=role, region=region)
@@ -3741,7 +3830,97 @@ def api_admin_recruiters():
         except Exception as e:
             return jsonify({"error": f"Failed to create recruiter: {str(e)}"}), 500
 
-    return jsonify(models.get_users())
+    users = models.get_users()
+    indiv = [u for u in users if individuals.is_individual(u)]
+    if indiv:
+        conn = models.get_db_connection()
+        try:
+            cur = conn.cursor()
+            ids = [u["id"] for u in indiv]
+            cur.execute(f"SELECT c.assigned_user_id, COUNT(a.id) FROM candidates c JOIN applications a ON a.candidate_id = c.id "
+                        f"WHERE c.assigned_user_id IN ({', '.join(['?'] * len(ids))}) GROUP BY c.assigned_user_id", ids)
+            applied = {r[0]: r[1] for r in cur.fetchall()}
+            for u in indiv:
+                u.update(individuals.usage(conn, u["id"]), disabled=individuals.is_disabled(conn, u["id"]),
+                         applied=applied.get(u["id"], 0))
+        finally:
+            conn.close()
+    return jsonify(users)
+
+
+_INDIVIDUAL_COUNTRIES = ("United States", "India", "Canada")
+
+
+def _create_individual(admin, name, email, password, data):
+    """Admin: an Individual login and their one profile, together (individuals.py)."""
+    country = (data.get("country") or "United States").strip()
+    if country not in _INDIVIDUAL_COUNTRIES:
+        return jsonify({"error": "Country must be United States, India or Canada."}), 400
+    title = (data.get("title") or "").strip()[:150]
+    if not title:
+        return jsonify({"error": "Job title is required - it is what their job search looks for."}), 400
+    raw_limit = data.get("daily_limit")
+    limit = individuals.clean_limit(raw_limit) if str(raw_limit or "").strip() else individuals.DEFAULT_DAILY_LIMIT
+    if not limit:
+        return jsonify({"error": f"Daily job searches must be a whole number from 1 to {individuals.MAX_DAILY_LIMIT}."}), 400
+    region = regions.candidate_region({"country": country})
+    try:
+        new_user = models.create_user(name, email, password, role=individuals.ROLE, region=region)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    uid = new_user["id"] if isinstance(new_user, dict) else new_user
+    cand_id = models.create_candidate(name=name, email=email, title=title, country=country, status="Available",
+                                      visa_status="", target_rate="", assigned_user_id=uid)
+    conn = models.get_db_connection()
+    try:
+        individuals.set_daily_limit(conn, uid, limit)
+    finally:
+        conn.close()
+    models.log_activity(admin["id"], admin["name"], "Created Individual", "User", uid,
+                        f"Admin created Individual account for {name} ({email}), {country}, {limit} searches/day")
+    return jsonify({"success": True, "user": {"id": uid, "name": name, "email": email, "role": individuals.ROLE},
+                    "candidate_id": cand_id})
+
+
+@app.route("/api/admin/individuals/<int:uid>", methods=["POST"])
+def api_admin_individual(uid):
+    """Admin: enable / disable an Individual, or change their daily job-search limit."""
+    user = current_user()
+    if not user or "Admin" not in (user.get("role") or ""):
+        return jsonify({"error": "Admin permission required."}), 403
+    target = models.get_user_by_id(uid)
+    if not individuals.is_individual(target):
+        return jsonify({"error": "That account is not an Individual."}), 404
+    data = request.get_json(silent=True) or {}
+    conn = models.get_db_connection()
+    try:
+        if "daily_limit" in data:
+            limit = individuals.clean_limit(data.get("daily_limit"))
+            if not limit:
+                return jsonify({"error": f"Daily job searches must be a whole number from 1 to {individuals.MAX_DAILY_LIMIT}."}), 400
+            individuals.set_daily_limit(conn, uid, limit)
+        if "disabled" in data:
+            individuals.set_disabled(conn, uid, bool(data.get("disabled")))
+        out = dict(individuals.usage(conn, uid), disabled=individuals.is_disabled(conn, uid))
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user["name"], "Individual Settings", "User", uid,
+                        f"{target['name']}: {'disabled' if out['disabled'] else 'active'}, {out['daily_limit']} searches/day")
+    return jsonify({"success": True, **out})
+
+
+@app.route("/api/individual/me", methods=["GET"])
+def api_individual_me():
+    """An Individual's profile id and today's search usage."""
+    user = current_user()
+    if not individuals.is_individual(user):
+        return jsonify({"error": "Individual accounts only."}), 403
+    conn = models.get_db_connection()
+    try:
+        usage = individuals.usage(conn, user["id"])
+    finally:
+        conn.close()
+    return jsonify({"profile_id": _individual_profile_id(user), **usage})
 
 @app.route("/api/admin/recruiters/<int:recruiter_id>/region", methods=["POST"])
 def api_admin_recruiter_region(recruiter_id):
@@ -3803,6 +3982,12 @@ def api_admin_delete_recruiter(recruiter_id):
         return jsonify({"error": "Recruiter not found."}), 404
 
     models.delete_user(recruiter_id)
+    if individuals.is_individual(target):
+        conn = models.get_db_connection()
+        try:
+            individuals._delete(conn, recruiter_id)
+        finally:
+            conn.close()
     models.log_activity(
         user["id"], user["name"], "Deleted Recruiter", "User", recruiter_id,
         f"Admin deleted recruiter account {target['name']} ({target['email']}). Candidates reassigned to Admin."
@@ -3855,6 +4040,8 @@ def _assign_problem(cand, target_user) -> str:
     their own team (USA / India), so a cross-team assignment would hide the consultant from them."""
     if cand.get("assigned_user_id") == target_user["id"]:
         return f"{cand['name']} is already assigned to {target_user['name']}."
+    if individuals.is_individual(target_user):
+        return f"{target_user['name']} has an Individual account - it holds their own profile only."
     if "Admin" in (target_user.get("role") or ""):
         return ""
     conn = models.get_db_connection()

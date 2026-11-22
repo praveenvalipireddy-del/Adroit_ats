@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
-<body>
+<body{% if is_individual %} class="individual-plan"{% endif %}>
 {% macro resume_workspace(p, text_id, orig_id, text_label, h="58vh", chat_h="44vh") %}
 <!-- Resume workspace (app.js makeResumeWorkspace): preview of the real Word file (Find, JD keywords,
      changes) + "Edit with AI" chat. Used by the Optimize window (p="rv") and the Resume Optimizer tab (p="rbw"). -->
@@ -96,37 +96,49 @@
             </div>
 
             <nav class="nav-menu" style="margin-top: 16px;">
-                <a href="#candidates" class="nav-item active" data-tab="candidates">
+                <a href="#candidates" class="nav-item active ind-hide" data-tab="candidates">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                     <span>Consultants / Bench</span>
                     <span class="nav-badge count-badge">{{ candidates|length }}</span>
                 </a>
+                {% if is_individual %}
+                <a href="#myprofile" class="nav-item" data-tab="myprofile">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    <span>My profile</span>
+                </a>
+                {% endif %}
                 <a href="#jobs" class="nav-item" data-tab="jobs">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
                     <span>Jobs</span>
                     <span class="nav-badge live-badge">LIVE 24h</span>
                 </a>
-                <a href="#sourcing" class="nav-item" data-tab="sourcing">
+                <a href="#sourcing" class="nav-item ind-hide" data-tab="sourcing">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                     <span>Sourcing</span>
                 </a>
-                <a href="#vendors" class="nav-item" data-tab="vendors">
+                <a href="#vendors" class="nav-item ind-hide" data-tab="vendors">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                     <span>Vendors</span>
                 </a>
-                <a href="#contacts" class="nav-item" data-tab="contacts">
+                <a href="#contacts" class="nav-item ind-hide" data-tab="contacts">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="11" r="2.5"></circle><path d="M5.5 17a3.5 3.5 0 0 1 7 0"></path><line x1="15" y1="10" x2="19" y2="10"></line><line x1="15" y1="14" x2="19" y2="14"></line></svg>
                     <span>Contacts</span>
                 </a>
-                <a href="#resumebot" class="nav-item" data-tab="resumebot">
+                <a href="#resumebot" class="nav-item ind-hide" data-tab="resumebot">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                     <span>Resume Optimizer</span>
                 </a>
-                <a href="#reporting" class="nav-item" data-tab="reporting">
+                <a href="#reporting" class="nav-item ind-hide" data-tab="reporting">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
                     <span>Reporting</span>
                     <span class="nav-badge draft-badge" id="sidebar-draft-count">DRAFTS</span>
                 </a>
+                {% if is_individual %}
+                <a href="#" class="nav-item" id="nav-my-applications" title="Jobs you applied to">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    <span>My applications</span>
+                </a>
+                {% endif %}
                 <a href="#" class="nav-item" id="nav-extension" title="Chrome extension that fills job application forms">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3V4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v3H8a2 2 0 0 0-2 2v3H4a2 2 0 0 0 0 4h2v3a2 2 0 0 0 2 2h3v-2a2 2 0 0 1 4 0v2h3a2 2 0 0 0 2-2v-3h-2a2 2 0 0 1 0-4h2V9a2 2 0 0 0-2-2z"></path></svg>
                     <span>Autofill extension</span>
@@ -171,13 +183,13 @@
                         {% endfor %}
                     </select>
                     {% else %}
-                    <span id="team-badge" style="font-size:0.8rem; font-weight:700; padding:6px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">{{ {'USA': '🇺🇸 USA team', 'India': '🇮🇳 India team', 'Canada': '🇨🇦 Canada team'}.get(view_region, '🇺🇸 USA team') }}</span>
+                    <span id="team-badge" class="ind-hide" style="font-size:0.8rem; font-weight:700; padding:6px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;">{{ {'USA': '🇺🇸 USA team', 'India': '🇮🇳 India team', 'Canada': '🇨🇦 Canada team'}.get(view_region, '🇺🇸 USA team') }}</span>
                     {% endif %}
-                    <button class="btn btn-success btn-sm" id="btn-open-paste-draft-modal" style="box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);">
+                    <button class="btn btn-success btn-sm ind-hide" id="btn-open-paste-draft-modal" style="box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
                         📋 Paste Requirement & Draft
                     </button>
-                    <button class="btn btn-secondary btn-sm" id="btn-open-add-consultant" title="Add New Candidate Profile">
+                    <button class="btn btn-secondary btn-sm ind-hide" id="btn-open-add-consultant" title="Add New Candidate Profile">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         + Add Candidate
                     </button>
@@ -187,7 +199,7 @@
                         + Add Recruiter
                     </button>
                     {% endif %}
-                    <button class="btn btn-primary btn-sm" id="btn-header-scrape-us">
+                    <button class="btn btn-primary btn-sm ind-hide" id="btn-header-scrape-us">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                         Scrape 24h {{ {'India': 'India', 'Canada': 'Canada'}.get(view_region, 'US') }} Jobs
                     </button>
@@ -201,7 +213,7 @@
                 <div class="tab-pane" id="tab-jobs">
                     <div class="jobs-head">
                         <h2>Jobs</h2>
-                        <div class="jobs-head-pick">
+                        <div class="jobs-head-pick ind-hide">
                             <label for="jobs-side-consultant">Consultant</label>
                             <select id="jobs-side-consultant" class="form-control"><option value="">All consultants</option></select>
                         </div>
@@ -214,6 +226,7 @@
                             </select>
                         </div>
                         <span id="jobs-who" class="cons-muted"></span>
+                        {% if is_individual %}<span id="indiv-usage" class="indiv-usage" title="Searches that ask the job portals for new jobs (free portals only)"></span>{% endif %}
                     </div>
 
                     <!-- The same filter bar as a consultant's Matched jobs -->
@@ -264,7 +277,7 @@
                         <span id="jobs-cards-count"></span>
                         <div class="jobs-bar-acts">
                             <span id="jobs-portal-cost"></span>
-                            <button type="button" class="btn btn-secondary btn-sm" id="jobs-side-toggle">🏢 Company career sites</button>
+                            <button type="button" class="btn btn-secondary btn-sm ind-hide" id="jobs-side-toggle">🏢 Company career sites</button>
                             <button type="button" class="btn btn-primary btn-sm" id="btn-live-scrape-trigger" title="Ask the job portals for new jobs matching these filters">🔄 Find new jobs from portals</button>
                         </div>
                     </div>
@@ -585,6 +598,44 @@
                     </div>
                 </div>
 
+{% if is_individual %}
+                <div class="tab-pane" id="tab-myprofile">
+                    <div class="section-header"><div><h2>My profile</h2>
+                        <p>One profile per login. Job matching and the Autofill extension use it.</p></div></div>
+                    <form id="mp-form" class="mp-grid" onsubmit="return false;">
+                        <div class="mp-card">
+                            <div class="mp-fields">
+                                <div class="form-group"><label for="mp-name">Full name</label><input id="mp-name" class="form-control" maxlength="120" required></div>
+                                <div class="form-group"><label for="mp-title">Job title</label><input id="mp-title" class="form-control" maxlength="150"></div>
+                                <div class="form-group"><label for="mp-email">Email</label><input id="mp-email" type="email" class="form-control" maxlength="200"></div>
+                                <div class="form-group"><label for="mp-phone">Phone</label><input id="mp-phone" class="form-control" maxlength="40"></div>
+                                <div class="form-group"><label for="mp-country">Country</label><input id="mp-country" class="form-control" disabled title="Set by your administrator"></div>
+                                <div class="form-group"><label for="mp-location">Location</label><input id="mp-location" class="form-control" maxlength="120" placeholder="City, State"></div>
+                                <div class="form-group"><label for="mp-visa">Work authorization</label><input id="mp-visa" class="form-control" maxlength="80" placeholder="e.g. US Citizen, H1B, Open work permit"></div>
+                                <div class="form-group"><label for="mp-exp">Experience (years)</label><input id="mp-exp" type="number" min="0" max="60" class="form-control"></div>
+                            </div>
+                            <div class="form-group"><label for="mp-skills">Skills</label><input id="mp-skills" class="form-control" maxlength="1000" placeholder="Comma separated, e.g. Python, SQL, Power BI"></div>
+                            <div class="form-group"><label for="mp-summary">Summary</label><textarea id="mp-summary" class="form-control" rows="3" maxlength="3000"></textarea></div>
+                        </div>
+                        <div class="mp-side">
+                            <div class="mp-card">
+                                <div class="mp-h">Resume</div>
+                                <div class="mp-resume"><span id="mp-resume-name">No resume yet</span>
+                                    <label class="btn btn-secondary btn-sm" for="mp-resume-file" style="margin:0;">Upload .docx / .pdf</label>
+                                    <input id="mp-resume-file" type="file" accept=".docx,.pdf,.doc,.txt" hidden></div>
+                            </div>
+                            <div class="mp-card">
+                                <div class="mp-h">Application answers <small>(the Autofill extension fills these in)</small></div>
+                                <div class="mp-fields" id="mp-answers">
+                                    {% for f in autofill_fields %}<div class="form-group"><label for="mp-a-{{ f.key }}">{{ f.label }}</label><input id="mp-a-{{ f.key }}" data-key="{{ f.key }}" class="form-control mp-answer" maxlength="{{ f.max }}"></div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:10px; align-items:center;"><button type="button" class="btn btn-primary" id="mp-save">Save profile</button><span id="mp-msg" class="cons-muted"></span></div>
+                        </div>
+                    </form>
+                </div>
+                {% endif %}
 <div class="tab-pane active" id="tab-consultants">
                   <div id="cons-home">
                     <div class="section-header">
@@ -1517,12 +1568,19 @@
                     </div>
                     <div class="form-group">
                         <label>Role</label>
-                        <select id="rec-role" class="form-control">
+                        <select id="rec-role" class="form-control" onchange="window.onRecRoleChange()">
                             <option value="Recruiter" selected>Recruiter (Isolated Bench)</option>
                             <option value="Admin">Admin (Full Agency Visibility)</option>
+                            <option value="Individual">Individual (markets their own profile only)</option>
                         </select>
                     </div>
-                    <div class="form-group">
+                    <div id="rec-indiv-fields" hidden>
+                        <div class="form-group"><label for="rec-title">Job title *</label><input type="text" id="rec-title" class="form-control" maxlength="150" placeholder="e.g. Data Analyst"></div>
+                        <div class="form-group"><label for="rec-country">Country</label><select id="rec-country" class="form-control"><option>United States</option><option>India</option><option>Canada</option></select></div>
+                        <div class="form-group"><label for="rec-limit">Daily job searches</label><input type="number" id="rec-limit" class="form-control" min="1" max="500" value="20">
+                            <small class="form-hint">Live searches of the free job portals per day. Their profile is created with the login.</small></div>
+                    </div>
+                    <div class="form-group" id="rec-teams-group">
                         <label>Teams <span class="form-hint" style="font-weight:400;">(tick one or more)</span></label>
                         <div id="rec-region" class="rec-teams" style="display:flex; gap:8px; flex-wrap:wrap;">
                             <label style="display:flex; align-items:center; gap:6px; border:1px solid #cbd5e1; border-radius:8px; padding:8px 12px; cursor:pointer;"><input type="checkbox" value="USA" checked> USA</label>
@@ -1578,8 +1636,11 @@
     <div id="trk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.35); z-index:1200;"></div>
     <aside id="trk-drawer" aria-label="Candidate tracking card" style="position:fixed; top:0; right:0; height:100vh; width:min(480px, 100vw); background:#ffffff; box-shadow:-12px 0 30px rgba(15,23,42,0.18); z-index:1201; transform:translateX(105%); transition:transform 0.2s ease; overflow-y:auto; box-sizing:border-box;"></aside>
     <script>window.CURRENT_USER = {{ {'id': user.id, 'name': user.name, 'admin': ('Admin' in (user.role or ''))} | tojson }};
-        window.VIEW_REGION = {{ view_region | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.22"></script>
+        window.VIEW_REGION = {{ view_region | tojson }};
+        window.IS_INDIVIDUAL = {{ 'true' if is_individual else 'false' }};
+        window.MY_PROFILE_ID = {{ my_profile_id | tojson }};
+        window.INDIVIDUAL_USAGE = {{ individual_usage | tojson }};</script>
+    <script src="/static/js/app.js?v=5.99.23"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

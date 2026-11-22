@@ -71,6 +71,9 @@ us_job_scrapers.run_multi_source_us_scrape = lambda *a, **k: {"jobs": [], "count
 india_job_scrapers.run_multi_source_india_scrape = lambda *a, **k: {"jobs": [], "count": 0}
 
 client = app_module.app.test_client()
+_u = models.create_user("Jo Exptest", "jo-exp@example.invalid", "Exp-pass-1", role="Admin")   # a search needs a login
+with client.session_transaction() as _s:
+    _s["user"] = {"id": _u["id"] if isinstance(_u, dict) else _u, "name": "Jo Exptest", "role": "Admin", "email": "jo-exp@example.invalid"}
 
 
 def titles(**body):

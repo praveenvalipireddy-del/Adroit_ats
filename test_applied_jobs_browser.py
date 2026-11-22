@@ -83,7 +83,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.22" in page.content(), "cache-buster not bumped to 5.99.22")
+        check("app.js?v=5.99.23" in page.content(), "cache-buster not bumped to 5.99.23")
 
         page.wait_for_selector(".cons-card:has-text('Ravi Appliedfixture')", timeout=15000)
         page.locator(".cons-card:has-text('Ravi Appliedfixture')").first.click()

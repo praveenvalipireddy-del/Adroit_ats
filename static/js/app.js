@@ -56,7 +56,7 @@ function initNavigation() {
         const hashTab = window.location.hash.replace('#', '');
         switchTab(hashTab);
     } else {
-        switchTab('candidates');
+        switchTab(window.IS_INDIVIDUAL ? 'jobs' : 'candidates');
     }
 }
 
@@ -78,7 +78,10 @@ const tabAliasMap = {
     'resumebot': 'resumebot'
 };
 
+const INDIVIDUAL_TABS = ['jobs', 'myprofile', 'jobpage'];
+
 function switchTab(rawTabId) {
+    if (window.IS_INDIVIDUAL && !INDIVIDUAL_TABS.includes(rawTabId)) rawTabId = 'jobs';
     const paneKey = tabAliasMap[rawTabId] || rawTabId;
     state.activeTab = rawTabId;
 
@@ -112,6 +115,8 @@ function switchTab(rawTabId) {
         loadContacts();
     } else if (paneKey === 'jobs') {
         jobsOnTabOpen();
+    } else if (paneKey === 'myprofile') {
+        indivLoadProfile();
     }
 }
 
@@ -699,6 +704,7 @@ function syncJobsMarketUi() {
                <option value="Indeed">Indeed</option>
                <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
                <option value="Company site">🏢 Company career sites</option>`;
+        if (window.IS_INDIVIDUAL) indivTrimSources(sourceSelect, country);
         jobsPortalCostHint();
     }
 }
@@ -842,6 +848,7 @@ async function searchJobs(liveScrape = false, opts = {}) {
         });
 
         const data = await res.json();
+        if (window.IS_INDIVIDUAL) indivAfterSearch(data);
         state.jobs = filterWorkModel(Array.isArray(data) ? data : (data.jobs || data.results || []), document.getElementById('filter-work-model')?.value || '');
 
         if (countLabel) {
@@ -909,6 +916,7 @@ async function triggerUsScrape() {
 // Respects the Jobs tab's Job Market toggle - India scrapes Naukri/Foundit/LinkedIn,
 // anything else scrapes the existing US sources unchanged.
 async function triggerJobScrape() {
+    if (window.IS_INDIVIDUAL) return searchJobs(true, { allowScrape: true });   // free portals, through the daily limit
     const country = document.getElementById('filter-country')?.value || 'United States';
     if (country === 'India') {
         await triggerIndiaScrape();
@@ -2957,13 +2965,16 @@ async function loadRecruiters() {
                         </span>
                     </td>
                     <td style="padding: 14px 18px;">
-                        <span class="recruiter-region" data-id="${r.id}" style="display:inline-flex; gap:10px; font-size:0.8rem; white-space:nowrap;">
+                        ${r.role === 'Individual' ? `<span class="indiv-row" data-id="${r.id}" style="font-size:0.8rem;">${escapeHtml(r.region || '')} · ${r.searches_today || 0}/${r.daily_limit || 0} searches today ·
+                            <label style="display:inline-flex; align-items:center; gap:4px;">limit <input type="number" min="1" max="500" value="${r.daily_limit || 20}" style="width:64px;" onchange="onIndividualSettings(${r.id}, {daily_limit: this.value})"></label></span>`
+                        : `<span class="recruiter-region" data-id="${r.id}" style="display:inline-flex; gap:10px; font-size:0.8rem; white-space:nowrap;">
                             ${TEAMS.map(t => `<label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" value="${t}" ${teamList(r.region).includes(t) ? 'checked' : ''} onchange="onRecruiterTeamsChange(${r.id}, this)"> ${t}</label>`).join('')}
-                        </span>
+                        </span>`}
                     </td>
-                    <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">${r.consultant_count || 0} consultants</td>
+                    <td style="padding: 14px 18px; font-weight: 600; color: #38bdf8;">${r.role === 'Individual' ? `${r.applied || 0} applied` : `${r.consultant_count || 0} consultants`}</td>
                     <td style="padding: 14px 18px;">
                         <div style="display: flex; gap: 8px;">
+                            ${r.role === 'Individual' ? `<button class="btn btn-secondary btn-sm indiv-toggle" data-id="${r.id}" onclick="onIndividualSettings(${r.id}, {disabled: ${r.disabled ? 'false' : 'true'}})">${r.disabled ? 'Enable' : 'Disable'}</button>` : ''}
                             <button class="btn btn-secondary btn-sm" onclick="window.onResetRecruiterPassword(${r.id}, '${escapeHtml(r.name)}')">Reset Password</button>
                             <button class="btn btn-danger btn-sm" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="window.onDeleteRecruiter(${r.id}, '${escapeHtml(r.name)}')">Delete</button>
                         </div>
@@ -2976,11 +2987,11 @@ async function loadRecruiters() {
         const reassignSelect = document.getElementById('reassign-target-user-id');
         if (filterSelect) {
             const currentVal = filterSelect.value;
-            filterSelect.innerHTML = `<option value="">All Recruiters (Agency Wide)</option>` + 
+            filterSelect.innerHTML = `<option value="">All Recruiters (Agency Wide)</option>` +
                 recruiters.map(r => `<option value="${r.id}" ${currentVal == r.id ? 'selected' : ''}>${escapeHtml(r.name)} (${r.consultant_count} consultants)</option>`).join('');
         }
-        if (reassignSelect) {
-            reassignSelect.innerHTML = recruiters.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.email)})</option>`).join('');
+        if (reassignSelect) {       // an Individual's account holds their own profile only - never a reassign target
+            reassignSelect.innerHTML = recruiters.filter(r => r.role !== 'Individual').map(r => `<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.email)})</option>`).join('');
         }
     } catch (err) {
         console.error('Error loading recruiters:', err);
@@ -3011,8 +3022,14 @@ async function submitAddRecruiter(e) {
     const password = document.getElementById('rec-password')?.value?.trim();
     const role = document.getElementById('rec-role')?.value || 'Recruiter';
     const region = [...document.querySelectorAll('#rec-region input[type=checkbox]:checked')].map(b => b.value).join(',');
-
-    if (!region) {
+    const indiv = role === 'Individual';
+    const body = { name, email, password, role, region };
+    if (indiv) {
+        body.title = document.getElementById('rec-title')?.value?.trim() || '';
+        body.country = document.getElementById('rec-country')?.value || 'United States';
+        body.daily_limit = document.getElementById('rec-limit')?.value || '';
+        if (!body.title) { showToast('Job title is required for an Individual.', 'error'); return; }
+    } else if (!region) {
         showToast('Tick at least one team.', 'error');
         return;
     }
@@ -3025,13 +3042,14 @@ async function submitAddRecruiter(e) {
         const res = await fetch('/api/admin/recruiters', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password, role, region })
+            body: JSON.stringify(body)
         });
         const data = await res.json();
         if (res.ok && data.success) {
-            showToast(`Recruiter ${name} created successfully!`, 'success');
+            showToast(indiv ? `Individual ${name} created with their profile.` : `Recruiter ${name} created successfully!`, 'success');
             closeAddRecruiterModal();
             document.getElementById('form-add-recruiter')?.reset();
+            onRecRoleChange();
             await loadRecruiters();
         } else {
             showToast(data.error || 'Failed to create recruiter.', 'error');
@@ -3167,7 +3185,7 @@ const consBulk = { selected: new Set(), recruiters: null, wired: false };
 
 async function consRecruiters() {
     if (!consBulk.recruiters) {
-        try { const r = await fetch('/api/admin/recruiters'); consBulk.recruiters = r.ok ? await r.json() : []; } catch (e) { consBulk.recruiters = []; }
+        try { const r = await fetch('/api/admin/recruiters'); consBulk.recruiters = r.ok ? (await r.json()).filter(u => u.role !== 'Individual') : []; } catch (e) { consBulk.recruiters = []; }
     }
     return consBulk.recruiters;
 }
@@ -4484,7 +4502,7 @@ async function trkLoadRecruiters() {
     try {
         const res = await fetch('/api/admin/recruiters');
         const data = res.ok ? await res.json() : [];
-        trkRecruiters = (Array.isArray(data) ? data : (data.recruiters || [])).map(u => ({ id: u.id, name: u.name }));
+        trkRecruiters = (Array.isArray(data) ? data : (data.recruiters || [])).filter(u => u.role !== 'Individual').map(u => ({ id: u.id, name: u.name }));
     } catch (e) { trkRecruiters = []; }
 }
 
@@ -6765,8 +6783,8 @@ function openTracker(candId, pane, focusAppId) {
     $('trk-add').style.display = 'none';
     aiMsg('');
     $('modal-tracker').style.display = 'flex';
-    aiShow(pane || 'apps', focusAppId);
-    aiCounts();
+    aiShow(window.IS_INDIVIDUAL ? 'apps' : (pane || 'apps'), focusAppId);
+    if (!window.IS_INDIVIDUAL) aiCounts();    // Individual plan: no Gmail requirements / replies
 }
 function openReplies(candId, focusAppId) { openTracker(candId, 'replies', focusAppId); }
 function openRequirements(candId) { openTracker(candId, 'reqs'); }
@@ -8837,5 +8855,107 @@ async function loadContacts() {
     document.getElementById('contacts-company')?.addEventListener('change', e => { contactsUi.company = e.target.value; loadContacts(); });
     document.getElementById('contacts-export')?.addEventListener('click', () => {
         window.location.href = `/api/contacts/export.xlsx?${new URLSearchParams({ q: contactsUi.q, company: contactsUi.company })}`;
+    });
+})();
+
+// =========================================================================
+// Individual plan (individuals.py): one login markets one profile - their own. Free job sources only, a daily
+// limit on live portal searches, My profile, My applications.
+// =========================================================================
+const INDIV_FREE = { 'United States': ['All', 'LinkedIn', 'Dice', 'Company site'], 'India': ['LinkedIn', 'Company site'], 'Canada': ['LinkedIn', 'Company site'] };
+
+function indivTrimSources(sel, country) {
+    const keep = INDIV_FREE[country] || INDIV_FREE['United States'];
+    [...sel.options].forEach(o => { if (!keep.includes(o.value)) o.remove(); });
+    const all = [...sel.options].find(o => o.value === 'All');
+    if (all) all.textContent = 'All free portals (Dice, LinkedIn)';
+}
+
+function indivShowUsage(u) {
+    const el = document.getElementById('indiv-usage');
+    if (!el || !u) return;
+    el.textContent = `Live searches today: ${u.searches_today} of ${u.daily_limit}`;
+    el.classList.toggle('full', u.searches_today >= u.daily_limit);
+}
+
+function indivAfterSearch(data) {
+    if (data && data.usage) { window.INDIVIDUAL_USAGE = data.usage; indivShowUsage(data.usage); }
+    if (data && data.limit_reached) showToast("You've used today's live searches - showing jobs already found. More tomorrow.", 'info', 6000);
+}
+
+function indivAnswers(c) {
+    try { return typeof c.autofill_answers === 'string' ? JSON.parse(c.autofill_answers || '{}') : (c.autofill_answers || {}); } catch (e) { return {}; }
+}
+
+async function indivLoadProfile() {
+    if (!window.MY_PROFILE_ID) return;
+    const msg = document.getElementById('mp-msg');
+    const res = await fetch(`/api/consultants/${window.MY_PROFILE_ID}`);
+    if (!res.ok) { if (msg) msg.textContent = 'Could not load your profile.'; return; }
+    const c = await res.json();
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
+    set('mp-name', c.name); set('mp-title', c.title); set('mp-email', c.email); set('mp-phone', c.phone);
+    set('mp-country', c.country); set('mp-location', c.location); set('mp-visa', c.visa_status);
+    set('mp-exp', c.experience_years); set('mp-skills', c.primary_skills); set('mp-summary', c.resume_summary);
+    const ans = indivAnswers(c);
+    document.querySelectorAll('.mp-answer').forEach(el => { el.value = ans[el.dataset.key] || ''; });
+    const rn = document.getElementById('mp-resume-name');
+    if (rn) rn.textContent = c.resume_filename || 'No resume yet';
+}
+
+async function indivSaveProfile() {
+    const v = id => (document.getElementById(id)?.value || '').trim();
+    const msg = document.getElementById('mp-msg');
+    if (!v('mp-name')) { showToast('Your name is required.', 'error'); return; }
+    const answers = {};
+    document.querySelectorAll('.mp-answer').forEach(el => { if (el.value.trim()) answers[el.dataset.key] = el.value.trim(); });
+    const exp = v('mp-exp');
+    const body = { name: v('mp-name'), title: v('mp-title'), email: v('mp-email'), phone: v('mp-phone'), location: v('mp-location'),
+                   visa_status: v('mp-visa'), experience_years: exp === '' ? null : parseInt(exp), primary_skills: v('mp-skills'),
+                   resume_summary: v('mp-summary'), autofill_answers: answers };
+    const res = await fetch(`/api/consultants/${window.MY_PROFILE_ID}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(d.error || 'Could not save your profile.', 'error'); return; }
+    if (msg) msg.textContent = 'Saved.';
+    showToast('Profile saved.', 'success');
+    state.jobsSearched = false;           // the next Jobs visit searches with the new title
+    if (typeof fetchConsultants === 'function') await fetchConsultants();
+}
+
+async function indivUploadResume(file) {
+    const fd = new FormData();
+    fd.append('resume_file', file);
+    const res = await fetch(`/api/consultants/${window.MY_PROFILE_ID}/upload-resume`, { method: 'POST', body: fd });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(d.error || 'Could not upload the resume.', 'error'); return; }
+    showToast('Resume uploaded.', 'success');
+    indivLoadProfile();
+}
+
+function onRecRoleChange() {
+    const indiv = (document.getElementById('rec-role')?.value || '') === 'Individual';
+    const f = document.getElementById('rec-indiv-fields'), t = document.getElementById('rec-teams-group');
+    if (f) f.hidden = !indiv;
+    if (t) t.hidden = indiv;
+}
+window.onRecRoleChange = onRecRoleChange;
+
+async function onIndividualSettings(uid, change) {
+    const res = await fetch(`/api/admin/individuals/${uid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(d.error || 'Could not update.', 'error'); return; }
+    showToast(d.disabled ? 'Account disabled - they can no longer log in.' : `Active · ${d.daily_limit} searches a day.`, 'success');
+    loadRecruiters();
+}
+window.onIndividualSettings = onIndividualSettings;
+
+(function initIndividualPlan() {
+    if (!window.IS_INDIVIDUAL) return;
+    indivShowUsage(window.INDIVIDUAL_USAGE);
+    document.getElementById('mp-save')?.addEventListener('click', indivSaveProfile);
+    document.getElementById('mp-resume-file')?.addEventListener('change', e => { if (e.target.files[0]) indivUploadResume(e.target.files[0]); e.target.value = ''; });
+    document.getElementById('nav-my-applications')?.addEventListener('click', e => {
+        e.preventDefault();
+        if (window.MY_PROFILE_ID) openTracker(window.MY_PROFILE_ID, 'apps');
     });
 })();

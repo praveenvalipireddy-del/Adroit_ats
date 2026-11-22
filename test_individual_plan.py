@@ -4,9 +4,11 @@
    only Recruiter / Admin / Individual are account types; nobody can reassign a consultant to an Individual.
 2. Isolation: an Individual sees and edits only their own profile - can't add a second one, delete it, open someone
    else's, or use any recruiter / admin / AI / paid route (an allowlist, so new routes stay closed).
+2b. Resume tailoring and the Apollo hiring team are open (own profile only); Gmail drafts / AI emails / the shared
+   Contacts list are not.
 3. Jobs: free sources only (US: Dice + LinkedIn, India / Canada: LinkedIn), whatever source is asked for; a daily
    limit on live portal searches; a search needs a login (it can start a paid scrape).
-4. Extension: lists only their profile, no AI tailoring / answers (keyword match only).
+4. Extension: lists only their profile; tailoring works (own profile only); no AI form answers.
 5. Disabled: can't log in, and an open session stops working.
 6. Edge: the Individual's screen (My profile, Jobs, My applications, Autofill extension; no recruiter buttons;
    free sources; usage counter), saving the profile, My applications; the admin's Add-user form and roster.
@@ -119,7 +121,7 @@ r = client.put(f"/api/consultants/{IVY_CAND}", json={"title": "Senior Data Analy
 check(r.status_code == 200 and models.get_candidate_by_id(IVY_CAND)["title"] == "Senior Data Analyst", "can edit their own profile")
 r = client.put(f"/api/consultants/{IVY_CAND}", json={"country": "India"})
 check(r.status_code == 400, "can't move themselves to another country's team")
-for method, path in [("GET", "/api/vendors"), ("GET", "/api/activity"), ("POST", "/api/resume-bot/optimize"), ("POST", "/api/jobs/scrape-us"),
+for method, path in [("GET", "/api/vendors"), ("GET", "/api/activity"), ("POST", "/api/ai/personalize-draft"), ("POST", "/api/jobs/scrape-us"),
                      ("GET", "/api/admin/recruiters"), ("POST", "/api/outreach/create-draft"), ("POST", "/api/students/search"),
                      ("GET", "/api/replies"), ("GET", "/api/requirements"), ("POST", "/api/career-boards/sync"), ("GET", "/api/contacts"),
                      ("POST", f"/api/admin/individuals/{IVY}"), ("POST", "/api/view-region")]:
@@ -128,6 +130,14 @@ for method, path in [("GET", "/api/vendors"), ("GET", "/api/activity"), ("POST",
 r = client.post("/api/applications", json={"candidate_id": OTHER, "job_title": "QA", "company": "Example Co"})
 check(r.status_code in (403, 404), f"can't add an application for someone else: {r.status_code}")
 check(client.get("/api/individual/me").get_json().get("profile_id") == IVY_CAND, "/api/individual/me gives their profile")
+# resume tailoring + Apollo are open, but only for their own profile
+r = client.post("/api/resume-bot/optimize", json={"candidate_id": OTHER, "use_stored_file": True, "jd_text": "Python SQL " * 30})
+check(r.status_code in (400, 403, 404), f"can't tailor someone else's resume: {r.status_code}")
+check(client.get(f"/api/optimized-resumes?candidate_id={OTHER}").status_code in (403, 404), "can't list someone else's tailored resumes")
+check(client.get(f"/api/optimized-resumes?candidate_id={IVY_CAND}").status_code == 200, "can list their own tailored resumes")
+check(client.get(f"/api/consultants/{IVY_CAND}/rules").status_code == 200, "resume rules for their own profile")
+check(client.post("/api/super-apply/search", json={"job_id": 999999}).status_code != 403, "Apollo hiring team search is open")
+check(client.post("/api/super-apply/reveal", json={"job_id": 999999, "person_id": "x"}).status_code != 403, "Apollo reveal is open")
 
 # ---- 3. jobs: free sources only, daily limit
 scrapes.clear()
@@ -157,7 +167,8 @@ key = client.post("/api/extension/key").get_json()["key"]
 H = {"Authorization": f"Bearer {key}"}
 me = client.get("/api/ext/me", headers=H).get_json()
 check([c["id"] for c in me["consultants"]] == [IVY_CAND], f"the extension lists only their profile: {me['consultants']}")
-check(client.post("/api/ext/tailor", headers=H, json={"candidate_id": IVY_CAND}).status_code == 403, "no AI tailoring")
+check(client.post("/api/ext/tailor", headers=H, json={"candidate_id": IVY_CAND}).status_code != 403, "extension tailoring is open")
+check(client.post("/api/ext/tailor", headers=H, json={"candidate_id": OTHER}).status_code == 404, "but not for someone else")
 r = client.post("/api/ext/answers", headers=H, json={"candidate_id": IVY_CAND, "questions": [{"id": "q1", "label": "Why do you want this job?"}]})
 check(r.status_code == 200 and r.get_json() == {"answers": {}}, f"no AI answers: {r.get_json()}")
 r = client.post("/api/ext/match", headers=H, json={"candidate_id": IVY_CAND, "job": {"title": "Data Analyst", "description": "SQL Python Power BI " * 10}})
@@ -199,11 +210,10 @@ try:
         page = browser.new_page(viewport={"width": 1440, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, "ivy-indiv@example.invalid", "Ivy-pass-1")
-        check("app.js?v=5.99.23" in page.content(), "cache-buster not bumped to 5.99.23")
+        check("app.js?v=5.99.24" in page.content(), "cache-buster not bumped to 5.99.24")
         page.wait_for_selector("#tab-jobs.active", timeout=10000)
         visible = [t.strip() for t in page.locator(".nav-menu .nav-item:visible span").all_inner_texts() if t.strip()]
-        check(visible[:4] == ["My profile", "Jobs", "LIVE 24h", "My applications"] or
-              [v for v in visible if v != "LIVE 24h"] == ["My profile", "Jobs", "My applications", "Autofill extension"],
+        check([v for v in visible if v != "LIVE 24h"] == ["My profile", "Jobs", "Resume Optimizer", "My applications", "Autofill extension"],
               f"the Individual menu: {visible}")
         for sel in ("#btn-header-scrape-us", "#btn-open-paste-draft-modal", "#btn-open-add-consultant", "a[data-tab=vendors]", "a[data-tab=sourcing]"):
             check(not page.is_visible(sel), f"{sel} hidden for an Individual")
@@ -219,6 +229,9 @@ try:
         page.wait_for_function("document.getElementById('mp-msg').textContent === 'Saved.'", timeout=10000)
         check(models.get_candidate_by_id(IVY_CAND)["location"] == "Austin, TX", "the profile is saved")
         page.screenshot(path=shot)
+        page.click("a.nav-item[data-tab=resumebot]")
+        page.wait_for_selector("#tab-resumebot.active", timeout=10000)
+        check(page.is_visible("#btn-run-resume-optimization"), "the Resume Optimizer opens for an Individual")
         page.click("#nav-my-applications")
         page.wait_for_selector("#modal-tracker", state="visible", timeout=10000)
         check(not page.is_visible("#ai-tab-replies") and not page.is_visible("#ai-check"), "My applications: no Gmail inbox tabs")
@@ -242,5 +255,5 @@ if failures:
         print("  -", f)
     print("screenshot:", shot)
     sys.exit(1)
-print(f"PASS: Individual plan - admin creates login + profile; only their own profile; recruiter/admin/AI/paid routes closed; "
-      f"free job sources + daily limit; extension without AI; disabled accounts locked out; Edge screens. Screenshot: {shot}")
+print(f"PASS: Individual plan - admin creates login + profile; only their own profile; resume tailoring + Apollo open (own profile); "
+      f"recruiter/admin/Gmail/paid-portal routes closed; free job sources + daily limit; disabled accounts locked out; Edge screens. Screenshot: {shot}")

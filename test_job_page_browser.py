@@ -146,7 +146,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.23" in page.content(), "cache-buster not bumped to 5.99.23")
+        check("app.js?v=5.99.24" in page.content(), "cache-buster not bumped to 5.99.24")
         page.evaluate("() => { window.__drafts = []; window.createJobDraft = async (...a) => { window.__drafts.push(a); }; }")
         page.click("a.nav-item[data-tab=candidates]")
         page.click(f".cons-card[data-id='{K}']")

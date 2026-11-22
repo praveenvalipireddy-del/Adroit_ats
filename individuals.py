@@ -1,8 +1,9 @@
 """Individual plan: one login markets ONE profile - their own.
 
 An Individual is a users row with role "Individual" and exactly one consultant (candidates.assigned_user_id = their
-id), created together by an admin. They get Jobs (free sources only), their profile, their applications and the
-Autofill extension - nothing that costs money (paid portals, AI) and nothing of anyone else's.
+id), created together by an admin. They get Jobs (free sources only), their profile, their applications, resume
+tailoring (AI), the Apollo hiring team on a job and the Autofill extension - no paid job portals, no Gmail outreach,
+no recruiter / admin screens, and nothing of anyone else's.
 
 Per-person settings live in app_meta (no schema change):
   individual_limit:<uid>     live job searches allowed per day (default DEFAULT_DAILY_LIMIT)
@@ -35,10 +36,18 @@ ALLOWED = {
     "api_application_update": {"PUT"},
     "api_application_events": {"GET"},
     "api_applications_export": {"GET"},
+    # Resume tailoring (Resume Optimizer, job page "Tailor resume") - each route checks the profile is theirs
+    "api_resume_bot_optimize": {"POST"}, "api_resume_bot_extract_text": {"POST"}, "api_resume_bot_download_docx": {"POST"},
+    "api_optimized_resumes": {"GET", "POST"}, "api_optimized_resume_for_job": {"GET"}, "api_optimized_resume_download": {"GET"},
+    "api_resume_editor_edit": {"POST"}, "api_jd_from_url": {"POST"}, "api_jd_cloud": {"POST"},
+    "api_read_requirement": {"POST"}, "api_match_check": {"POST"},
+    "api_consultant_rules": {"GET", "POST"}, "api_consultant_rule": {"PUT", "DELETE"}, "api_consultant_rule_check": {"POST"},
+    # Apollo hiring team on a job (search is free; each new email is 1 Apollo credit). Not the shared Contacts list.
+    "api_super_apply_check": {"POST"}, "api_super_apply_search": {"POST"}, "api_super_apply_reveal": {"POST"},
     "api_extension_key": {"POST"}, "extension_zip": {"GET"},
     "api_ext_me": {"GET"}, "api_ext_consultant": {"GET"}, "api_ext_resume": {"GET"},
-    "api_ext_match": {"POST"},                                   # keyword check only (no AI) - see app.api_ext_match
-    "api_ext_answers": {"POST"},                                 # answers nothing (no AI) - see app.api_ext_answers
+    "api_ext_tailor": {"POST"}, "api_ext_match": {"POST"},
+    "api_ext_answers": {"POST"},                                 # answers nothing (no AI form answers) - see app.api_ext_answers
     "api_ext_job_status": {"POST"}, "api_ext_save_job": {"POST"}, "api_ext_applied": {"POST"},
     "api_individual_me": {"GET"},
 }

@@ -3118,7 +3118,7 @@ def api_ext_match():
         return jsonify({"error": "Couldn't read the job description on this page."}), 400
     resume_text, docx_bytes, custom = _ext_resume_inputs(cand)
     result = None
-    if (docx_bytes is not None or resume_text) and not individuals.is_individual(user):   # Individual plan: no AI
+    if docx_bytes is not None or resume_text:
         try:
             res = resume_bot.analyze_for_review(resume_text, job["description"], custom_instructions=custom, docx_bytes=docx_bytes)
             if res.get("error"):

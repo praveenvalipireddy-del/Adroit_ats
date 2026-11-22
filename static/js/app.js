@@ -78,7 +78,7 @@ const tabAliasMap = {
     'resumebot': 'resumebot'
 };
 
-const INDIVIDUAL_TABS = ['jobs', 'myprofile', 'jobpage'];
+const INDIVIDUAL_TABS = ['jobs', 'myprofile', 'jobpage', 'resumebot'];
 
 function switchTab(rawTabId) {
     if (window.IS_INDIVIDUAL && !INDIVIDUAL_TABS.includes(rawTabId)) rawTabId = 'jobs';
@@ -5407,7 +5407,7 @@ function initDraftOptimize() {
     $('btn-close-draft-optimize').addEventListener('click', close);
     $('btn-do-discard').addEventListener('click', () => { pdResume.result = null; delete optCache[optKey()]; close(); showToast('Discarded - nothing was saved.', 'info'); });
     $('do-optimized').addEventListener('input', () => { const c = optCache[optKey()]; if (c) c.edited = $('do-optimized').value; });
-    $('btn-do-save').addEventListener('click', () => (optPanel.mode === 'job' ? jobOptimizeSaveAndDraft() : draftOptimizeSave()));
+    $('btn-do-save').addEventListener('click', () => (window.IS_INDIVIDUAL ? indivSaveTailored() : optPanel.mode === 'job' ? jobOptimizeSaveAndDraft() : draftOptimizeSave()));
     $('btn-do-download').addEventListener('click', optimizeDownload);
     $('pd-consultant-select')?.addEventListener('change', () => { if (pdResume.versionId) pdResumeReset(); pdConsultantChanged(); pdVendorSchedule(); });
     rv.wire();
@@ -5434,7 +5434,7 @@ async function openOptimizePanel(opts) {
     $('do-jd').value = opts.jdText || '';
     $('do-jd-wrap').style.display = opts.mode === 'job' ? '' : 'none';
     $('do-title').textContent = opts.title ? `⚡ Optimize Resume - ${opts.title}` : '⚡ Optimize Resume for this Requirement';
-    $('btn-do-save').innerHTML = opts.requirement ? '✉️ Create Draft (reply in their thread)' : (opts.mode === 'job' ? '✉️ Save &amp; Create Draft' : '💾 Save &amp; use in this draft');
+    $('btn-do-save').innerHTML = window.IS_INDIVIDUAL ? '💾 Save tailored resume' : opts.requirement ? '✉️ Create Draft (reply in their thread)' : (opts.mode === 'job' ? '✉️ Save &amp; Create Draft' : '💾 Save &amp; use in this draft');
     $('btn-do-download').style.display = 'none';
     optPanel.analysis = null;
     optPanel.busy = false;
@@ -6649,7 +6649,7 @@ const doBox = emailBox('do', () => {
         resume_text: document.getElementById('do-optimized').value, tailored: !!(pdResume.result && pdResume.result.optimized),
         to_email: paste ? v('pd-email') : (optPanel.emailInput ? optPanel.emailInput.value : '').trim() };
 });
-const doEmailGenerate = () => doBox.generate();
+const doEmailGenerate = () => (window.IS_INDIVIDUAL ? null : doBox.generate());   // Individual plan: no Gmail email
 
 // ---- Paste Requirement window: AI reading, match %, "already applied", and the same email component
 const pdState = { readTimer: null, read: null, lastRaw: '' };
@@ -8959,3 +8959,17 @@ window.onIndividualSettings = onIndividualSettings;
         if (window.MY_PROFILE_ID) openTracker(window.MY_PROFILE_ID, 'apps');
     });
 })();
+
+// Individual plan: the Optimize window saves the tailored resume (no Gmail draft) - download it from the job page / extension.
+async function indivSaveTailored() {
+    const btn = document.getElementById('btn-do-save');
+    btn.disabled = true;
+    try {
+        await optimizeEnsureSaved();
+        document.getElementById('modal-draft-optimize').style.display = 'none';
+        showToast('Tailored resume saved. Download it from the job page, or the extension attaches it.', 'success', 6000);
+        if (state.activeTab === 'jobpage' && typeof jpRender === 'function') jpRender();
+    } catch (err) {
+        showToast(err.message, 'error', 6000);
+    } finally { btn.disabled = false; }
+}

@@ -1484,6 +1484,10 @@ button.jc-title:hover, button.cons-job-title:hover { color: #2563eb; text-decora
 body.individual-plan .ind-hide { display: none !important; }
 body.individual-plan #ai-tab-reqs, body.individual-plan #ai-tab-replies, body.individual-plan #ai-check,
 body.individual-plan #trk-consultant { display: none !important; }
+/* no Gmail outreach on the Individual plan: Apollo shows the email, they write from their own mail */
+body.individual-plan .jp-draft-one, body.individual-plan #jp-draft-ticked, body.individual-plan #jp-manual-draft,
+body.individual-plan .sa-draft, body.individual-plan .sa-draft-saved, body.individual-plan .jp-email-row,
+body.individual-plan #do-email-box { display: none !important; }
 .indiv-usage { font-size: 0.78rem; font-weight: 600; color: #334155; background: #ffffff; border: 1px solid #e2e8f0; padding: 5px 10px; border-radius: 999px; white-space: nowrap; }
 .indiv-usage.full { color: #92400e; background: #fffbeb; border-color: #fde68a; }
 .mp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }

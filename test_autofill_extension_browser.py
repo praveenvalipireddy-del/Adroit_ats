@@ -569,7 +569,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.23" in page.content(), "cache-buster not bumped to 5.99.23")
+        check("app.js?v=5.99.24" in page.content(), "cache-buster not bumped to 5.99.24")
         page.click("#nav-extension")
         page.wait_for_selector("#modal-extension", state="visible")
         page.click("#btn-ext-key")

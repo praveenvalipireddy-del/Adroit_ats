@@ -194,9 +194,9 @@
                         + Add Candidate
                     </button>
                     {% if 'Admin' in user.role %}
-                    <button class="btn btn-secondary btn-sm" onclick="switchTab('settings'); setTimeout(window.openAddRecruiterModal, 150);" style="display: inline-flex; align-items: center; gap: 6px; background: #ffffff; color: #0284c7; border: 1px solid #cbd5e1; font-weight: 600;" title="Add Recruiter User">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
-                        + Add Recruiter
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('settings'); setTimeout(window.openAddRecruiterModal, 150);" style="display: inline-flex; align-items: center; gap: 6px; background: #ffffff; color: #0284c7; border: 1px solid #cbd5e1; font-weight: 600;" title="Add User">
+                        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                        Add User
                     </button>
                     {% endif %}
                     <button class="btn btn-primary btn-sm ind-hide" id="btn-header-scrape-us">
@@ -982,8 +982,8 @@
                             <p>Manage recruiter accounts and ensure isolated workflows for your sourcing staff.</p>
                         </div>
                         <button class="btn btn-primary" id="btn-open-add-recruiter-modal" onclick="window.openAddRecruiterModal()">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            + Add New Recruiter
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            Add User
                         </button>
                     </div>
 

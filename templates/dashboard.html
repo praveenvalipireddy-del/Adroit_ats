@@ -226,7 +226,7 @@
                             </select>
                         </div>
                         <span id="jobs-who" class="cons-muted"></span>
-                        {% if is_individual %}<span id="indiv-usage" class="indiv-usage" title="Searches that ask the job portals for new jobs (free portals only)"></span>{% endif %}
+                        {% if is_individual %}<span id="indiv-usage" class="indiv-usage" title="Live job portal searches count toward your daily limit"></span>{% endif %}
                     </div>
 
                     <!-- The same filter bar as a consultant's Matched jobs -->
@@ -621,6 +621,7 @@
                             <div class="mp-card">
                                 <div class="mp-h">Resume</div>
                                 <div class="mp-resume"><span id="mp-resume-name">No resume yet</span>
+                                    <a id="mp-resume-download" class="btn btn-secondary btn-sm" hidden>Download original</a>
                                     <label class="btn btn-secondary btn-sm" for="mp-resume-file" style="margin:0;">Upload .docx / .pdf</label>
                                     <input id="mp-resume-file" type="file" accept=".docx,.pdf,.doc,.txt" hidden></div>
                             </div>
@@ -915,11 +916,12 @@
                                 <span id="result-domain" class="badge badge-domain">Fintech / Banking</span>
                                 <span id="result-ai-badge" style="margin-left:6px;"></span>
                             </div>
+                            <button type="button" class="btn btn-success" id="btn-download-optimized-pdf" hidden>Download PDF</button>
                             <button class="btn btn-success" id="btn-download-optimized-docx">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                Download Tailored .DOCX Resume
+                                Download Word
                             </button>
-                            <button class="btn btn-primary" id="btn-save-optimized-version" style="display:none; margin-left:6px;" title="Save this version (with your edits) to the consultant as Name_Skill.docx">💾 Save version</button>
+                            <button class="btn btn-primary" id="btn-save-optimized-version" style="display:none; margin-left:6px;" title="Save the reviewed resume to this consultant">💾 Save version</button>
                             <div id="save-version-status" style="font-size:0.78rem; color:#475569; margin-top:4px;"></div>
                         </div>
 
@@ -1578,7 +1580,7 @@
                         <div class="form-group"><label for="rec-title">Job title *</label><input type="text" id="rec-title" class="form-control" maxlength="150" placeholder="e.g. Data Analyst"></div>
                         <div class="form-group"><label for="rec-country">Country</label><select id="rec-country" class="form-control"><option>United States</option><option>India</option><option>Canada</option></select></div>
                         <div class="form-group"><label for="rec-limit">Daily job searches</label><input type="number" id="rec-limit" class="form-control" min="1" max="500" value="20">
-                            <small class="form-hint">Live searches of the free job portals per day. Their profile is created with the login.</small></div>
+                            <small class="form-hint">Daily limit for live job searches, including paid portals. Their profile is created with the login.</small></div>
                     </div>
                     <div class="form-group" id="rec-teams-group">
                         <label>Teams <span class="form-hint" style="font-weight:400;">(tick one or more)</span></label>
@@ -1639,8 +1641,9 @@
         window.VIEW_REGION = {{ view_region | tojson }};
         window.IS_INDIVIDUAL = {{ 'true' if is_individual else 'false' }};
         window.MY_PROFILE_ID = {{ my_profile_id | tojson }};
+        window.INDIVIDUAL_SOURCES = {{ individual_sources | tojson }};
         window.INDIVIDUAL_USAGE = {{ individual_usage | tojson }};</script>
-    <script src="/static/js/app.js?v=5.99.24"></script>
+    <script src="/static/js/app.js?v=5.99.25"></script>
 
     <!-- Recruiter Management Inline Fallback: app.js defines all of these with toast-based
          feedback and no page reloads. These only fire if app.js somehow failed to load -

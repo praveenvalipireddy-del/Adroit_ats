@@ -6,8 +6,8 @@
    else's, or use any recruiter / admin / AI / paid route (an allowlist, so new routes stay closed).
 2b. Resume tailoring and the Apollo hiring team are open (own profile only); Gmail drafts / AI emails / the shared
    Contacts list are not.
-3. Jobs: free sources only (US: Dice + LinkedIn, India / Canada: LinkedIn), whatever source is asked for; a daily
-   limit on live portal searches; a search needs a login (it can start a paid scrape).
+3. Jobs: free portals by default; Naukri India and LinkedIn recruiter posts only when the admin turns paid portals
+   on for that person, with their own daily cap (default 5); a daily limit on live portal searches; a search needs a login (it can start a paid scrape).
 4. Extension: lists only their profile; tailoring and AI form answers work (own profile only).
 5. Disabled: can't log in, and an open session stops working.
 6. Edge: the Individual's screen (My profile, Jobs, My applications, Autofill extension; no recruiter buttons;
@@ -139,24 +139,53 @@ check(client.get(f"/api/consultants/{IVY_CAND}/rules").status_code == 200, "resu
 check(client.post("/api/super-apply/search", json={"job_id": 999999}).status_code != 403, "Apollo hiring team search is open")
 check(client.post("/api/super-apply/reveal", json={"job_id": 999999, "person_id": "x"}).status_code != 403, "Apollo reveal is open")
 
-# ---- 3. jobs: free sources only, daily limit
+# ---- 3. jobs: free portals by default; paid portals only when the admin turns them on, with their own cap
 scrapes.clear()
 r = search(source="Indeed", live_scrape=True)
 check(r.status_code == 200 and r.get_json()["source"] == "All" and scrapes == [("us", None)],
       f"US: a paid source becomes the free portals: {r.get_json().get('source')} {scrapes}")
 r = search(source="Recruiter Post", live_scrape=True)
-check(r.get_json()["source"] == "All", "recruiter posts (paid) are not available")
+check(r.get_json()["source"] == "All" and scrapes[-1] == ("us", None), f"paid portals are off by default: {r.get_json()['source']}")
 u = r.get_json()["usage"]
-check(u == {"searches_today": 2, "daily_limit": 2}, f"two live searches counted: {u}")
+check(u == {"searches_today": 2, "daily_limit": 2, "paid": False}, f"two live searches counted: {u}")
 scrapes.clear()
 r = search(source="Dice", live_scrape=True)
 check(r.get_json()["limit_reached"] is True and scrapes == [], f"third live search is over the limit - no scrape: {scrapes}")
 r = search(source="Company site")
 check(r.status_code == 200 and r.get_json()["source"] == "Company site", "company career sites still work")
+as_user(ADMIN, "Ada", "Admin", ADMIN_EMAIL)
+d = client.post(f"/api/admin/individuals/{IVY}", json={"paid": True}).get_json()
+check(d["paid"] is True and d["paid_limit"] == 5 and d["paid_today"] == 0, f"admin turns paid portals on (default 5 a day): {d}")
+check(client.post(f"/api/admin/individuals/{IVY}", json={"paid_limit": 0}).status_code == 400, "paid cap must be 1..500")
+client.post(f"/api/admin/individuals/{IVY}", json={"paid_limit": 1})
+roster = {x["id"]: x for x in client.get("/api/admin/recruiters").get_json()}
+check(roster[IVY]["paid"] is True and roster[IVY]["paid_limit"] == 1, "the roster shows paid portals and the cap")
+as_user(IVY, "Ivy Indivtest", "Individual", "ivy-indiv@example.invalid")
+scrapes.clear()
+r = search(source="Recruiter Post", live_scrape=True)
+check(r.get_json()["source"] == "Recruiter Post" and scrapes == [("us", ["Recruiter Post"])],
+      f"with paid portals on, recruiter posts search (free daily limit already used - paid has its own cap): {scrapes}")
+check(r.get_json()["usage"]["paid_today"] == 1, "paid search counted against the paid cap")
+scrapes.clear()
+r = search(source="Recruiter Post", live_scrape=True)
+check(r.get_json()["limit_reached"] is True and scrapes == [], "second paid search is over the paid cap - no scrape")
 as_user(INDRA, "Indra Indivtest", "Individual", "indra-indiv@example.invalid")
 scrapes.clear()
 r = search(source="Naukri", country="United States", live_scrape=True)
-check(scrapes == [("india", ["LinkedIn"])], f"India: LinkedIn only (free), and the India market whatever was asked: {scrapes}")
+check(scrapes == [("india", ["LinkedIn"])], f"Naukri is off for an Individual without paid portals: {scrapes}")
+as_user(ADMIN, "Ada", "Admin", ADMIN_EMAIL)
+client.post(f"/api/admin/individuals/{INDRA}", json={"paid": True})
+as_user(INDRA, "Indra Indivtest", "Individual", "indra-indiv@example.invalid")
+scrapes.clear()
+r = search(source="Naukri", country="United States", live_scrape=True)
+check(scrapes == [("india", ["Naukri"])], f"Naukri search stays in the Individual's India market: {scrapes}")
+scrapes.clear()
+r = search(source="Recruiter Post", no_scrape=True)
+check(not scrapes and r.get_json()["usage"]["paid_today"] == 1, "changing to recruiter posts does not spend a search")
+r = search(source="Recruiter Post", live_scrape=True)
+check(scrapes == [("india", ["Recruiter Post"])], "only LinkedIn recruiter posts requested")
+r = search(source="Foundit", live_scrape=True)
+check(scrapes[-1] == ("india", ["LinkedIn"]), "Foundit still falls back to the free India source")
 with client.session_transaction() as s_:
     s_.clear()
 check(client.post("/api/jobs/search", json={"country": "India", "source": "Naukri"}).status_code == 401, "a job search needs a login")
@@ -215,7 +244,7 @@ try:
         page = browser.new_page(viewport={"width": 1440, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, "ivy-indiv@example.invalid", "Ivy-pass-1")
-        check("app.js?v=5.99.24" in page.content(), "cache-buster not bumped to 5.99.24")
+        check("app.js?v=5.99.25" in page.content(), "cache-buster not bumped to 5.99.25")
         page.wait_for_selector("#tab-jobs.active", timeout=10000)
         visible = [t.strip() for t in page.locator(".nav-menu .nav-item:visible span").all_inner_texts() if t.strip()]
         check([v for v in visible if v != "LIVE 24h"] == ["My profile", "Jobs", "Resume Optimizer", "My applications", "Autofill extension"],
@@ -223,8 +252,8 @@ try:
         for sel in ("#btn-header-scrape-us", "#btn-open-paste-draft-modal", "#btn-open-add-consultant", "a[data-tab=vendors]", "a[data-tab=sourcing]"):
             check(not page.is_visible(sel), f"{sel} hidden for an Individual")
         opts = page.eval_on_selector("#filter-source", "s => [...s.options].map(o => o.value)")
-        check(opts == ["All", "LinkedIn", "Dice", "Company site"], f"free sources only: {opts}")
-        page.wait_for_function("document.getElementById('indiv-usage').textContent.includes('of 5')", timeout=10000)
+        check(opts == ["All", "LinkedIn", "Dice", "Recruiter Post", "Company site"], f"US Individual sources (paid portals on): {opts}")
+        page.wait_for_function("document.getElementById('indiv-usage').textContent.includes('of 5 · paid: 1 of 1')", timeout=10000)
         page.click("a.nav-item[data-tab=myprofile]")
         page.wait_for_function("document.getElementById('mp-name').value === 'Ivy Indivtest'", timeout=10000)
         check(page.input_value("#mp-title") == "Senior Data Analyst" and page.input_value("#mp-a-linkedin_url") == "https://www.linkedin.com/in/ivy-test",
@@ -249,6 +278,14 @@ try:
         check(page2.is_visible("#rec-title") and not page2.is_visible("#rec-teams-group"), "Add user: Individual shows title / country / limit, not teams")
         page2.wait_for_selector(f".indiv-toggle[data-id='{IVY}']", timeout=10000)
         check(page2.inner_text(f".indiv-toggle[data-id='{IVY}']") == "Disable", "roster: Disable button for an Individual")
+        row = f".indiv-row[data-id='{IVY}']"
+        check(page2.is_checked(f"{row} .indiv-paid-on") and page2.input_value(f"{row} .indiv-paid-limit") == "1", "roster: Paid portals ticked with its cap")
+        page2.evaluate("closeAddRecruiterModal()")
+        page2.uncheck(f"{row} .indiv-paid-on")
+        page2.wait_for_function(f"!document.querySelector(\"{row} .indiv-paid-limit\")", timeout=10000)
+        c_ = models.get_db_connection()
+        check(not app_module.individuals.has_paid(c_, IVY), "unticking turns paid portals off")
+        c_.close()
         browser.close()
 finally:
     server.shutdown()
@@ -261,4 +298,4 @@ if failures:
     print("screenshot:", shot)
     sys.exit(1)
 print(f"PASS: Individual plan - admin creates login + profile; only their own profile; resume tailoring + Apollo open (own profile); "
-      f"recruiter/admin/Gmail/paid-portal routes closed; free job sources + daily limit; disabled accounts locked out; Edge screens. Screenshot: {shot}")
+      f"recruiter/admin/Gmail routes closed; market sources + daily limit; disabled accounts locked out; Edge screens. Screenshot: {shot}")

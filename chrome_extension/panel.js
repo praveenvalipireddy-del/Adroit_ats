@@ -392,6 +392,7 @@ function renderTailorReview() {
     ${group('Not stated in the resume', 'var(--amber)', items.filter((i) => i.kind === 'unproven'))}
     ${group('Not in the resume', 'var(--red)', items.filter((i) => i.kind === 'missing'))}
     <div class="tl-proj">Match ${esc(st.tailorReview.initial)}% → <b id="tl-proj"></b></div>
+    ${/\.pdf$/i.test(st.profile?.profile?.resume_filename || '') ? '<label><input type="checkbox" id="tl-reflow"> Allow a standard PDF layout if the edits do not fit</label>' : ''}
     <div class="row"><button class="btn primary" id="btn-tl-apply">Apply</button><button class="btn" id="btn-tl-cancel">Keep the original</button></div>`;
   box.querySelectorAll('input[data-ch]').forEach((i) => i.addEventListener('change', tailorChanged));
   $('btn-tl-apply').addEventListener('click', tailorApply);
@@ -406,7 +407,7 @@ async function tailorApply() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span>Making the changes…';
   try {
-    const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids } });
+    const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids, allow_pdf_reflow: !!$('tl-reflow')?.checked } });
     const box = $('tailor-box');
     if (!d.changed) { box.innerHTML = `<p class="warn">${esc(d.reason)}</p><p class="hint">Autofill attaches the original resume.</p>`; return; }
     st.tailored = { version_id: d.version_id, key: `v${d.version_id}`, filename: d.filename, mime: d.mime, base64: d.base64, original: d.original_text || '', changes: d.changes };

@@ -1,20 +1,25 @@
 """Individual plan: one login markets ONE profile - their own.
 
 An Individual is a users row with role "Individual" and exactly one consultant (candidates.assigned_user_id = their
-id), created together by an admin. They get Jobs (free sources only), their profile, their applications, resume
-tailoring (AI), the Apollo hiring team on a job and the Autofill extension (with AI answers) - no paid job portals, no Gmail outreach,
+id), created together by an admin. They get Jobs, their profile, their applications, resume
+tailoring (AI), the Apollo hiring team on a job and the Autofill extension (with AI answers) - no Gmail outreach,
 no recruiter / admin screens, and nothing of anyone else's.
 
 Per-person settings live in app_meta (no schema change):
   individual_limit:<uid>     live job searches allowed per day (default DEFAULT_DAILY_LIMIT)
   individual_disabled:<uid>  "1" = can't log in
   individual_searches:<uid>  "YYYY-MM-DD:<count>" - today's live searches
+  individual_paid:<uid>      "1" = may use the paid portals (Naukri, LinkedIn recruiter posts - Apify credits); off by default
+  individual_paid_limit:<uid>       paid live searches allowed per day (default DEFAULT_PAID_LIMIT)
+  individual_paid_searches:<uid>    "YYYY-MM-DD:<count>" - today's paid live searches
 """
 from datetime import datetime, timezone
 
 ROLE = "Individual"
 DEFAULT_DAILY_LIMIT = 20
 MAX_DAILY_LIMIT = 500
+DEFAULT_PAID_LIMIT = 5
+PAID_SOURCES = ("Naukri", "Recruiter Post")     # each live search runs an Apify scrape on the owner's account
 
 # Routes an Individual may use (Flask endpoint -> methods). Everything else is refused (403) - an allowlist, so a
 # route added later stays closed to them until it is listed here.
@@ -24,7 +29,7 @@ ALLOWED = {
     "api_consultants": {"GET"},                                  # no POST: one profile only
     "api_consultant_detail": {"GET", "PUT"},                     # no DELETE
     "api_consultant_upload_resume": {"POST"},
-    "api_consultant_resume_docx": {"GET"},
+    "api_consultant_resume_docx": {"GET"}, "api_original_resume": {"GET"}, "api_resume_download_pdf": {"POST"},
     "api_consultants_overview": {"GET"},
     "api_jobs_search": {"POST"},
     "api_job_role_counts": {"POST"},
@@ -52,11 +57,12 @@ ALLOWED = {
     "api_individual_me": {"GET"},
 }
 
-# Job sources that cost nothing, per market. "All" for the US means the free portals (Dice + LinkedIn) already.
-FREE_SOURCES = {
-    "united states": ("all", "dice", "linkedin"),
-    "india": ("linkedin",),
-    "canada": ("linkedin",),
+# First entry is the default. The paid sources (PAID_SOURCES) are only offered to an Individual the admin turned
+# paid portals on for, and must be selected explicitly.
+JOB_SOURCES = {
+    "United States": ("All", "Dice", "LinkedIn", "Recruiter Post", "Company site"),
+    "India": ("LinkedIn", "Naukri", "Recruiter Post", "Company site"),
+    "Canada": ("LinkedIn", "Recruiter Post", "Company site"),
 }
 
 
@@ -70,16 +76,19 @@ def allowed(endpoint: str, method: str) -> bool:
     return method in ALLOWED.get(endpoint or "", set())
 
 
-def free_source(country: str, source: str) -> str:
-    """The source an Individual's search may use: theirs when it is free, else the market's free one
-    (company sites are always fine - read from the stored career-board jobs, never a paid scrape)."""
-    s = (source or "All").strip()
-    if s.lower().startswith("company site"):
-        return s
-    free = FREE_SOURCES.get((country or "United States").strip().lower(), ("linkedin",))
-    if s.lower().replace(".com", "") in free:
-        return s
-    return "All" if "all" in free else "LinkedIn"
+def sources_for(country: str, paid: bool) -> tuple:
+    choices = JOB_SOURCES.get((country or "").strip().title(), ("LinkedIn",))
+    return choices if paid else tuple(c for c in choices if c not in PAID_SOURCES)
+
+
+def all_sources(paid: bool) -> dict:
+    return {country: sources_for(country, paid) for country in JOB_SOURCES}
+
+
+def job_source(country: str, source: str, paid: bool = False) -> str:
+    choices = sources_for(country, paid)
+    requested = (source or "").strip().lower().removesuffix(".com")
+    return next((item for item in choices if item.lower() == requested), choices[0])
 
 
 # --- app_meta settings ---------------------------------------------------------------------------------------
@@ -103,7 +112,8 @@ def _set(conn, key, value):
 
 def _delete(conn, uid):
     cur = conn.cursor()
-    for k in ("individual_limit", "individual_disabled", "individual_searches"):
+    for k in ("individual_limit", "individual_disabled", "individual_searches",
+              "individual_paid", "individual_paid_limit", "individual_paid_searches"):
         cur.execute("DELETE FROM app_meta WHERE meta_key = ?", (f"{k}:{int(uid)}",))
     conn.commit()
 
@@ -137,18 +147,64 @@ def _today():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def searches_today(conn, uid) -> int:
-    raw = _get(conn, f"individual_searches:{int(uid)}") or ""
+def _count_today(conn, key) -> int:
+    raw = _get(conn, key) or ""
     day, _, n = raw.partition(":")
     return int(n) if day == _today() and n.isdigit() else 0
 
 
-def count_search(conn, uid) -> int:
-    """Record one live search for today; returns today's total."""
-    n = searches_today(conn, uid) + 1
-    _set(conn, f"individual_searches:{int(uid)}", f"{_today()}:{n}")
-    return n
+def searches_today(conn, uid) -> int:
+    return _count_today(conn, f"individual_searches:{int(uid)}")
+
+
+def paid_searches_today(conn, uid) -> int:
+    return _count_today(conn, f"individual_paid_searches:{int(uid)}")
+
+
+def has_paid(conn, uid) -> bool:
+    return _get(conn, f"individual_paid:{int(uid)}") == "1"
+
+
+def set_paid(conn, uid, on: bool) -> None:
+    _set(conn, f"individual_paid:{int(uid)}", "1" if on else "0")
+
+
+def paid_limit(conn, uid) -> int:
+    return clean_limit(_get(conn, f"individual_paid_limit:{int(uid)}")) or DEFAULT_PAID_LIMIT
+
+
+def set_paid_limit(conn, uid, limit) -> None:
+    _set(conn, f"individual_paid_limit:{int(uid)}", str(int(limit)))
+
+
+def _reserve(conn, key, limit) -> bool:
+    """Lock the counter before checking it so concurrent searches share the limit."""
+    today = _today()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO app_meta (meta_key, meta_value) VALUES (?, ?)
+                   ON CONFLICT (meta_key) DO UPDATE SET meta_value = app_meta.meta_value
+                   RETURNING meta_value""", (key, f"{today}:0"))
+    day, _, count = cur.fetchone()["meta_value"].partition(":")
+    used = int(count) if day == today and count.isdigit() else 0
+    if used >= limit:
+        conn.commit()
+        return False
+    cur.execute("UPDATE app_meta SET meta_value = ? WHERE meta_key = ?", (f"{today}:{used + 1}", key))
+    conn.commit()
+    return True
+
+
+def reserve_search(conn, uid) -> bool:
+    return _reserve(conn, f"individual_searches:{int(uid)}", daily_limit(conn, uid))
+
+
+def reserve_paid_search(conn, uid) -> bool:
+    """A paid live search: needs paid portals turned on, and counts against the separate paid cap."""
+    return has_paid(conn, uid) and _reserve(conn, f"individual_paid_searches:{int(uid)}", paid_limit(conn, uid))
 
 
 def usage(conn, uid) -> dict:
-    return {"searches_today": searches_today(conn, uid), "daily_limit": daily_limit(conn, uid)}
+    out = {"searches_today": searches_today(conn, uid), "daily_limit": daily_limit(conn, uid), "paid": has_paid(conn, uid)}
+    if out["paid"]:
+        out.update(paid_today=paid_searches_today(conn, uid), paid_limit=paid_limit(conn, uid))
+    return out

@@ -104,16 +104,16 @@ def primary_skill(result: Dict, cand: Optional[Dict], jd_text: str, job_title: s
     return str((cand or {}).get("title") or "Resume").strip()
 
 
-def make_filename(consultant_name: str, skill: str, taken: List[str]) -> str:
+def make_filename(consultant_name: str, skill: str, taken: List[str], extension: str = ".docx") -> str:
     """<Name>_<Skill>.docx, with _v2/_v3... when that name is already used for this consultant."""
     name = _clean(consultant_name) or "Consultant"
     sk = _clean(skill)[:40].strip("_") or "Resume"
     base = f"{name}_{sk}"
     used = {t.lower() for t in taken or []}
-    candidate, n = f"{base}.docx", 1
+    candidate, n = f"{base}{extension}", 1
     while candidate.lower() in used:
         n += 1
-        candidate = f"{base}_v{n}.docx"
+        candidate = f"{base}_v{n}{extension}"
     return candidate
 
 

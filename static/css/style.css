@@ -1499,3 +1499,4 @@ body.individual-plan #do-email-box { display: none !important; }
 .mp-resume { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 12px; }
 #mp-answers { max-height: 340px; overflow-y: auto; }
 @media (max-width: 900px) { .mp-grid, .mp-fields { grid-template-columns: 1fr; } }
+#mp-resume-download[hidden], #btn-download-optimized-pdf[hidden], #jp-export-pdf[hidden] { display: none; }

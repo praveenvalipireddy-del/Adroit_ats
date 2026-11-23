@@ -19,6 +19,7 @@ import models
 import resume_bot
 import cloud_align
 import resume_versions
+import resume_pdf
 import application_tracker
 import outreach_ai
 import resume_editor
@@ -385,6 +386,7 @@ def dashboard():
             is_individual=is_individual,
             my_profile_id=(candidates[0]["id"] if is_individual and candidates else None),
             individual_usage=individual_usage,
+            individual_sources=individuals.all_sources(bool(individual_usage and individual_usage.get("paid"))),
             autofill_fields=[{"key": k, "label": v[0], "max": v[1]} for k, v in autofill.AUTOFILL_FIELDS.items()],
             env=config.ENV,
             has_apify=bool(config.APIFY_API_TOKEN) or (harvest_direct.enabled() and harvest_direct.configured()),
@@ -882,8 +884,12 @@ def api_jobs_search():
     live_scrape = data.get("live_scrape", False)
     country = _job_country_for(current_user(), (data.get("country") or "United States").strip())
     if indiv:
-        # Individual plan: free sources only, and the matching is always for their own profile.
-        source = individuals.free_source(country, source)
+        conn = models.get_db_connection()
+        try:
+            indiv_paid = individuals.has_paid(conn, user["id"])
+        finally:
+            conn.close()
+        source = individuals.job_source(country, source, indiv_paid)
         data["candidate_id"] = _individual_profile_id(user)
     my_experience = _int_or_none(data.get("my_experience"))
     include_unstated = data.get("include_unstated", True) is not False
@@ -934,18 +940,17 @@ def api_jobs_search():
     us_picked = _us_sources_for(source)
     paid = country.lower() == "india" or (country.lower() == "canada" and (source or "All").lower() != "linkedin") or any(s in us_job_scrapers.US_SOURCES and s not in us_job_scrapers.US_FREE_SOURCES for s in us_picked or [])
     if indiv:
-        paid = False   # free_source() above left only free portals (India / Canada: LinkedIn)
+        paid = source in individuals.PAID_SOURCES     # only offered when the admin turned paid portals on for them
     no_scrape = (bool(data.get("no_scrape")) and paid) or company_sites     # company sites: read by the career-board sync, never a portal scrape
-    will_scrape = (len(results) == 0 and not no_scrape) or (live_scrape and not company_sites)
+    will_scrape = (len(results) == 0 and not no_scrape) or (live_scrape and not company_sites and not (indiv and no_scrape))
     limit_reached, usage = False, None
     if indiv:
         conn = models.get_db_connection()
         try:
-            if will_scrape:
-                if individuals.searches_today(conn, user["id"]) >= individuals.daily_limit(conn, user["id"]):
-                    will_scrape, limit_reached = False, True
-                else:
-                    individuals.count_search(conn, user["id"])
+            # paid portals have their own (smaller) daily cap; free portals the normal daily limit
+            reserve = individuals.reserve_paid_search if paid else individuals.reserve_search
+            if will_scrape and not reserve(conn, user["id"]):
+                will_scrape, limit_reached = False, True
             usage = individuals.usage(conn, user["id"])
         finally:
             conn.close()
@@ -2854,7 +2859,7 @@ def api_optimized_resumes():
         if not cid or not can_access_candidate(user, cid):
             return jsonify({"error": "Consultant not found"}), 404
         return jsonify({"versions": resume_versions.list_for(cid)})
-    data = request.get_json(silent=True) or {}
+    data = request.form if request.form else (request.get_json(silent=True) or {})
     cid = _int_or_none(data.get("candidate_id"))
     if not cid or not can_access_candidate(user, cid):
         return jsonify({"error": "Choose the consultant this resume belongs to."}), 404
@@ -2867,8 +2872,17 @@ def api_optimized_resumes():
         return jsonify({"error": "The optimized Word file was not readable - optimize again."}), 400
     jd_text = str(data.get("jd_text") or "")
     skill = str(data.get("primary_skill") or "").strip() or resume_versions.primary_skill({}, cand, jd_text)
-    filename = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cid))
-    file_bytes, kept, note = resume_versions.build_final_docx(ai_docx, str(data.get("ai_text") or ""), edited, cand.get("name") or "Consultant")
+    if data.get("format") == "pdf":
+        file_bytes, error = _reviewed_pdf(user, data, edited)
+        if error:
+            return error
+        extension = ".pdf"
+        kept = data.get("pdf_layout") != "reflow"
+        note = "" if kept else "Saved using the standard PDF layout."
+    else:
+        extension = ".docx"
+        file_bytes, kept, note = resume_versions.build_final_docx(ai_docx, str(data.get("ai_text") or ""), edited, cand.get("name") or "Consultant")
+    filename = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cid), extension)
     job_id = _int_or_none(data.get("job_id"))
     if job_id and not models.get_job_by_id(job_id):
         job_id = None
@@ -2893,11 +2907,80 @@ def api_optimized_resume_for_job():
     if not v or not v.get("data"):
         return jsonify({"version": None})
     try:
-        text = docx_editor.extract_text(bytes(v["data"]))
+        text = resume_bot.extract_text_from_file_bytes(bytes(v["data"]), v["filename"], strict=True)
     except Exception:
         text = ""
     return jsonify({"version": {"id": v["id"], "filename": v["filename"], "created_at": str(v.get("created_at") or "")[:16], "text": text,
-                                "docx_base64": base64.b64encode(bytes(v["data"])).decode("ascii")}})
+                                "docx_base64": base64.b64encode(bytes(v["data"])).decode("ascii") if v["filename"].lower().endswith(".docx") else ""}})
+
+
+@app.get("/api/consultants/<int:candidate_id>/resume/download")
+def api_original_resume(candidate_id):
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    if not can_access_candidate(user, candidate_id):
+        return jsonify({"error": "Consultant not found"}), 404
+    found = models.find_resume_file(models.get_candidate_by_id(candidate_id) or {})
+    if not found:
+        return jsonify({"error": "The original file is unavailable. Upload the resume again."}), 404
+    name, content = found
+    return send_file(io.BytesIO(content), as_attachment=True, download_name=name,
+                     mimetype=_resume_mime(name), max_age=0)
+
+
+def _resume_mime(name):
+    return {".pdf": "application/pdf", ".doc": "application/msword", ".txt": "text/plain",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}.get(
+                Path(name).suffix.lower(), "application/octet-stream")
+
+
+def _reviewed_pdf(user, data, edited):
+    if not edited.strip() or len(edited) > resume_pdf.MAX_TEXT:
+        return None, (jsonify({"error": "Provide reviewed resume text of up to 120,000 characters."}), 400)
+    cid = _int_or_none(data.get("candidate_id"))
+    if cid and not can_access_candidate(user, cid):
+        return None, (jsonify({"error": "Consultant not found"}), 404)
+    try:
+        if data.get("pdf_layout") == "reflow":
+            return resume_pdf.reflow(edited), None
+        upload = request.files.get("source_pdf")
+        if upload:
+            source = upload.read(resume_pdf.MAX_SOURCE_BYTES + 1)
+            if len(source) > resume_pdf.MAX_SOURCE_BYTES:
+                return None, (jsonify({"error": "The PDF exceeds 10 MB."}), 413)
+        elif data.get("source_version_id"):
+            version = resume_versions.get(_int_or_none(data["source_version_id"]))
+            if not version or version["candidate_id"] != cid or not version["filename"].lower().endswith(".pdf"):
+                return None, (jsonify({"error": "Source PDF version not found."}), 404)
+            source = version["data"]
+        else:
+            original = models.find_resume_file(models.get_candidate_by_id(cid)) if cid else None
+            source = original[1] if original and original[0].lower().endswith(".pdf") else None
+        return resume_pdf.original_layout(source, edited), None
+    except resume_pdf.LayoutError as exc:
+        return None, (jsonify({"error": str(exc), "can_reflow": True}), 409)
+    except ValueError as exc:
+        return None, (jsonify({"error": str(exc)}), 400)
+
+
+@app.post("/api/resume-bot/download-pdf")
+def api_resume_download_pdf():
+    user = current_user()
+    if not user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.form
+    edited = data.get("edited_text", "")
+    if data.get("review_version_id"):
+        v = resume_versions.get(_int_or_none(data["review_version_id"]))
+        if not v or v["candidate_id"] != _int_or_none(data.get("candidate_id")) or not can_access_candidate(user, v["candidate_id"]):
+            return jsonify({"error": "Saved resume not found."}), 404
+        edited = resume_bot.extract_text_from_file_bytes(v["data"], v["filename"], strict=True)
+    content, error = _reviewed_pdf(user, data, edited)
+    if error:
+        return error
+    return send_file(io.BytesIO(content), as_attachment=True, mimetype="application/pdf",
+                     download_name=resume_versions.send_name(data.get("candidate_name") or "Consultant", "resume.pdf"))
 
 
 @app.route("/api/consultants/<int:candidate_id>/resume-docx", methods=["GET"])
@@ -3020,9 +3103,7 @@ def api_ext_resume(cid):
     if not found:
         return jsonify({"error": f"No resume is on file for {cand.get('name')}. Upload one in Job Hunt."}), 404
     name, data = found
-    mime = ("application/pdf" if name.lower().endswith(".pdf") else
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if name.lower().endswith(".docx") else "application/octet-stream")
-    return jsonify({"filename": resume_versions.send_name(cand.get("name") or "", name), "mime": mime,
+    return jsonify({"filename": resume_versions.send_name(cand.get("name") or "", name), "mime": _resume_mime(name),
                     "base64": base64.b64encode(data).decode("ascii")})
 
 
@@ -3077,11 +3158,25 @@ def api_ext_tailor():
         if not res.get("optimized"):
             return jsonify({"changed": False, "reason": res.get("not_optimized_reason") or res.get("ai_unavailable_reason") or "The resume was left as it is."})
         data_out = resume_versions.decode_docx(res.get("docx_base64") or "") if res.get("format_preserved") else None
-        if not data_out:
+        extension = ".docx"
+        if (cand.get("resume_filename") or "").lower().endswith(".pdf"):
+            original = models.find_resume_file(cand)
+            text = res.get("updated_resume_text") or resume_text
+            try:
+                data_out = resume_pdf.original_layout(original[1] if original else None, text)
+            except resume_pdf.LayoutError as exc:
+                if data.get("allow_pdf_reflow") is not True:
+                    return jsonify({"changed": False, "reason": str(exc) + " A standard PDF layout can be selected before applying changes."})
+                try:
+                    data_out = resume_pdf.reflow(text)
+                except ValueError as error:
+                    return jsonify({"error": str(error)}), 400
+            extension = ".pdf"
+        elif not data_out:
             buf = resume_bot.create_docx_resume(res.get("updated_resume_text") or resume_text, cand.get("name") or "Candidate")
             data_out = buf.getvalue() if hasattr(buf, "getvalue") else bytes(buf)
         skill = resume_versions.primary_skill(res, cand, jd, job_title=job.get("title") or "")
-        fname = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cand["id"]))
+        fname = resume_versions.make_filename(cand.get("name") or "Consultant", skill, resume_versions.taken_names(cand["id"]), extension)
         # saved against the job right away (not only at "Yes, I applied"): the job page, Super Apply and email drafts
         # then find this version instead of tailoring again
         jid = _ext_save_job(cand, job) if job.get("title") and job.get("url") else None
@@ -3090,7 +3185,7 @@ def api_ext_tailor():
         # the job site gets <Name>_Resume.docx; saved_as is the version's name inside Job Hunt
         return jsonify({"changed": True, "version_id": vid, "filename": resume_versions.send_name(cand.get("name") or "", fname),
                         "saved_as": fname, "changes": changes,
-                        "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "mime": _resume_mime(fname),
                         "base64": base64.b64encode(data_out).decode("ascii"),
                         "original_text": _original_lines(docx_bytes, resume_text),     # the preview highlights what differs
                         "initial": res.get("initial_match_percentage")})
@@ -3285,7 +3380,7 @@ def api_optimized_resume_download(version_id):
         return jsonify({"error": "Not found"}), 404
     cand = models.get_candidate_by_id(v["candidate_id"]) or {}
     return send_file(io.BytesIO(v["data"]), as_attachment=True, download_name=resume_versions.send_name(cand.get("name") or "", v["filename"]),
-                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                     mimetype=_resume_mime(v["filename"]))
 
 
 def _resume_version_for(user, candidate_id, version_id, job_id=None):
@@ -3884,7 +3979,8 @@ def _create_individual(admin, name, email, password, data):
 
 @app.route("/api/admin/individuals/<int:uid>", methods=["POST"])
 def api_admin_individual(uid):
-    """Admin: enable / disable an Individual, or change their daily job-search limit."""
+    """Admin: enable / disable an Individual, change their daily job-search limit, or turn paid portals
+    (Naukri, recruiter posts - Apify credits) on / off with their own daily cap."""
     user = current_user()
     if not user or "Admin" not in (user.get("role") or ""):
         return jsonify({"error": "Admin permission required."}), 403
@@ -3899,13 +3995,21 @@ def api_admin_individual(uid):
             if not limit:
                 return jsonify({"error": f"Daily job searches must be a whole number from 1 to {individuals.MAX_DAILY_LIMIT}."}), 400
             individuals.set_daily_limit(conn, uid, limit)
+        if "paid_limit" in data:
+            limit = individuals.clean_limit(data.get("paid_limit"))
+            if not limit:
+                return jsonify({"error": f"Paid searches a day must be a whole number from 1 to {individuals.MAX_DAILY_LIMIT}."}), 400
+            individuals.set_paid_limit(conn, uid, limit)
         if "disabled" in data:
             individuals.set_disabled(conn, uid, bool(data.get("disabled")))
+        if "paid" in data:
+            individuals.set_paid(conn, uid, bool(data.get("paid")))
         out = dict(individuals.usage(conn, uid), disabled=individuals.is_disabled(conn, uid))
     finally:
         conn.close()
     models.log_activity(user["id"], user["name"], "Individual Settings", "User", uid,
-                        f"{target['name']}: {'disabled' if out['disabled'] else 'active'}, {out['daily_limit']} searches/day")
+                        f"{target['name']}: {'disabled' if out['disabled'] else 'active'}, {out['daily_limit']} searches/day, "
+                        + (f"paid portals on ({out['paid_limit']}/day)" if out["paid"] else "paid portals off"))
     return jsonify({"success": True, **out})
 
 

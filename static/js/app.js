@@ -916,7 +916,7 @@ async function triggerUsScrape() {
 // Respects the Jobs tab's Job Market toggle - India scrapes Naukri/Foundit/LinkedIn,
 // anything else scrapes the existing US sources unchanged.
 async function triggerJobScrape() {
-    if (window.IS_INDIVIDUAL) return searchJobs(true, { allowScrape: true });   // free portals, through the daily limit
+    if (window.IS_INDIVIDUAL) return searchJobs(true, { allowScrape: true });   // the Individual's daily limit applies
     const country = document.getElementById('filter-country')?.value || 'United States';
     if (country === 'India') {
         await triggerIndiaScrape();
@@ -1273,6 +1273,7 @@ window.updatePipelineStage = updatePipelineStage;
 function initResumeBot() {
     const btnOptimize = document.getElementById('btn-run-resume-optimization');
     const btnDownload = document.getElementById('btn-download-optimized-docx');
+    const btnPdf = document.getElementById('btn-download-optimized-pdf');
     const candSelect = document.getElementById('resumebot-consultant-select');
     const fileInput = document.getElementById('resumebot-file-input');
     const jdTextarea = document.getElementById('resumebot-jd-text');
@@ -1289,6 +1290,7 @@ function initResumeBot() {
     // original Word file (the server holds it). Anything typed/edited falls back to plain text.
     let attachedDocx = null;
     let storedHasDocx = false;
+    let pdfSource = null, resultPdfSource = null;
     // Which consultant the stored resume now in the box belongs to, and a counter so only the
     // LATEST load may fill the box. Without it a slow earlier load (e.g. the previously selected
     // consultant's PDF being read for the first time) finished last and replaced the newly
@@ -1314,6 +1316,7 @@ function initResumeBot() {
         if (fileInput) fileInput.value = '';
         sourceMode = 'stored';
         attachedDocx = null;
+        pdfSource = null;
         storedHasDocx = false;
         loadedForCandId = null;
         if (resumeTextarea) resumeTextarea.value = '';   // never show the previous person's resume while loading
@@ -1333,12 +1336,13 @@ function initResumeBot() {
             if (resumeTextarea) resumeTextarea.value = text;
             loadedForCandId = text ? candId : null;
             storedHasDocx = !!text && /\.docx$/i.test(cand.resume_filename || '');
+            pdfSource = /\.pdf$/i.test(cand.resume_filename || '') ? { candidateId: candId } : null;
             const who = escapeHtml(cand.name || 'this consultant');
             setSourceNote(text
                 ? `Using the resume on file for <b>${who}</b> (${text.length.toLocaleString()} characters). `
                     + (storedHasDocx
                         ? 'It is a Word file, so the optimized version will be that same file with only the changes edited in (original formatting kept). '
-                        : 'It is not a Word file, so the download will be a clean Word file built from the text. ')
+                        : pdfSource ? 'Download PDF to keep the original layout wherever edits fit. ' : 'Word downloads use the extracted text. ')
                     + 'To optimize a different resume, attach a file or paste text below.'
                 : `No resume is on file for <b>${who}</b>. Attach a .docx / .pdf / .txt file or paste the resume text below.`,
                 text ? 'ok' : 'warn');
@@ -1355,14 +1359,16 @@ function initResumeBot() {
         sourceMode = 'typed';
         attachedDocx = null;
         storedHasDocx = false;
-        setSourceNote('Using the text in the box (edited or pasted by hand). The Word download will be rebuilt from this text - to keep a resume\'s exact original formatting, attach its .docx file instead of editing the text.', 'muted');
+        setSourceNote(pdfSource ? 'Using the edited text. Download PDF checks whether the edits fit the uploaded layout.' :
+            'Using the text in the box. The Word download will use this text.', 'muted');
     });
 
     if (fileInput) {
         fileInput.addEventListener('change', async () => {
             const file = fileInput.files && fileInput.files[0];
             if (!file) return;
-            loadSeq++;   // an attached file wins over any stored-resume load still in flight
+            const seq = ++loadSeq;
+            pdfSource = null;
             setSourceNote(`Reading <b>${escapeHtml(file.name)}</b>...`, 'muted');
             const formData = new FormData();
             formData.append('resume_file', file);
@@ -1370,6 +1376,7 @@ function initResumeBot() {
                 const res = await fetch('/api/resume-bot/extract-text', { method: 'POST', body: formData });
                 if (res.status === 401) { window.location.href = '/login'; return; }
                 const data = await res.json().catch(() => ({}));
+                if (seq !== loadSeq) return;
                 if (!res.ok) {
                     fileInput.value = '';
                     setSourceNote(escapeHtml(data.error || 'Could not read that file.'), 'error');
@@ -1380,10 +1387,11 @@ function initResumeBot() {
                 sourceMode = 'file';
                 storedHasDocx = false;
                 attachedDocx = /\.docx$/i.test(data.filename || file.name) ? file : null;
+                pdfSource = /\.pdf$/i.test(file.name) ? { file } : null;
                 setSourceNote(`Using the attached file <b>${escapeHtml(data.filename)}</b> (${Number(data.chars).toLocaleString()} characters). It is used only for this optimization - it is not saved to any consultant. `
                     + (attachedDocx
                         ? 'Your Word file will be edited in place, so its original formatting is kept.'
-                        : 'Only a .docx can keep its original formatting; for this file the download will be a clean Word file built from the text.'), 'ok');
+                        : pdfSource ? 'Download PDF to apply your edits to this layout.' : 'The Word download uses the extracted text.'), 'ok');
             } catch (err) {
                 fileInput.value = '';
                 setSourceNote('Could not read that file: ' + escapeHtml(err.message), 'error');
@@ -1477,6 +1485,7 @@ function initResumeBot() {
             btnOptimize.disabled = true;
             // the workspace starts clean, with the Word file being optimized as its "original"
             const mySeq = ++optSeq;
+            const runPdfSource = pdfSource;
             rbw.reset();
             document.getElementById('rbw-original').value = resume;
             if (sourceMode === 'file' && attachedDocx) {
@@ -1610,11 +1619,13 @@ function initResumeBot() {
 
                 // Format status + a precise change list, so the recruiter can verify every edit.
                 const fmtEl = byId('result-format-note');
+                resultPdfSource = runPdfSource;
+                btnPdf.hidden = !resultPdfSource;
                 if (fmtEl) {
                     const preserved = !!(data.optimized && data.format_preserved);
                     const note = preserved
                         ? `✓ Original formatting preserved - the download is your own Word file with only the ${(data.changes || []).length} change(s) below edited in. Everything else (fonts, layout, tables, section order, bullets) is untouched.`
-                        : (data.optimized ? (data.format_note || '') : '');
+                        : (runPdfSource ? 'Download PDF uses the uploaded layout. Word downloads use the extracted text.' : data.optimized ? (data.format_note || '') : '');
                     fmtEl.style.display = note ? 'block' : 'none';
                     fmtEl.innerText = note;
                     fmtEl.style.background = preserved ? '#ecfdf5' : '#fffbeb';
@@ -1647,9 +1658,10 @@ function initResumeBot() {
                 rbw.showResult(data, () => mySeq !== optSeq);
                 if (btnDownload) btnDownload.style.display = data.optimized ? '' : 'none';
                 state.lastOptimized = data.optimized ? {
-                    candidateId: candSelect ? parseInt(candSelect.value) : null, jdText: jd, aiText: data.updated_resume_text || '',
+                    candidateId: selectedId, pdfSource: runPdfSource, jdText: jd, aiText: data.updated_resume_text || '',
                     docxB64: data.format_preserved ? (data.docx_base64 || '') : '', primarySkill: data.primary_skill || '',
                     filename: data.suggested_filename || '' } : null;
+                if (runPdfSource && data.suggested_filename) data.suggested_filename = data.suggested_filename.replace(/\.docx$/i, '.pdf');
                 const saveBtn = byId('btn-save-optimized-version');
                 if (saveBtn) saveBtn.style.display = data.optimized ? '' : 'none';
                 if (byId('save-version-status')) byId('save-version-status').innerText = data.optimized && data.suggested_filename
@@ -1670,6 +1682,16 @@ function initResumeBot() {
         });
     }
 
+    btnPdf.addEventListener('click', async () => {
+        if (!resultPdfSource) return;
+        try {
+            const name = state.lastOptimizedCandidateName || 'Consultant';
+            const res = await requestResumePdf('/api/resume-bot/download-pdf', resultPdfSource, {
+                edited_text: document.getElementById('result-preview-text').value, candidate_name: name
+            });
+            saveResumeBlob(await res.blob(), name.replace(/[^\p{L}\p{N}_-]/gu, '_') + '_Resume.pdf');
+        } catch (error) { showToast(error.message, 'warning'); }
+    });
     if (btnDownload) {
         btnDownload.addEventListener('click', async () => {
             if (!state.lastOptimizedResumeText) {
@@ -1680,7 +1702,8 @@ function initResumeBot() {
             try {
                 const safeName = state.lastOptimizedCandidateName.replace(/[^a-zA-Z0-9_-]/g, '_');
                 // Exact-format path: the server already edited the original .docx - save it as is.
-                if (state.lastOptimizedDocxBase64) {
+                const reviewedText = document.getElementById('result-preview-text').value;
+                if (state.lastOptimizedDocxBase64 && reviewedText === state.lastOptimizedResumeText) {
                     const bin = atob(state.lastOptimizedDocxBase64);
                     const bytes = new Uint8Array(bin.length);
                     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -1701,7 +1724,7 @@ function initResumeBot() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        resume_text: state.lastOptimizedResumeText,
+                        resume_text: reviewedText,
                         candidate_name: state.lastOptimizedCandidateName
                     })
                 });
@@ -2036,7 +2059,7 @@ function initModals() {
                     // reflects whether a real file was actually found and attached.
                     const bccNote = (data.bcc && data.bcc.length) ? ` BCC: ${data.bcc.length} vendor contact${data.bcc.length === 1 ? '' : 's'}.` : '';
                     showToast((data.resume_attached
-                        ? `⚡ Draft created in ${data.candidate_name}'s Gmail with attached .docx resume!`
+                        ? `⚡ Draft created in ${data.candidate_name}'s Gmail with the resume attached.`
                         : `⚡ Draft created in ${data.candidate_name}'s Gmail.`) + bccNote, 'success', 6000);
                     if (!data.resume_attached) {
                         showToast('⚠️ ' + (data.resume_note || 'No resume was attached - none is on file for this consultant.'), 'warning', 9000);
@@ -2966,7 +2989,9 @@ async function loadRecruiters() {
                     </td>
                     <td style="padding: 14px 18px;">
                         ${r.role === 'Individual' ? `<span class="indiv-row" data-id="${r.id}" style="font-size:0.8rem;">${escapeHtml(r.region || '')} · ${r.searches_today || 0}/${r.daily_limit || 0} searches today ·
-                            <label style="display:inline-flex; align-items:center; gap:4px;">limit <input type="number" min="1" max="500" value="${r.daily_limit || 20}" style="width:64px;" onchange="onIndividualSettings(${r.id}, {daily_limit: this.value})"></label></span>`
+                            <label style="display:inline-flex; align-items:center; gap:4px;">limit <input type="number" min="1" max="500" value="${r.daily_limit || 20}" style="width:64px;" onchange="onIndividualSettings(${r.id}, {daily_limit: this.value})"></label> ·
+                            <label class="indiv-paid" title="Naukri and LinkedIn recruiter posts - each live search uses Apify credits" style="display:inline-flex; align-items:center; gap:4px;"><input type="checkbox" class="indiv-paid-on" ${r.paid ? 'checked' : ''} onchange="onIndividualSettings(${r.id}, {paid: this.checked})"> Paid portals</label>
+                            ${r.paid ? `<label style="display:inline-flex; align-items:center; gap:4px;">${r.paid_today || 0}/<input type="number" class="indiv-paid-limit" min="1" max="500" value="${r.paid_limit || 5}" style="width:56px;" onchange="onIndividualSettings(${r.id}, {paid_limit: this.value})"> paid today</label>` : ''}</span>`
                         : `<span class="recruiter-region" data-id="${r.id}" style="display:inline-flex; gap:10px; font-size:0.8rem; white-space:nowrap;">
                             ${TEAMS.map(t => `<label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" value="${t}" ${teamList(r.region).includes(t) ? 'checked' : ''} onchange="onRecruiterTeamsChange(${r.id}, this)"> ${t}</label>`).join('')}
                         </span>`}
@@ -5334,6 +5359,13 @@ async function pdCloudCheck() {
 // clicks Save; the file is named Name_PrimarySkill.docx (_v2, _v3 ... never overwritten).
 // =========================================================================
 async function saveResumeVersion(v) {
+    if (v.pdfSource) {
+        const res = await requestResumePdf('/api/optimized-resumes', v.pdfSource, {
+            candidate_id: v.candidateId, job_id: v.jobId || '', jd_text: v.jdText,
+            edited_text: v.editedText, primary_skill: v.primarySkill || '', format: 'pdf'
+        });
+        return res.json();
+    }
     const res = await fetch('/api/optimized-resumes', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ candidate_id: v.candidateId, job_id: v.jobId || null, jd_text: v.jdText, ai_text: v.aiText,
@@ -5342,6 +5374,27 @@ async function saveResumeVersion(v) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Could not save the resume.');
     return data;
+}
+
+async function requestResumePdf(url, source, fields) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields)) form.set(key, value);
+    if (source.candidateId) form.set('candidate_id', source.candidateId);
+    if (source.file) form.set('source_pdf', source.file);
+    if (source.versionId) form.set('source_version_id', source.versionId);
+    const submit = () => fetch(url, { method: 'POST', body: form });
+    let res = await submit();
+    if (res.status === 409) {
+        const problem = await res.json();
+        if (!problem.can_reflow) throw new Error(problem.error);
+        if (!window.confirm(problem.error + '\n\nUse a standard PDF layout with all your reviewed text?')) {
+            throw new Error('PDF export cancelled.');
+        }
+        form.set('pdf_layout', 'reflow');
+        res = await submit();
+    }
+    if (!res.ok) throw new Error((await res.json()).error || 'Could not generate the PDF.');
+    return res;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -5419,7 +5472,7 @@ function initDraftOptimize() {
 async function openOptimizePanel(opts) {
     const $ = id => document.getElementById(id);
     Object.assign(optPanel, { mode: opts.mode, candId: opts.candId, jobId: opts.jobId || null, emailInput: opts.emailInput || null, saved: null, savedText: '',
-                              requirement: opts.requirement || null });
+                              pdfVersionId: null, requirement: opts.requirement || null });
     optPanel.runSeq++;               // anything still running for the previous window is now stale
     rv.reset();
     rv.loadOriginal(opts.candId);
@@ -5491,12 +5544,14 @@ async function optRestore(opts) {
         rv.render();
         $('do-cloud').style.display = 'none';
         optPanel.saved = { id: v.id, filename: v.filename };
+        if (/\.pdf$/i.test(v.filename)) optPanel.pdfVersionId = v.id;
         optPanel.savedText = v.text;
         $('do-status').innerHTML = `<b>Showing the resume you saved for this job</b> - ${escapeHtml(v.filename)} (${escapeHtml(v.created_at)}). Nothing was run again. Click <b>Re-optimize</b> to run the AI again.`;
         $('do-filename').innerHTML = `✓ Saved as <b>${escapeHtml(v.filename)}</b> - it will be attached to this job's draft.`;
     }
     $('btn-do-save').disabled = false;
     $('btn-do-download').style.display = '';
+    $('btn-do-download').textContent = rv.origPdf || optPanel.pdfVersionId ? '⬇ Download PDF' : '⬇ Download';
     $('btn-do-reoptimize').disabled = false;
     optSteps(3);                                // an earlier result: straight to the resume
     if (($('do-jd').value || '').trim().length < 30) $('do-jd').value = opts.jdText || opts.summary || '';
@@ -5696,10 +5751,11 @@ async function optShowResult(data, key, jd, stale) {
         : `<b>Not changed:</b> ${escapeHtml(data.not_optimized_reason || 'the resume was left as it is.')}` +
           (data.ai_unavailable_reason ? `<div style="color:#b45309; margin-top:4px;"><b>Why the AI didn't run:</b> ${escapeHtml(data.ai_unavailable_reason)}</div>` : '')) +
         optimizerTimingsHtml(data.timings);
-    $('do-filename').innerHTML = data.suggested_filename
-        ? `Will be saved as <b>${escapeHtml(data.suggested_filename)}</b>${optPanel.mode === 'job' ? ' and attached to this job\'s draft' : ' and attached to this draft'}.` : '';
+    const suggested = rv.origPdf ? (data.suggested_filename || '').replace(/\.docx$/i, '.pdf') : data.suggested_filename;
+    $('do-filename').innerHTML = suggested ? `Will be saved as <b>${escapeHtml(suggested)}</b>.` : '';
     $('btn-do-save').disabled = !data.optimized;
     $('btn-do-download').style.display = data.optimized ? '' : 'none';
+    $('btn-do-download').textContent = rv.origPdf ? '⬇ Download PDF' : '⬇ Download';
     if (optPanel.requirement) rqFillEmail();          // the reply prepared from the vendor's email stays the reply
     else if (data.optimized || (optPanel.mode !== 'job' && data.ai_powered !== false)) doEmailGenerate();
 }
@@ -5986,11 +6042,11 @@ function chatSuggestionsHtml(list, cls) {
 
 function makeResumeWorkspace(prefix, host) {
     const el = (name) => document.getElementById(`${prefix}-${name}`);
-    const ws = { docx: '', text: '', original: '', origDocx: '', origPromise: null, undo: [], tab: 'preview', marks: [], cur: -1,
+    const ws = { docx: '', text: '', original: '', origDocx: '', origPdf: false, origPromise: null, undo: [], tab: 'preview', marks: [], cur: -1,
                  keywords: [], edited: false, seq: 0, renderSeq: 0, findTimer: null };
 
     ws.reset = () => {
-        Object.assign(ws, { docx: '', text: '', original: '', origDocx: '', origPromise: null, undo: [], marks: [], cur: -1, keywords: [], edited: false });
+        Object.assign(ws, { docx: '', text: '', original: '', origDocx: '', origPdf: false, origPromise: null, undo: [], marks: [], cur: -1, keywords: [], edited: false });
         ws.seq++;
         if (!el('preview')) return;
         el('preview').innerHTML = '<div style="color:#475569; font-size:0.85rem; padding:20px;">The resume preview appears here when it is ready.</div>';
@@ -6023,7 +6079,10 @@ function makeResumeWorkspace(prefix, host) {
             if (!candId) return;
             try {
                 const d = await (await fetch(`/api/consultants/${candId}/resume-docx`)).json();
-                if (seq === ws.seq) ws.origDocx = d.docx_base64 || '';
+                if (seq === ws.seq) {
+                    ws.origDocx = d.docx_base64 || '';
+                    ws.origPdf = /\.pdf$/i.test(d.filename || '');
+                }
             } catch (e) { /* the text preview is used instead */ }
         })();
         return ws.origPromise;
@@ -6303,11 +6362,13 @@ async function optimizeEnsureSaved() {
     if (optPanel.saved && optPanel.savedText === edited) return optPanel.saved;
     // The Word file shown in the preview (with the chat's edits); text-box edits are applied onto it.
     const docxB64 = rv.docx || (data.format_preserved ? (data.docx_base64 || '') : '');
+    const pdfSource = rv.origPdf || optPanel.pdfVersionId ? { candidateId: optPanel.candId, versionId: optPanel.pdfVersionId } : null;
     const d = await saveResumeVersion({ candidateId: optPanel.candId, jobId: optPanel.jobId, jdText: $('do-jd').value,
         aiText: rv.docx ? (rv.text || edited) : (data.updated_resume_text || ''),
-        editedText: edited, docxB64, primarySkill: data.primary_skill || '' });
+        editedText: edited, docxB64, pdfSource, primarySkill: data.primary_skill || '' });
     optPanel.saved = d;
     optPanel.savedText = edited;
+    if (/\.pdf$/i.test(d.filename)) optPanel.pdfVersionId = d.id;
     delete optCache[optKey()];      // saved: reopening this job now shows the saved version
     $('do-filename').innerHTML = `✓ Saved as <b>${escapeHtml(d.filename)}</b>` + (d.note ? ` <span style="color:#b45309;">${escapeHtml(d.note)}</span>` : '');
     return d;
@@ -6315,6 +6376,15 @@ async function optimizeEnsureSaved() {
 
 async function optimizeDownload() {
     try {
+        await rv.origPromise;
+        if (rv.origPdf && optPanel.saved && !/\.pdf$/i.test(optPanel.saved.filename) &&
+            optPanel.savedText === document.getElementById('do-optimized').value) {
+            const res = await requestResumePdf('/api/resume-bot/download-pdf', { candidateId: optPanel.candId }, {
+                review_version_id: optPanel.saved.id
+            });
+            saveResumeBlob(await res.blob(), optPanel.saved.filename.replace(/\.docx$/i, '.pdf'));
+            return;
+        }
         const d = await optimizeEnsureSaved();
         window.location.href = `/api/optimized-resumes/${d.id}/download`;
     } catch (err) { showToast(err.message, 'error', 6000); }
@@ -8519,6 +8589,7 @@ function jpOverview(pane) {
                 <div class="jp-row" style="margin-top:10px">
                     <button type="button" class="btn btn-secondary btn-sm jp-grow jp-preview">Preview</button>
                     <button type="button" class="btn btn-secondary btn-sm jp-grow" id="jp-download">Download</button>
+                    <button type="button" class="btn btn-secondary btn-sm jp-grow" id="jp-export-pdf" hidden>Download PDF</button>
                 </div>
                 <div class="jp-muted" style="margin-top:8px">Super Apply and the email drafts attach this file.</div>
             </section>
@@ -8532,7 +8603,22 @@ function jpOverview(pane) {
     pane.querySelectorAll('.jp-draft-one').forEach(b => b.addEventListener('click', () => jpDraft([b.dataset.email], b)));
     pane.querySelectorAll('.jp-preview').forEach(b => b.addEventListener('click', () => jpPreview(b.dataset.v || jp.resume)));
     document.getElementById('jp-download').addEventListener('click', () => jpDownload(jp.resume));
-    document.getElementById('jp-resume').addEventListener('change', e => { jp.resume = e.target.value; });
+    const refreshDownload = () => {
+        const choice = (jp.data?.versions || []).find(v => String(v.id) === String(jp.resume));
+        const pdf = /\.pdf$/i.test(choice?.filename || jp.data?.resume?.filename || '');
+        document.getElementById('jp-download').textContent = pdf ? 'Download PDF' : 'Download';
+        document.getElementById('jp-export-pdf').hidden = !(choice && !pdf && /\.pdf$/i.test(jp.data?.resume?.filename || ''));
+    };
+    document.getElementById('jp-export-pdf').addEventListener('click', async () => {
+        const choice = (jp.data.versions || []).find(v => String(v.id) === String(jp.resume));
+        if (!choice) return;
+        try {
+            const res = await requestResumePdf('/api/resume-bot/download-pdf', { candidateId: jp.candId }, { review_version_id: choice.id });
+            saveResumeBlob(await res.blob(), choice.filename.replace(/\.docx$/i, '.pdf'));
+        } catch (e) { showToast(e.message, 'warning'); }
+    });
+    document.getElementById('jp-resume').addEventListener('change', e => { jp.resume = e.target.value; refreshDownload(); });
+    refreshDownload();
     document.getElementById('jp-rec-email').addEventListener('change', e => {
         const v = e.target.value.trim();
         if (v) { saveRecruiterEmail(j.id, v); j.recruiter_email = v; }
@@ -8567,11 +8653,21 @@ async function jpResumeBlob(choice) {
         const v = (jp.data.versions || []).find(x => String(x.id) === String(choice));
         return { blob: await res.blob(), filename: v ? v.filename : 'resume.docx' };
     }
-    const res = await fetch(`/api/consultants/${jp.candId}/resume-docx`);
-    const d = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(d.error || 'Could not load the resume.');
-    if (!d.docx_base64) throw new Error(d.filename ? `${d.filename} isn't a Word file - open it from the consultant's profile.` : 'No resume is on file for this consultant.');
-    return { blob: rvB64ToBlob(d.docx_base64), filename: d.filename };
+    const filename = jp.data.resume?.filename;
+    const res = await fetch(`/api/consultants/${jp.candId}/resume/download`);
+    if (!res.ok) throw new Error((await res.json()).error || 'Could not load the original resume.');
+    return { blob: await res.blob(), filename: filename || 'Resume' };
+}
+
+function saveResumeBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 async function jpDownload(choice) {
@@ -8579,13 +8675,7 @@ async function jpDownload(choice) {
     if (!jp.data) { showToast('Still loading the job - try again in a moment.', 'info'); return; }
     try {
         const { blob, filename } = await jpResumeBlob(choice);
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        document.body.append(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        saveResumeBlob(blob, filename);
     } catch (e) { showToast(e.message, 'error'); }
 }
 
@@ -8599,6 +8689,14 @@ async function jpPreview(choice) {
     try {
         const { blob, filename } = await jpResumeBlob(choice);
         document.getElementById('jp-preview-title').textContent = filename;
+        if (blob.type === 'application/pdf') {
+            const frame = document.createElement('iframe');
+            frame.title = filename;
+            frame.src = URL.createObjectURL(blob);
+            frame.style.cssText = 'width:100%;height:65vh;border:0';
+            body.replaceChildren(frame);
+            return;
+        }
         await loadDocxPreview();
         if (!(window.docx && window.docx.renderAsync)) throw new Error('The preview could not load - use Download.');
         body.innerHTML = '';
@@ -8799,7 +8897,11 @@ function jpManual(box) {
 }
 
 (function initJobPage() {
-    document.getElementById('btn-close-jp-preview')?.addEventListener('click', () => { document.getElementById('modal-jp-preview').style.display = 'none'; });
+    document.getElementById('btn-close-jp-preview')?.addEventListener('click', () => {
+        document.getElementById('modal-jp-preview').style.display = 'none';
+        const frame = document.querySelector('#jp-preview-body iframe');
+        if (frame) { URL.revokeObjectURL(frame.src); frame.remove(); }
+    });
     // after the Tailor window closes, the checklist and the resume list show the new version
     document.getElementById('btn-close-draft-optimize')?.addEventListener('click', () => {
         if (jp.job && document.getElementById('tab-jobpage')?.classList.contains('active')) { jp.resume = ''; jpLoad(); }
@@ -8859,14 +8961,13 @@ async function loadContacts() {
 })();
 
 // =========================================================================
-// Individual plan (individuals.py): one login markets one profile - their own. Free job sources only, a daily
+// Individual plan (individuals.py): one login markets one profile - their own. Approved job sources, a daily
 // limit on live portal searches, My profile, My applications.
 // =========================================================================
-const INDIV_FREE = { 'United States': ['All', 'LinkedIn', 'Dice', 'Company site'], 'India': ['LinkedIn', 'Company site'], 'Canada': ['LinkedIn', 'Company site'] };
-
 function indivTrimSources(sel, country) {
-    const keep = INDIV_FREE[country] || INDIV_FREE['United States'];
+    const keep = window.INDIVIDUAL_SOURCES[country] || ['LinkedIn'];
     [...sel.options].forEach(o => { if (!keep.includes(o.value)) o.remove(); });
+    sel.value = keep[0];
     const all = [...sel.options].find(o => o.value === 'All');
     if (all) all.textContent = 'All free portals (Dice, LinkedIn)';
 }
@@ -8874,7 +8975,7 @@ function indivTrimSources(sel, country) {
 function indivShowUsage(u) {
     const el = document.getElementById('indiv-usage');
     if (!el || !u) return;
-    el.textContent = `Live searches today: ${u.searches_today} of ${u.daily_limit}`;
+    el.textContent = `Live searches today: ${u.searches_today} of ${u.daily_limit}` + (u.paid ? ` · paid: ${u.paid_today || 0} of ${u.paid_limit}` : '');
     el.classList.toggle('full', u.searches_today >= u.daily_limit);
 }
 
@@ -8901,6 +9002,10 @@ async function indivLoadProfile() {
     document.querySelectorAll('.mp-answer').forEach(el => { el.value = ans[el.dataset.key] || ''; });
     const rn = document.getElementById('mp-resume-name');
     if (rn) rn.textContent = c.resume_filename || 'No resume yet';
+    const download = document.getElementById('mp-resume-download');
+    download.hidden = !c.resume_filename;
+    download.href = `/api/consultants/${window.MY_PROFILE_ID}/resume/download`;
+    download.textContent = /\.pdf$/i.test(c.resume_filename || '') ? 'Download original PDF' : 'Download original';
 }
 
 async function indivSaveProfile() {
@@ -8944,7 +9049,8 @@ async function onIndividualSettings(uid, change) {
     const res = await fetch(`/api/admin/individuals/${uid}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { showToast(d.error || 'Could not update.', 'error'); return; }
-    showToast(d.disabled ? 'Account disabled - they can no longer log in.' : `Active · ${d.daily_limit} searches a day.`, 'success');
+    showToast(d.disabled ? 'Account disabled - they can no longer log in.'
+        : `Active · ${d.daily_limit} searches a day` + (d.paid ? ` · paid portals on (${d.paid_limit} a day)` : ' · free portals only'), 'success');
     loadRecruiters();
 }
 window.onIndividualSettings = onIndividualSettings;

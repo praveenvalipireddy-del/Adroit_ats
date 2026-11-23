@@ -138,7 +138,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.24" in page.content(), "cache-buster not bumped to 5.99.24")
+        check("app.js?v=5.99.25" in page.content(), "cache-buster not bumped to 5.99.25")
         page.click("a.nav-item[data-tab=jobs]")
         page.fill("#filter-query", "Platform Engineer")
         calls.clear()

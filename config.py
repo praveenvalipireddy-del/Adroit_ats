@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 
+import provider_settings
+
 load_dotenv()  # reads variables from your .env file
 
 ENV = os.getenv("ENV", "local")  # defaults to "local" if not set
@@ -38,28 +40,13 @@ ALLOW_DEV_LOGIN = os.getenv("ALLOW_DEV_LOGIN", "").strip().lower() in ("1", "tru
 # startup instead of relying on the default that is visible in the source.
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
-# --- Apify (job scraping) ---
-APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "")
+# Existing callers access these as config.GEMINI_API_KEY, config.APIFY_API_TOKEN, etc.
+# Resolve them on access so a long-running Gunicorn process can pick up a rotated key.
+def __getattr__(name):
+    if name in provider_settings.API_KEYS:
+        return provider_settings.get(name)
+    raise AttributeError(name)
 
-# Google Gemini key - primary AI for Resume Optimization and Copilot chats (aistudio.google.com/apikey).
-# When unset, falls back to Claude (if configured) or deterministic keyword matching.
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-
-# Anthropic (Claude) key - secondary AI backup when Gemini fails or is unset (console.anthropic.com).
-# Paid per use. CLAUDE_MODEL picks the model (resume_bot.CLAUDE_MODEL).
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-
-# Optional xAI (Grok) key, used ONLY as a backup for the Resume Optimizer when Gemini's whole
-# free-tier model chain fails (quota used up, overloaded, ...) - never the default provider, so a
-# normal day costs nothing extra. Get one at console.x.ai (no free tier - paid credit required).
-XAI_API_KEY = os.getenv("XAI_API_KEY", "")
-
-# Optional OpenRouter key - a FREE backup tried before the paid xAI one (see the priority in
-# resume_bot._generate). OpenRouter's free-tier (":free" models) allows 50 requests/day (1000/day
-# once $10 has ever been added), so a backup rarely gets close to it. Get one free at
-# openrouter.ai/keys - no card needed. Must be named exactly OPENROUTER_API_KEY (not GROQ_API_KEY -
-# Groq and OpenRouter are two different companies too).
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # --- Database ---
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -67,9 +54,3 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "ats.db"))
-
-# --- SerpAPI (Google SERP scraper for LinkedIn) ---
-# NOTE: previously had a hardcoded key here as a fallback default - that key
-# was exposed in a public commit and should be treated as compromised. Set
-# SERPAPI_KEY as an environment variable instead; this has no fallback value.
-SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")

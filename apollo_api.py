@@ -11,7 +11,7 @@ Results are filtered to people whose current employer really is the job's compan
 the name elsewhere). Nothing is invented: no email patterns, no guessed addresses.
 """
 import logging
-import os
+import config
 import re
 from typing import Dict, List
 
@@ -34,7 +34,7 @@ class ApolloError(RuntimeError):
 
 
 def api_key() -> str:
-    return (os.getenv("APOLLO_API_KEY") or "").strip()
+    return config.APOLLO_API_KEY.strip()
 
 
 def configured() -> bool:

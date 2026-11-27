@@ -7,6 +7,8 @@ services:
     env_file: ${ENV_FILE:-.env}           # the keys live only in .env on the server, never in git
     environment:
       ENV: ${APP_ENV:-production}
+      AWS_REGION: ap-southeast-2
+      JOBHUNT_PROVIDER_SECRET: ${JOBHUNT_PROVIDER_SECRET-jobhunt/prod/provider-keys}
       # Caddy sits in front: trust its "this came in over https" header, so Google sign-in returns to https://.
       # Safe because the app's port is not open to the internet - only Caddy reaches it.
       FORWARDED_ALLOW_IPS: "*"

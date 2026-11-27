@@ -12,7 +12,7 @@ Why simple queries work better:
   With 2-3 terms, it returns real LinkedIn profiles which the parser then evaluates.
 """
 
-import os
+import config
 import re
 import time
 import random
@@ -20,12 +20,6 @@ import logging
 from typing import List, Dict, Any, Optional, Set
 
 logger = logging.getLogger(__name__)
-
-# --------------------------------------------------
-# API TOKENS (optional)
-# --------------------------------------------------
-SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
-APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
 
 # --------------------------------------------------
 # GLOBAL DEDUPLICATION
@@ -506,12 +500,13 @@ def _parse_candidate_from_result(
 # --------------------------------------------------
 
 def _search_serpapi(query: str, max_results: int = 10) -> List[Dict]:
-    if not SERPAPI_KEY:
+    key = config.SERPAPI_KEY
+    if not key:
         return []
     try:
         import requests
         resp = requests.get("https://serpapi.com/search", params={
-            "q": query, "api_key": SERPAPI_KEY, "num": max_results, "engine": "google"}, timeout=10)
+            "q": query, "api_key": key, "num": max_results, "engine": "google"}, timeout=10)
         if resp.status_code == 200:
             return [{"url": i.get("link", ""), "title": i.get("title", ""), "snippet": i.get("snippet", "")}
                     for i in resp.json().get("organic_results", [])]
@@ -538,11 +533,12 @@ def _search_duckduckgo(query: str, max_results: int = 15) -> List[Dict]:
 
 
 def _search_apify(query: str, max_results: int = 10) -> List[Dict]:
-    if not APIFY_TOKEN or APIFY_TOKEN == "your_apify_token_here":
+    token = config.APIFY_API_TOKEN
+    if not token or token == "your_apify_token_here":
         return []
     try:
         import requests
-        url = f"https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}&memory=512&timeout=30"
+        url = f"https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items?token={token}&memory=512&timeout=30"
         res = requests.post(url, json={"queries": query, "maxPagesPerQuery": 1, "resultsPerPage": max_results}, timeout=35)
         results = []
         if res.status_code in [200, 201]:
@@ -593,7 +589,7 @@ def scrape_live_linkedin_candidates(
 
     def _run_single_query(q):
         # 1. Primary: SerpAPI (if a key is configured)
-        if SERPAPI_KEY:
+        if config.SERPAPI_KEY:
             raw = _search_serpapi(q, max_results=10)
             if raw:
                 return raw

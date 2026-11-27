@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 
 import requests
 
+import config
 import models
 
 logger = logging.getLogger("harvest_direct")
@@ -41,7 +42,7 @@ def enabled() -> bool:
 
 
 def _key() -> str:
-    return (os.getenv("HARVESTAPI_API_KEY") or "").strip()
+    return config.HARVESTAPI_API_KEY.strip()
 
 
 def configured() -> bool:

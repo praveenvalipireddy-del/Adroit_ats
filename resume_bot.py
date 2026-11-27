@@ -15,6 +15,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pypdf
 
 import config
+import provider_settings
 import docx_editor
 import cloud_align
 
@@ -173,7 +174,7 @@ def _explain_gemini_error(ex: Exception) -> str:
     if "api key" in low or "api_key" in low or "401" in msg or "403" in msg or "permission_denied" in low or "unauthenticated" in low:
         return "Google rejected the API key - check GEMINI_API_KEY was copied correctly"
     if "404" in msg or "not found" in low or "is not supported" in low:
-        return f"Gemini model '{GEMINI_MODEL}' isn't available on this key - set GEMINI_MODEL to a current model name"
+        return f"Gemini model '{_model_chain()[0]}' isn't available on this key - set GEMINI_MODEL to a current model name"
     if "timeout" in low or "timed out" in low or "deadline" in low:
         return ("Gemini (free tier) took too long to answer (over 45 seconds)"
                 + (" and the backup AI failed too" if (claude_configured() or openrouter_configured() or xai_configured()) else " and no backup AI is configured")
@@ -212,7 +213,7 @@ _DEFAULT_FALLBACK_MODELS = "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash-l
 def _model_chain():
     """Models to try, in order: GEMINI_MODEL first, then GEMINI_FALLBACK_MODELS (comma separated;
     set it to an empty value to turn fallbacks off)."""
-    chain = [GEMINI_MODEL]
+    chain = [provider_settings.get("GEMINI_MODEL", GEMINI_MODEL) or GEMINI_MODEL]
     for m in os.getenv("GEMINI_FALLBACK_MODELS", _DEFAULT_FALLBACK_MODELS).split(","):
         m = m.strip()
         if m and m not in chain:

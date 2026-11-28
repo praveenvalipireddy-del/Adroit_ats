@@ -3088,8 +3088,7 @@ def api_ext_consultant(cid):
         return jsonify({"error": "Consultant not found"}), 404
     found = models.find_resume_file(cand)
     return jsonify({"id": cid, "profile": autofill.profile(cand, found[0] if found else ""),
-                    "missing": [autofill.AUTOFILL_FIELDS[k][0] for k in ("linkedin_url", "work_authorized", "needs_sponsorship", "notice_period")
-                                if k not in autofill.load_answers(cand)],
+                    "missing": autofill.missing(cand),
                     "edit_url": request.host_url.rstrip("/") + "/dashboard#candidates"})
 
 
@@ -3305,6 +3304,21 @@ def api_ext_job_status():
     try:
         cur = conn.cursor()
         found = None
+        tailored = None
+        # a resume already tailored for this job (website Resume Optimizer / job page, or the extension earlier)
+        if job["url"]:
+            cur.execute("SELECT id FROM jobs WHERE url = ?", (job["url"],))
+            jrow = cur.fetchone()
+        else:
+            jrow = None
+        if not jrow and job["title"] and job["company"]:
+            cur.execute("SELECT id FROM jobs WHERE title = ? AND company = ?", (job["title"], job["company"]))
+            jrow = cur.fetchone()
+        if jrow:
+            v = resume_versions.latest_for_job(cand["id"], jrow["id"])
+            if v and v.get("data"):
+                tailored = {"version_id": v["id"], "filename": resume_versions.send_name(cand.get("name") or "", v["filename"]),
+                            "saved_as": v["filename"]}
         sql = """SELECT a.stage, a.applied_date, a.updated_at, r.filename FROM applications a JOIN jobs j ON j.id = a.job_id
                  LEFT JOIN optimized_resumes r ON r.id = a.resume_version_id WHERE a.candidate_id = ? AND """
         if job["url"]:
@@ -3316,9 +3330,25 @@ def api_ext_job_status():
     finally:
         conn.close()
     if not found:
-        return jsonify({"found": False})
-    return jsonify({"found": True, "stage": found[0], "label": application_tracker.STATUS_LABELS.get(found[0], found[0]),
-                    "date": str(found[1] or found[2] or "")[:10], "resume": found[3] or ""})
+        return jsonify({"found": False, "tailored": tailored})
+    return jsonify({"found": True, "stage": found["stage"], "label": application_tracker.STATUS_LABELS.get(found["stage"], found["stage"]),
+                    "date": str(found["applied_date"] or found["updated_at"] or "")[:10], "resume": found["filename"] or "",
+                    "tailored": tailored})
+
+
+@app.route("/api/ext/versions/<int:vid>", methods=["GET"])
+def api_ext_version(vid):
+    """A saved tailored resume, for the extension to attach (only the user's own consultants')."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    v = resume_versions.get(vid)
+    cand = _ext_consultant(user, v["candidate_id"]) if v else None
+    if not cand or not v.get("data"):
+        return jsonify({"error": "Tailored resume not found"}), 404
+    return jsonify({"version_id": v["id"], "filename": resume_versions.send_name(cand.get("name") or "", v["filename"]),
+                    "saved_as": v["filename"], "mime": _resume_mime(v["filename"]),
+                    "base64": base64.b64encode(bytes(v["data"])).decode("ascii")})
 
 
 @app.route("/api/ext/save-job", methods=["POST"])

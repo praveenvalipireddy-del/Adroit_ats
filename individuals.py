@@ -53,7 +53,7 @@ ALLOWED = {
     "api_ext_me": {"GET"}, "api_ext_consultant": {"GET"}, "api_ext_resume": {"GET"},
     "api_ext_tailor": {"POST"}, "api_ext_match": {"POST"},
     "api_ext_answers": {"POST"},                                 # AI answers to the form's extra questions
-    "api_ext_job_status": {"POST"}, "api_ext_save_job": {"POST"}, "api_ext_applied": {"POST"},
+    "api_ext_job_status": {"POST"}, "api_ext_version": {"GET"}, "api_ext_save_job": {"POST"}, "api_ext_applied": {"POST"},
     "api_individual_me": {"GET"},
 }
 

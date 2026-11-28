@@ -114,12 +114,36 @@ def split_name(name: str):
     return " ".join(parts[:-1]), parts[-1]
 
 
+DIAL_CODES = {"united states": "+1", "usa": "+1", "us": "+1", "canada": "+1", "india": "+91"}
+# Words people type as labels into Location ("City, Scarborough, Ontario. Province,") - never a city name.
+_LABEL_WORDS = re.compile(r"^(city|town|state|province|location|address|country|zip|postal|pin)(?![a-z])", re.I)
+# Missing ones are listed in the extension, so a form's question isn't silently left empty.
+WANTED = ("linkedin_url", "work_authorized", "needs_sponsorship", "notice_period",
+          "address_line", "city", "state", "postal_code", "current_company")
+
+
+def city_from_location(loc: str) -> str:
+    """'Dallas, TX' -> 'Dallas'. Empty when the first part is a label word or holds digits (a street / postcode):
+    a wrong city on a form is worse than an empty one."""
+    first = re.split(r"[,(]", loc or "")[0].strip()
+    if not first or _LABEL_WORDS.match(first) or re.search(r"\d", first) or len(first) > 40:
+        return ""
+    return first
+
+
+def missing(cand: Dict) -> List[str]:
+    a = load_answers(cand)
+    have = dict(a, city=a.get("city") or city_from_location(cand.get("location") or ""))
+    return [AUTOFILL_FIELDS[k][0] for k in WANTED if not have.get(k)]
+
+
 def profile(cand: Dict, resume_filename: str = "") -> Dict:
     """What the filler fills. Empty values are left out so the field stays empty (never invented)."""
     a = load_answers(cand)
     first, last = split_name(cand.get("name") or "")
     loc = (cand.get("location") or "").strip()
-    city = a.get("city") or (re.split(r"[,(]", loc)[0].strip() if loc else "")
+    city = a.get("city") or city_from_location(loc)
+    country = (cand.get("country") or "").strip()
     p = {
         "full_name": (cand.get("name") or "").strip(),
         "first_name": first, "last_name": last,
@@ -128,7 +152,9 @@ def profile(cand: Dict, resume_filename: str = "") -> Dict:
         "title": (cand.get("title") or "").strip(),
         "location": loc,
         "city": city,
-        "country": (cand.get("country") or "").strip(),
+        "country": country,
+        "phone_country": country,                                  # a phone-code list: "Canada (+1)" is picked by the country
+        "phone_dial": DIAL_CODES.get(country.lower(), ""),       # a typed country code: +1 / +91
         "years_experience": str(cand.get("experience_years") or "").strip(),
         "visa_status": (cand.get("visa_status") or "").strip(),
         "expected_salary": a.get("expected_salary") or (cand.get("target_rate") or "").strip(),

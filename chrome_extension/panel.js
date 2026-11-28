@@ -274,6 +274,7 @@ async function refreshStatus() {
     const d = await api('/api/ext/job-status', { method: 'POST', body: { candidate_id: cid, job: { title: job.title, company: job.company, url: job.url } } });
     if (st.cid !== cid || !st.job || st.job.title !== job.title) return;
     $('btn-save').classList.toggle('on', !!d.found);
+    useSiteTailored(d.tailored, cid);
     box.hidden = !d.found || d.stage === 'Saved';
     if (box.hidden) return;
     const who = (st.consultants.find((c) => c.id === cid) || {}).name || 'This consultant';
@@ -281,6 +282,23 @@ async function refreshStatus() {
   } catch (e) {
     box.hidden = true;
   }
+}
+
+// A resume already tailored for this job in Job Hunt (Resume Optimizer / job page): attached instead of the original,
+// so it isn't tailored - and paid for - again. "Attach the original resume instead" still switches back.
+async function useSiteTailored(t, cid) {
+  if (!t || st.tailored || st.cid !== cid) return;
+  const rec = st.jobs[st.jobKey];
+  if (rec && rec.cid === cid && rec.originalChosen) return;
+  try {
+    const f = await api(`/api/ext/versions/${t.version_id}`);
+    if (st.cid !== cid || st.tailored) return;
+    st.tailored = { version_id: f.version_id, key: `v${f.version_id}`, filename: f.filename, mime: f.mime, base64: f.base64,
+                    original: '', changes: [], fromSite: true };
+    remember({ tailored: st.tailored });
+    renderTailorDone();
+    showResumeName();
+  } catch (e) { /* the original stays */ }
 }
 
 function renderJob(job, emptyText) {
@@ -459,12 +477,12 @@ function renderTailorDone() {
   const t = st.tailored;
   box.hidden = false;
   const list = t.changes.map((c) => `<li>${c.before ? `<s>${esc(c.before)}</s><br>` : ''}<span>${esc(c.after)}</span></li>`).join('');
-  box.innerHTML = `<b style="color:var(--green)">✓ ${t.changes.length} change${t.changes.length === 1 ? '' : 's'} made</b>
+  box.innerHTML = `<b style="color:var(--green)">${t.fromSite ? '✓ Tailored for this job in Job Hunt' : `✓ ${t.changes.length} change${t.changes.length === 1 ? '' : 's'} made`}</b>
     <p class="hint">Autofill attaches <b>${esc(t.filename)}</b> (saved in Job Hunt).</p>
     <div class="row"><button class="btn" id="btn-tl-preview">👁 Preview resume</button><button class="btn" id="btn-tl-download">⬇ Download</button></div>
     <ul class="tl-changes">${list}</ul>
     <button class="link-btn" id="btn-tl-orig">Attach the original resume instead</button>`;
-  $('btn-tl-orig').addEventListener('click', resetTailor);
+  $('btn-tl-orig').addEventListener('click', () => { resetTailor(); remember({ originalChosen: true }); });
   $('btn-tl-preview').addEventListener('click', () => previewResume(st.tailored));
   $('btn-tl-download').addEventListener('click', () => downloadResume(st.tailored));
 }
@@ -593,6 +611,14 @@ async function autofill(opened) {
       if (!r) continue;
       res.filled.push(...r.filled); res.questions.push(...r.questions); res.needsYou.push(...r.needsYou);
       res.resumeAttached = res.resumeAttached || r.resumeAttached; res.fieldsSeen += r.fieldsSeen;
+    }
+    // Workday's own lists (Country, Country Phone Code, State ...): opened and picked, after the plain fields
+    const lists = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: (p) => (window.JH && window.JH.fillLists ? window.JH.fillLists(p) : null), args: [st.profile.profile] });
+    for (const f of lists) {
+      const r = f.result;
+      if (!r) continue;
+      res.filled.push(...r.filled); res.needsYou.push(...r.needsYou);
+      res.fieldsSeen += r.filled.length + r.needsYou.length;
     }
     if (!res.fieldsSeen && !res.resumeAttached) {
       // a job page with no form yet: click the site's Apply button once, wait for the form, fill it

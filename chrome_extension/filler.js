@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 7) return;
+  if (window.JH && window.JH.version === 8) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -191,6 +191,7 @@
     [/preferred (first )?name/, 'first_name'],
     [/e-?mail/, 'email'],
     [/^(full |legal |your |candidate )?name\b|full name|legal name/, 'full_name'],
+    [/(country|phone|dial(l)?ing|calling)[\s_-]*(phone[\s_-]*)?code|dial code/, 'phone_country'],
     [/phone|mobile|contact number|\bcell\b/, 'phone'],
     [/linked\s*in/, 'linkedin_url'],
     [/github|portfolio|website|personal (site|url)|other (url|link)/, 'portfolio_url'],
@@ -364,6 +365,101 @@
     return unknown.length ? unknown[0].f : null;     // nothing says which: the first upload that isn't the cover letter
   }
 
+  // ---------------- countries: the consultant's country beats a site's guess
+  const COUNTRY_KEYS = new Set(['country', 'phone_country']);
+  const COUNTRY_NAMES = { 'united states': ['United States of America', 'United States', 'USA'], 'usa': ['United States of America', 'United States', 'USA'] };
+  function sameCountry(text, country) {
+    const t = norm(text).toLowerCase();
+    const names = (COUNTRY_NAMES[norm(country).toLowerCase()] || [country]).map((n) => norm(n).toLowerCase());
+    return names.some((c) => c && (t === c || t.startsWith(c + ' (') || t.startsWith(c + '(')));
+  }
+  // "United States" must not pick "United States Minor Outlying Islands"; "Canada" picks "Canada (+1)"
+  function pickCountry(options, country) {
+    const opts = options.filter((o) => o.text && !PLACEHOLDER.test(o.text));
+    return opts.find((o) => sameCountry(o.text, country)) || pickOption(opts, country);
+  }
+
+  // ---------------- Workday's own lists (Country, Country Phone Code, State, Degree, How did you hear ...)
+  // They are a button that opens a list, or a search box with chosen "pills" - not <select>s - so they are opened
+  // and an option clicked, like a person would. Async: the side panel awaits it after fill().
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  function press(el) {
+    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
+      el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+    }
+    el.click();
+  }
+  function typeInto(el, v) {
+    el.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function escapeKey() {
+    (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+  }
+  async function shownOptions(timeout = 2500) {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      const opts = Array.from(document.querySelectorAll('[role="option"], [data-automation-id="promptOption"]')).filter(isShown);
+      if (opts.length) return opts.map((o) => ({ text: textOf(o), el: o }));
+      await pause(120);
+    }
+    return [];
+  }
+
+  async function fillLists(profile) {
+    const p = profile || {};
+    const out = { filled: [], needsYou: [] };
+    const boxes = Array.from(document.querySelectorAll('[data-automation-id^="formField-"]')).filter(isShown);
+    for (const box of boxes) {
+      const label = norm(textOf(box.querySelector('label, legend'))).replace(/\*/g, '').trim();
+      const key = label ? keyFor(label) : null;
+      if (!key) continue;
+      const value = key === 'phone_country' ? (p.phone_country || p.country) : p[key];
+      if (!value) continue;
+      const isCountry = COUNTRY_KEYS.has(key);
+      const pick = (opts) => (isCountry ? pickCountry(opts, value) : pickOption(opts, value));
+      const btn = box.querySelector('button[aria-haspopup="listbox"]');
+      const search = box.querySelector('input[data-automation-id="searchBox"]');
+      try {
+        if (btn) {
+          const cur = textOf(btn);
+          const empty = !cur || PLACEHOLDER.test(cur) || /select one/i.test(cur);
+          if (!empty && (!isCountry || sameCountry(cur, value))) continue;          // set already (and right)
+          press(btn);
+          const m = pick(await shownOptions());
+          if (!m) { escapeKey(); mark(btn, RED, 'Pick this one yourself'); out.needsYou.push(label.slice(0, 80)); continue; }
+          press(m.el);
+          await pause(300);
+          mark(btn, GREEN, `Filled by Job Hunt (${key})`);
+          out.filled.push(label.slice(0, 60));
+        } else if (search) {
+          const chips = () => Array.from(box.querySelectorAll('[data-automation-id="selectedItem"]'));
+          if (chips().length) {
+            if (!isCountry || chips().some((c) => sameCountry(textOf(c), value))) continue;
+            for (const c of chips()) {
+              const del = c.querySelector('[data-automation-id="DELETE_charm"]') || box.querySelector('[data-automation-id="DELETE_charm"]');
+              if (del) press(del);
+            }
+            await pause(300);
+            if (chips().length) { mark(box, RED, "Change this to the consultant's country"); out.needsYou.push(label.slice(0, 80)); continue; }
+          }
+          typeInto(search, String(value));
+          search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+          const m = pick(await shownOptions());
+          if (!m) { escapeKey(); mark(box, RED, 'Pick this one yourself'); out.needsYou.push(label.slice(0, 80)); continue; }
+          press(m.el);
+          await pause(300);
+          mark(box, GREEN, `Filled by Job Hunt (${key})`);
+          out.filled.push(label.slice(0, 60));
+        }
+      } catch (e) {
+        out.needsYou.push(label.slice(0, 80));
+      }
+    }
+    return out;
+  }
+
   // ---------------- the main fill
   function fill(profile, resume) {
     clearMarks();
@@ -394,6 +490,7 @@
 
     for (const el of els) {
       if (el.disabled || el.readOnly || SKIP_TYPES.test(el.type || '') || el.type === 'file') continue;
+      if (el.getAttribute('data-automation-id') === 'searchBox') continue;      // Workday's list search: fillLists() does it
       if (el.closest('[data-jh-skip]') || isFurniture(el)) continue;
 
       // radio groups (Yes / No questions, voluntary disclosures)
@@ -431,14 +528,20 @@
       if (!label || NEVER.test(label)) continue;
       result.fieldsSeen++;
       const hasValue = el.tagName === 'SELECT' ? !!(el.value && !PLACEHOLDER.test(textOf(el.selectedOptions[0]))) : !!norm(el.value);
-      if (hasValue) continue;                              // never overwrite what's already there
       const key = keyFor(label);
+      // never overwrite what's already there - except a country list preset to another country (the site guessed it
+      // from where the browser is, e.g. India for a Canadian consultant)
+      const wrongCountry = hasValue && el.tagName === 'SELECT' && COUNTRY_KEYS.has(key) && !!p.country
+        && !sameCountry(textOf(el.selectedOptions[0]), p.country);
+      if (hasValue && !wrongCountry) continue;
       let val = key ? p[key] : '';
+      if (key === 'phone_country') val = el.tagName === 'SELECT' ? p.phone_country : p.phone_dial;
       if (key === 'full_name' && !val) val = [p.first_name, p.last_name].filter(Boolean).join(' ');
 
       if (el.tagName === 'SELECT') {
         const opts = Array.from(el.options).map((o) => ({ text: norm(o.text), value: o.value, el: o }));
-        const m = val ? pickOption(opts, val) : null;
+        let m = val ? (COUNTRY_KEYS.has(key) ? pickCountry(opts, val) : pickOption(opts, val)) : null;
+        if (!m && key === 'phone_country' && p.phone_dial) m = pickOption(opts, p.phone_dial);
         if (m) {
           setValue(el, m.value);
           mark(el, GREEN, `Filled by Job Hunt (${key})`);
@@ -545,6 +648,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 7, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+  window.JH = { version: 8, fillLists, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
     _keyFor: keyFor, _labelOf: labelOf, _resumeInput: resumeInput };
 })();

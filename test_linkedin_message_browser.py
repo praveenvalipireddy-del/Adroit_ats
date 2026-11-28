@@ -187,7 +187,7 @@ try:
         hp.locator("#jobhunt-li-helper #sent").click()
         hp.wait_for_function("window.__sentMsgs.some(m => m.type === 'jh-li-sent')")
         sent = [m for m in hp.evaluate("window.__sentMsgs") if m["type"] == "jh-li-sent"][0]
-        check(sent == {"type": "jh-li-sent", "p": 7, "k": "message"}, f"reported: {sent}")
+        check({k: sent.get(k) for k in ("type", "p", "k", "c")} == {"type": "jh-li-sent", "p": 7, "k": "message", "c": None}, f"reported (a sourced candidate, no consultant): {sent}")
         hp.wait_for_function("!document.getElementById('jobhunt-li-helper')", timeout=6000)
         check(not hp.evaluate("!!window.sent"), "still never sent by the helper")
         hp.close()

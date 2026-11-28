@@ -172,11 +172,11 @@
   });
   $('sent').addEventListener('click', () => {
     $('sent').disabled = true;
-    chrome.runtime.sendMessage({ type: 'jh-li-sent', p: draft.p, k: sentAs }, (res) => {
+    chrome.runtime.sendMessage({ type: 'jh-li-sent', p: draft.p, c: draft.c, j: draft.j, n: draft.n, u: location.origin + location.pathname, k: sentAs }, (res) => {
       $('sent').disabled = false;
       if (res && res.ok) {
         stop();
-        step('Saved in Job Hunt - the team sees "Messaged on LinkedIn"');
+        step(draft.c ? 'Saved in Job Hunt - the consultant\'s application shows "Messaged on LinkedIn"' : 'Saved in Job Hunt - the team sees "Messaged on LinkedIn"');
         chrome.runtime.sendMessage({ type: 'jh-li-done' });
         setTimeout(() => { host.remove(); window.__jhLiLoaded = false; }, 2500);
       } else {
@@ -186,7 +186,7 @@
   });
 
   chrome.runtime.sendMessage({ type: 'jh-li-get' }, (d) => {
-    if (!d || !d.p || !d.m) { window.__jhLiLoaded = false; return; }
+    if (!d || !(d.p || d.c) || !d.m) { window.__jhLiLoaded = false; return; }
     draft = d;
     $('who').textContent = d.n || 'Candidate';
     $('txt').value = d.m;

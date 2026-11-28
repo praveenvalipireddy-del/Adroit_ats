@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 8) return;
+  if (window.JH && window.JH.version === 9) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -460,6 +460,47 @@
     return out;
   }
 
+  // ---------------- LinkedIn: the person who posted the job (job page: "Meet the hiring team"; a post: its author).
+  // Never "People you can reach out to" - those are alumni / connections at the company, not the poster.
+  const POSTER_HEAD = /^(meet the hiring team|job poster|hiring team)$/i;
+  const LINE_SKIP = /^(\d(st|nd|rd|th)\+?|•|·|job poster|message|connect|follow|meet the hiring team|hiring team|view profile|premium|verified|he\/him|she\/her|they\/them)$/i;
+
+  function profileUrl(href) {
+    try {
+      const u = new URL(href, location.href);
+      const m = u.pathname.match(/^\/in\/[^/]+/);
+      return m ? `https://www.linkedin.com${m[0]}/` : '';
+    } catch (e) { return ''; }
+  }
+
+  function personFrom(box, link) {
+    const lines = (box.innerText || '').split('\n').map((l) => norm(l.replace(/[•·]\s*\d(st|nd|rd|th)\+?/gi, ''))).filter((l) => l && !LINE_SKIP.test(l));
+    const own = norm((link.querySelector('strong, span[aria-hidden="true"]') || link).innerText || '').split('\n')[0];
+    const name = norm(own.replace(/[•·].*$/, '')) || lines[0] || '';
+    const at = lines.findIndex((l) => l === name || l.startsWith(name));
+    const title = lines.slice(at + 1).find((l) => l !== name && !POSTER_HEAD.test(l) && l.length < 140) || '';
+    return name ? { name: name.slice(0, 100), title: title.slice(0, 140), url: profileUrl(link.href) } : null;
+  }
+
+  function readPoster() {
+    if (!/(^|\.)linkedin\.com$/.test(location.hostname)) return null;
+    // a single post (LinkedIn recruiter posts): the author
+    if (/^\/(feed\/update|posts)\//.test(location.pathname)) {
+      const actor = document.querySelector('.update-components-actor, .feed-shared-actor, [data-view-name="feed-actor"]');
+      const link = actor && actor.querySelector('a[href*="/in/"]');
+      return link ? personFrom(actor, link) : null;
+    }
+    // a job page: the "Meet the hiring team" box
+    const heads = Array.from(document.querySelectorAll('h1, h2, h3, h4, span, div, p')).filter((h) => h.children.length <= 1 && POSTER_HEAD.test(norm(h.textContent)));
+    for (const h of heads) {
+      let box = h.parentElement;
+      for (let i = 0; i < 6 && box && !box.querySelector('a[href*="/in/"]'); i++) box = box.parentElement;
+      const link = box && box.querySelector('a[href*="/in/"]');
+      if (link && !/people you can reach out to/i.test(textOf(box).slice(0, 200))) return personFrom(link.closest('div, li, section') || box, link);
+    }
+    return null;
+  }
+
   // ---------------- the main fill
   function fill(profile, resume) {
     clearMarks();
@@ -648,6 +689,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 8, fillLists, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+  window.JH = { version: 9, fillLists, readPoster, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
     _keyFor: keyFor, _labelOf: labelOf, _resumeInput: resumeInput };
 })();

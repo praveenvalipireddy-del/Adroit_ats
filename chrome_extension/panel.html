@@ -71,6 +71,18 @@
       <b id="applied-done" style="color:var(--green)" hidden>✓ Marked as Applied in Job Hunt</b>
     </div>
 
+    <div class="card" id="poster-card" hidden>
+      <b>💬 Message the poster</b>
+      <p class="hint" id="poster-who"></p>
+      <p class="warn" id="poster-missing" hidden>No poster shown on this page. Paste their LinkedIn profile link:</p>
+      <input id="poster-link" class="in" placeholder="https://www.linkedin.com/in/..." hidden>
+      <textarea id="poster-msg" class="in" rows="4" aria-label="Message to the poster"></textarea>
+      <p class="hint" id="poster-count"></p>
+      <p class="warn" id="poster-status" hidden></p>
+      <div class="row"><button class="btn primary" id="btn-poster-type">Type it on LinkedIn</button><button class="btn" id="btn-poster-find" title="Read the page again">↻</button></div>
+      <p class="hint">Sends from the LinkedIn account open in this browser - use the consultant's own LinkedIn. You click Send; Job Hunt logs it.</p>
+    </div>
+
     <div class="rowlink" id="row-info">
       <span class="ico">🗂</span>
       <div class="grow"><b>Your Autofill Information</b><small>Personal details, work authorization &amp; preferences</small></div>

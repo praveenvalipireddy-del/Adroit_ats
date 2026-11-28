@@ -230,7 +230,7 @@ check(anon.post("/api/ext/save-job", headers=H, json={"candidate_id": K, "job": 
 status = lambda cid, job: anon.post("/api/ext/job-status", headers=H, json={"candidate_id": cid, "job": job})  # noqa: E731
 check(status(K, JOB).get_json()["stage"] == "Saved", "status: saved job found by its link")
 check(status(K, {**JOB, "url": "https://forms.example.invalid/apply/1"}).get_json()["stage"] == "Saved", "status: the apply form's link -> found by title + company")
-check(status(K, {"title": "Never seen", "company": "Nobody", "url": "https://x.example/never"}).get_json() == {"found": False, "tailored": None}, "status: a new job")
+check(status(K, {"title": "Never seen", "company": "Nobody", "url": "https://x.example/never"}).get_json() == {"found": False, "tailored": None, "messaged": None}, "status: a new job")
 check(status(X, JOB).status_code == 404, "status: another recruiter's consultant hidden")
 check(anon.post("/api/ext/job-status", json={"candidate_id": K, "job": JOB}).status_code == 401, "status needs the connection key")
 JOB2 = {**JOB, "title": "Second Fixture Role", "url": "https://boards.greenhouse.io/samplefixtureco/jobs/2"}

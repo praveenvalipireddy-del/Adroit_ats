@@ -19,8 +19,12 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
     let d = null;
     try { d = JSON.parse(decodeURIComponent(url.slice(at + 7))); } catch (e) { d = null; }
     const p = d && parseInt(d.p, 10);
-    if (p > 0 && typeof d.m === 'string' && d.m.trim()) {
-      chrome.storage.session.set({ [liKey(tabId)]: { p, k: d.k === 'message' ? 'message' : 'note', m: d.m.slice(0, 2000), n: String(d.n || '').slice(0, 120) } });
+    const c = d && parseInt(d.c, 10);           // a job poster: the consultant (c) and the job (j) instead of a sourced profile (p)
+    if ((p > 0 || c > 0) && typeof d.m === 'string' && d.m.trim()) {
+      const j = c > 0 && d.j && typeof d.j === 'object'
+        ? { title: String(d.j.title || '').slice(0, 200), company: String(d.j.company || '').slice(0, 200), url: String(d.j.url || '').slice(0, 1000) } : null;
+      chrome.storage.session.set({ [liKey(tabId)]: { p: p > 0 ? p : null, c: c > 0 ? c : null, j, k: d.k === 'message' ? 'message' : 'note',
+                                                     m: d.m.slice(0, 2000), n: String(d.n || '').slice(0, 120) } });
     }
   }
   if (info.status === 'complete' && LI_ANY.test(tab.url || '')) {
@@ -45,13 +49,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.type === 'jh-li-sent') {
     (async () => {
       const p = parseInt(msg.p, 10);
+      const c = parseInt(msg.c, 10);
       const { server, key } = await chrome.storage.local.get(['server', 'key']);
       if (!server || !key) return reply({ error: 'Open the Job Hunt extension and connect it to Job Hunt first.' });
-      if (!(p > 0)) return reply({ error: 'Unknown candidate.' });
+      if (!(p > 0) && !(c > 0)) return reply({ error: 'Unknown candidate.' });
+      const mode = msg.k === 'message' ? 'message' : 'note';
+      // a job poster -> the consultant's application for that job; a sourced candidate -> the Sourcing card
+      const [path, body] = c > 0
+        ? ['/api/ext/linkedin-messaged', { candidate_id: c, job: msg.j || {}, person: { name: msg.n || '', url: msg.u || '' }, mode }]
+        : [`/api/ext/sourcing/${p}/linkedin-sent`, { mode }];
       try {
-        const res = await fetch(`${server}/api/ext/sourcing/${p}/linkedin-sent`, {
+        const res = await fetch(`${server}${path}`, {
           method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: msg.k === 'message' ? 'message' : 'note' }),
+          body: JSON.stringify(body),
         });
         const data = await res.json().catch(() => ({}));
         reply(res.ok ? { ok: true } : { error: data.error || `Job Hunt error ${res.status}` });

@@ -3335,13 +3335,58 @@ def api_ext_job_status():
         if not found and job["title"] and job["company"]:
             cur.execute(sql + "j.title = ? AND j.company = ?", (cand["id"], job["title"], job["company"]))
             found = cur.fetchone()
+        messaged = None             # the latest LinkedIn message to this job's poster (extension: "Message the poster")
+        if jrow:
+            cur.execute("""SELECT e.detail, e.created_at FROM application_events e JOIN applications a ON a.id = e.application_id
+                           WHERE a.candidate_id = ? AND a.job_id = ? AND e.kind = 'linkedin' ORDER BY e.id DESC LIMIT 1""",
+                        (cand["id"], jrow["id"]))
+            m = cur.fetchone()
+            if m:
+                messaged = {"detail": m["detail"], "date": str(m["created_at"] or "")[:10]}
     finally:
         conn.close()
     if not found:
-        return jsonify({"found": False, "tailored": tailored})
+        return jsonify({"found": False, "tailored": tailored, "messaged": messaged})
     return jsonify({"found": True, "stage": found["stage"], "label": application_tracker.STATUS_LABELS.get(found["stage"], found["stage"]),
                     "date": str(found["applied_date"] or found["updated_at"] or "")[:10], "resume": found["filename"] or "",
-                    "tailored": tailored})
+                    "tailored": tailored, "messaged": messaged})
+
+
+@app.route("/api/ext/linkedin-messaged", methods=["POST"])
+def api_ext_linkedin_messaged():
+    """The consultant messaged a job's poster on LinkedIn (the extension typed it, the person clicked Send): the job is
+    saved to the consultant's Applications and the message is logged on it ("Messaged <name> on LinkedIn")."""
+    user = _ext_user()
+    if not user:
+        return jsonify({"error": "Not connected"}), 401
+    data = request.get_json(silent=True) or {}
+    cand = _ext_consultant(user, data.get("candidate_id"))
+    if not cand:
+        return jsonify({"error": "Consultant not found"}), 404
+    job = autofill.clean_job(data.get("job"))
+    if not job["title"] or not job["url"]:
+        return jsonify({"error": "Couldn't tell which job this message was for - open the job page and type it from there."}), 400
+    person = data.get("person") if isinstance(data.get("person"), dict) else {}
+    name = re.sub(r"\s+", " ", str(person.get("name") or "")).strip()[:100] or "the poster"
+    url = str(person.get("url") or "").strip()[:300]
+    url = url if re.match(r"^https://([a-z]+\.)?linkedin\.com/in/", url) else ""
+    how = "a message" if data.get("mode") == "message" else "a connection note"
+    jid = _ext_save_job(cand, job)
+    conn = models.get_db_connection()
+    try:
+        app_id = application_tracker.upsert(conn, jid, cand["id"], user["id"], client_company=job["company"] or None)
+        cur = conn.cursor()
+        cur.execute("SELECT recruiter_name FROM applications WHERE id = ?", (app_id,))
+        row = cur.fetchone()
+        if row and not row["recruiter_name"] and name != "the poster":
+            cur.execute("UPDATE applications SET recruiter_name = ? WHERE id = ?", (name, app_id))
+        application_tracker.event(cur, app_id, user["id"], "linkedin", f"Messaged {name} on LinkedIn ({how})" + (f" - {url}" if url else ""))
+        conn.commit()
+    finally:
+        conn.close()
+    models.log_activity(user["id"], user.get("name") or "", "LinkedIn message (extension)", "Candidate", cand["id"],
+                        f"{cand.get('name')} messaged {name} about {job['title']} at {job['company']} on LinkedIn")
+    return jsonify({"success": True, "job_id": jid, "application_id": app_id})
 
 
 @app.route("/api/ext/versions/<int:vid>", methods=["GET"])

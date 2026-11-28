@@ -90,7 +90,7 @@ check("City" not in ext_cons["missing"] and "ZIP / postal code" not in ext_cons[
 
 # ---- 2. the real extension on a Workday-style page
 z = client.get("/extension/jobhunt-autofill.zip")
-check(json.loads(zipfile.ZipFile(io.BytesIO(z.data)).read("jobhunt-autofill/manifest.json"))["version"] == "1.5.3", "extension version 1.5.3")
+check(json.loads(zipfile.ZipFile(io.BytesIO(z.data)).read("jobhunt-autofill/manifest.json"))["version"] == "1.6.0", "extension version 1.6.0")
 with socket.socket() as sk:
     sk.bind(("127.0.0.1", 0))
     port = sk.getsockname()[1]

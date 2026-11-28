@@ -255,6 +255,7 @@ async function readPage() {
     if (st.jobKey !== before) showJobState();
     renderJob(st.job);
     refreshStatus();
+    readPoster(tab);
   } catch (e) {
     if (seq !== st.readSeq) return;
     st.job = null;
@@ -262,6 +263,7 @@ async function readPage() {
     if (before) showJobState();
     renderJob(null, 'Job Hunt can\'t read this page');
     refreshStatus();
+    $('poster-card').hidden = true;
   }
 }
 
@@ -275,6 +277,7 @@ async function refreshStatus() {
     if (st.cid !== cid || !st.job || st.job.title !== job.title) return;
     $('btn-save').classList.toggle('on', !!d.found);
     useSiteTailored(d.tailored, cid);
+    showMessaged(d.messaged);
     box.hidden = !d.found || d.stage === 'Saved';
     if (box.hidden) return;
     const who = (st.consultants.find((c) => c.id === cid) || {}).name || 'This consultant';
@@ -300,6 +303,72 @@ async function useSiteTailored(t, cid) {
     showResumeName();
   } catch (e) { /* the original stays */ }
 }
+
+// ------------------------------------------------------------- message the poster (LinkedIn jobs + recruiter posts)
+// A fixed, short message from the consultant's own LinkedIn ("I saw your posting for ... I'm interested"). The
+// extension types it; the person clicks Send; Job Hunt logs "Messaged on LinkedIn" on the consultant's application.
+const LI_JOB_PAGE = /^https:\/\/([a-z]+\.)?linkedin\.com\/(jobs\/|feed\/update\/|posts\/)/;
+const NOTE_LIMIT = 200;      // a connection note on a free account (300 with Premium)
+
+function posterMessage() {
+  const first = ((st.poster && st.poster.name) || '').split(/\s+/)[0] || 'there';
+  const job = st.job || {};
+  const role = job.title ? `the ${job.title} role${job.company ? ' at ' + job.company : ''}` : 'this role';
+  return `Hi ${first}, I saw your posting for ${role}. I'm interested in this position and would love to connect. Thank you!`;
+}
+
+function posterCount() {
+  const n = $('poster-msg').value.trim().length;
+  $('poster-count').textContent = `${n} / ${NOTE_LIMIT} characters` + (n > NOTE_LIMIT ? ' - too long for a connection note (fine for a message)' : '');
+  $('poster-count').className = n > NOTE_LIMIT ? 'warn' : 'hint';
+}
+
+function renderPoster() {
+  const p = st.poster;
+  $('poster-who').innerHTML = p ? `<b>${esc(p.name)}</b>${p.title ? ' · ' + esc(p.title) : ''}` : '';
+  $('poster-missing').hidden = !!p;
+  $('poster-link').hidden = !!p;
+  const key = `${st.cid}|${(st.job && st.job.url) || ''}|${(p && p.url) || ''}`;
+  if (st.posterKey !== key) {          // a new job / person: the template again (an edit stays while it's the same one)
+    st.posterKey = key;
+    $('poster-msg').value = posterMessage();
+  }
+  posterCount();
+}
+
+async function readPoster(tab) {
+  const card = $('poster-card');
+  if (!tab || !LI_JOB_PAGE.test(tab.url || '') || !st.cid) { card.hidden = true; st.poster = null; return; }
+  let p = null;
+  try {
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => (window.JH && window.JH.readPoster ? window.JH.readPoster() : null) });
+    p = r && r.result;
+  } catch (e) { p = null; }
+  st.poster = p && p.url ? p : null;
+  card.hidden = false;
+  renderPoster();
+}
+
+function showMessaged(m) {
+  const box = $('poster-status');
+  box.hidden = !m;
+  if (m) box.textContent = `⚠ Already messaged on LinkedIn for this job${m.date ? ' on ' + m.date : ''}${m.detail ? ' - ' + m.detail : ''}.`;
+}
+
+$('poster-msg').addEventListener('input', posterCount);
+$('btn-poster-find').addEventListener('click', async () => { st.posterKey = null; readPoster(await targetTab()); });
+$('btn-poster-type').addEventListener('click', async () => {
+  const typed = $('poster-link').value.trim();
+  const m = typed.match(/^https?:\/\/([a-z]+\.)?linkedin\.com\/in\/[^/?#\s]+/i);
+  const url = (st.poster && st.poster.url) || (m ? m[0].replace(/^http:/, 'https:') + '/' : '');
+  const text = $('poster-msg').value.trim();
+  if (!url) { flash('Paste the poster\'s LinkedIn profile link (linkedin.com/in/...) first.', true); return; }
+  if (!text) { flash('Write the message first.', true); return; }
+  const job = st.job || {};
+  const draft = { c: st.cid, k: 'message', m: text, n: (st.poster && st.poster.name) || '',
+                  j: { title: job.title || '', company: job.company || '', url: job.url || '' } };
+  chrome.tabs.create({ url: url.split('#')[0] + '#jh-li=' + encodeURIComponent(JSON.stringify(draft)) });
+});
 
 function renderJob(job, emptyText) {
   $('btn-save').classList.remove('on');

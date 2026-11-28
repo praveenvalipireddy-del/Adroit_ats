@@ -23,6 +23,34 @@ BASE = "https://api.apollo.io/api/v1"
 TIMEOUT = 25
 HIRING_TITLES = ["recruiter", "technical recruiter", "talent acquisition", "talent acquisition partner", "talent acquisition specialist",
                  "hr manager", "human resources", "hr business partner", "hiring manager"]
+# Apollo's "similar titles" also brings sales people ("Key Account Manager" is similar to "hiring manager"). Kept:
+# recruiting / talent / HR people, and managers / leads whose title shares a word with the job (the likely hiring
+# manager). Never: sales, accounts, business development, marketing, customer success.
+_HIRING_RE = re.compile(r"recruit|talent|sourc(er|ing)|staffing|acquisition|\bhr\b|h\.r\.|human resources|people (partner|operations|team)|hiring", re.I)
+_NOT_HIRING_RE = re.compile(r"\bsales\b|account (manager|executive|director|lead)|key account|business development|\bbdm?\b|marketing|"
+                            r"customer (success|service|support)|territory|channel|pre-?sales|partner manager|client partner", re.I)
+_LEAD_RE = re.compile(r"manager|director|head|\blead\b|chief|\bvp\b|vice president|principal|architect", re.I)
+_GENERIC_WORDS = {"senior", "sr", "junior", "jr", "lead", "manager", "engineer", "developer", "specialist", "analyst", "consultant",
+                  "associate", "staff", "principal", "director", "head", "and", "the", "for", "with", "remote", "contract", "ii", "iii"}
+
+
+def _job_words(job_title: str) -> set:
+    return {w for w in re.findall(r"[a-z][a-z0-9+#.]*", (job_title or "").lower()) if len(w) > 2 and w not in _GENERIC_WORDS}
+
+
+def is_hiring_person(title: str, job_title: str = "") -> bool:
+    """Recruiter / TA / HR, or a manager / lead in the job's own field (when the job title is known)."""
+    t = title or ""
+    if _NOT_HIRING_RE.search(t) and not re.search(r"recruit|talent", t, re.I):
+        return False
+    if _HIRING_RE.search(t):
+        return True
+    if not _LEAD_RE.search(t):
+        return False
+    words = _job_words(job_title)
+    return not words or bool(words & _job_words(t) | {w for w in words if w in t.lower()})
+
+
 _SUFFIXES = {"inc", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "pvt", "private", "plc", "gmbh", "the",
              "technologies", "technology", "group", "holdings", "india", "usa", "us"}
 
@@ -94,8 +122,9 @@ def same_company(a: str, b: str) -> bool:
     return ta <= tb or tb <= ta
 
 
-def search_hiring_team(company: str, country: str = "", per_page: int = 25) -> List[Dict]:
-    """Recruiters / TA / HR / hiring managers at `company` (FREE). Each: {id, name, title, location, linkedin_url, has_email}."""
+def search_hiring_team(company: str, country: str = "", per_page: int = 50, job_title: str = "") -> List[Dict]:
+    """Recruiters / TA / HR / hiring managers at `company` (FREE). Each: {id, name, title, location, linkedin_url, has_email}.
+    Sales / account / marketing people that Apollo's similar titles bring are left out (is_hiring_person)."""
     company = (company or "").strip()
     if not company or company.lower() in ("(company not shown)", "(see post)", "confidential", "direct client"):
         raise ApolloError("This job doesn't name the company, so there is no hiring team to look up.")
@@ -106,7 +135,7 @@ def search_hiring_team(company: str, country: str = "", per_page: int = 25) -> L
     out = []
     for p in data.get("people") or []:
         org = (p.get("organization") or {}).get("name") or p.get("organization_name") or ""
-        if not same_company(org, company):
+        if not same_company(org, company) or not is_hiring_person(p.get("title") or "", job_title):
             continue
         last = p.get("last_name") or p.get("last_name_obfuscated") or ""
         out.append({"id": p.get("id"), "name": f"{p.get('first_name') or ''} {last}".strip(), "title": p.get("title") or "",

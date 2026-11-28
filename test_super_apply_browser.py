@@ -56,7 +56,9 @@ def fake_post(path, body):
             {"id": P1, "first_name": "Rita", "last_name_obfuscated": "Re***r", "title": "Senior Technical Recruiter", "organization": {"name": "Fixture Health Inc"},
              "has_email": True, "linkedin_url": "https://www.linkedin.com/in/rita-fixture"},
             {"id": P2, "first_name": "Hari", "last_name_obfuscated": "H***", "title": "HR Business Partner", "organization": {"name": "Fixture Health"}},
-            {"id": P4, "first_name": "Otto", "last_name_obfuscated": "O***", "title": "Recruiter", "organization": {"name": "Unrelated Staffing LLC"}}]}
+            {"id": P4, "first_name": "Otto", "last_name_obfuscated": "O***", "title": "Recruiter", "organization": {"name": "Unrelated Staffing LLC"}},
+            {"id": "e" * 24, "first_name": "Kim", "last_name_obfuscated": "K***", "title": "Key Account Manager", "organization": {"name": "Fixture Health"}},
+            {"id": "f" * 24, "first_name": "Sam", "last_name_obfuscated": "S***", "title": "Sales Director", "organization": {"name": "Fixture Health"}}]}
     if path == "/people/match":
         if body["id"] == P1:
             return {"person": {"name": "Rita Recruiter", "email": "rita@fixturehealth.example", "email_status": "verified", "title": "Senior Technical Recruiter",
@@ -101,6 +103,11 @@ apollo_api.http_post = fake_post
 # ---- 2. search
 people = apollo_api.search_hiring_team("Fixture Health", "United States")
 check([p["id"] for p in people] == [P1, P2, P3], f"own company only, recruiters first: {[(p['name'], p['title']) for p in people]}")
+people = apollo_api.search_hiring_team("Fixture Health", job_title="Senior Security Engineer, PKI & Network Edge")
+check([p["id"] for p in people] == [P1, P2], f"sales / account people never; a manager outside the job's field left out: {[(p['name'], p['title']) for p in people]}")
+check(apollo_api.is_hiring_person("Director, Network Security", "Senior Security Engineer, PKI & Network Edge")
+      and not apollo_api.is_hiring_person("Key Account Manager", "Senior Security Engineer"), "hiring manager in the job's field kept")
+people = apollo_api.search_hiring_team("Fixture Health", "United States")
 check(calls[-1][1]["person_locations"] == ["United States"] and calls[-1][1]["q_keywords"] == "Fixture Health", f"search body: {calls[-1][1]}")
 try:
     apollo_api.search_hiring_team("(company not shown)")
@@ -132,7 +139,8 @@ with client.session_transaction() as s_:
     s_["user"] = {"id": REC, "name": "Sia", "role": "Recruiter", "email": EMAIL}
 check(client.post("/api/super-apply/check").get_json()["ok"], "check: connected")
 d = client.post("/api/super-apply/search", json={"job_id": jid}).get_json()
-check(len(d["people"]) == 3 and d["company"] == "Fixture Health", f"search route: {d}")
+check([p["title"] for p in d["people"]] == ["Senior Technical Recruiter", "HR Business Partner"] and d["company"] == "Fixture Health",
+      f"search route (a Data Analyst job: the Engineering Manager is not its hiring manager): {d}")
 d = client.post("/api/super-apply/reveal", json={"job_id": jid, "person_id": P1}).get_json()
 check(d["verified"] and d.get("saved_on_job") and models.get_job_by_id(jid)["recruiter_email"] == "rita@fixturehealth.example", f"saved on the job: {d}")
 conn = models.get_db_connection()

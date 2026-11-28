@@ -2664,7 +2664,7 @@ def api_super_apply_search():
     try:
         saved = hiring_contacts.for_company(conn, job.get("company") or "")
         try:
-            people = apollo_api.search_hiring_team(job.get("company") or "", job.get("country") or "")
+            people = apollo_api.search_hiring_team(job.get("company") or "", job.get("country") or "", job_title=job.get("title") or "")
         except apollo_api.ApolloError as ex:
             return jsonify({"error": str(ex), "plan_blocked": ex.plan_blocked, "company": job.get("company") or "",
                             "saved": saved}), 400

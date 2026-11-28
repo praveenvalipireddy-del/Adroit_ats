@@ -89,6 +89,22 @@ check(calls == [], f"'All portals' (free) never runs ZipRecruiter / Monster: {ca
 r = us_job_scrapers.run_multi_source_us_scrape(["Java"], save_to_db=False, sources=["Monster"])
 check([c[0] for c in calls] == [zm.MONSTER_ACTOR] and r["sources"]["Monster"]["count"] == 1, f"picking Monster runs only Monster: {calls}")
 
+# ---- 3b. ZipRecruiter Canada (ziprecruiter.ca): Canada jobs, only when picked - never "All Canada portals"
+import canada_job_scrapers  # noqa: E402
+calls.clear()
+jobs = zm.scrape_ziprecruiter("Security Analyst", location="Canada", job_type="", country="Canada")
+check(calls[-1][1].get("countryName") == "canada" and "location" not in calls[-1][1], f"ziprecruiter.ca, whole Canada: {calls[-1][1]}")
+check(jobs and all(j["country"] == "Canada" for j in jobs), f"saved as Canada jobs: {[j['country'] for j in jobs]}")
+canada_job_scrapers.scrape_linkedin_canada = lambda *a, **k: []
+canada_job_scrapers.scrape_indeed_canada = lambda *a, **k: []
+calls.clear()
+canada_job_scrapers.run_multi_source_canada_scrape(["Java"], save_to_db=False)
+check(calls == [], f"'All Canada portals' never runs ZipRecruiter: {calls}")
+canada_job_scrapers.run_multi_source_canada_scrape(["Java"], save_to_db=False, sources=["ZipRecruiter"])
+check([c[0] for c in calls] == [zm.ZIP_ACTOR] and calls[0][1]["countryName"] == "canada", f"picking ZipRecruiter in Canada: {calls}")
+check("ZipRecruiter" in individuals.sources_for("Canada", True) and "ZipRecruiter" not in individuals.sources_for("Canada", False),
+      "Individuals in Canada: ZipRecruiter only with paid portals")
+
 # ---- 4. jobs search
 uid = lambda u: u["id"] if isinstance(u, dict) else u  # noqa: E731
 REC = uid(models.create_user("Rita Ziptest", "zip-rec@example.invalid", "Zip-pass-1", role="Recruiter", region="USA"))
@@ -133,7 +149,7 @@ try:
         page.fill("input[name=password]", "Zip-pass-1")
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.26" in page.content(), "cache-buster not bumped to 5.99.26")
+        check("app.js?v=5.99.27" in page.content(), "cache-buster not bumped to 5.99.27")
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_selector("#filter-source", timeout=10000)
         opts = page.eval_on_selector("#filter-source", "s => [...s.options].map(o => o.value)")
@@ -141,6 +157,10 @@ try:
         page.select_option("#filter-source", "Monster")
         page.evaluate("jobsPortalCostHint()")
         check("$0.03 per search" in page.inner_text("#jobs-portal-cost"), f"cost hint: {page.inner_text('#jobs-portal-cost')!r}")
+        page.evaluate("document.getElementById('filter-country').value = 'Canada'")   # this recruiter's team (USA) locks the list
+        page.evaluate("syncJobsMarketUi()")
+        opts = page.eval_on_selector("#filter-source", "s => [...s.options].map(o => o.textContent.trim())")
+        check("ZipRecruiter Canada" in opts and "Monster" not in opts, f"Canada sources: {opts}")
         b.close()
 finally:
     server.shutdown()

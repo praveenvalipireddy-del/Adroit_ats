@@ -696,6 +696,7 @@ function syncJobsMarketUi() {
             ? `<option value="All">All Canada portals</option>
                <option value="LinkedIn">LinkedIn (free)</option>
                <option value="Indeed">Indeed Canada</option>
+               <option value="ZipRecruiter">ZipRecruiter Canada</option>
                <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
                <option value="Company site">🏢 Company career sites</option>`
             : `<option value="All">All portals</option>

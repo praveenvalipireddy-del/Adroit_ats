@@ -62,7 +62,7 @@ ALLOWED = {
 JOB_SOURCES = {
     "United States": ("All", "Dice", "LinkedIn", "ZipRecruiter", "Monster", "Recruiter Post", "Company site"),
     "India": ("LinkedIn", "Naukri", "Recruiter Post", "Company site"),
-    "Canada": ("LinkedIn", "Recruiter Post", "Company site"),
+    "Canada": ("LinkedIn", "ZipRecruiter", "Recruiter Post", "Company site"),
 }
 
 

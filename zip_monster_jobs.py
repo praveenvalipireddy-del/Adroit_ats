@@ -1,4 +1,4 @@
-"""ZipRecruiter and Monster job listings (USA) via Apify actors - paid, so searched only when the recruiter picks
+"""ZipRecruiter (USA + Canada) and Monster (USA) job listings via Apify actors - paid, so searched only when the recruiter picks
 the portal (never by "All portals" or the automatic searches).
 
 - ZipRecruiter: silentflow/ziprecruiter-scraper-ppe. Store price (Nov 2026): $0.00099 per job + about $0.003 per job
@@ -27,7 +27,7 @@ _TYPE_WORDS = {"contractor": "Contract", "contract": "Contract", "temporary": "C
                "full_time": "Full-time", "full-time": "Full-time", "fulltime": "Full-time", "permanent": "Full-time",
                "part_time": "Part-time", "part-time": "Part-time", "parttime": "Part-time", "intern": "Internship",
                "internship": "Internship"}
-_US_WIDE = ("", "united states", "usa", "us", "anywhere in the us")
+_US_WIDE = ("", "united states", "usa", "us", "anywhere in the us", "canada", "all canada", "anywhere in canada")
 
 
 def _type(v) -> str:
@@ -46,14 +46,14 @@ def _text(v) -> str:
     return str(v or "").strip()
 
 
-def _location(it: Dict) -> str:
+def _location(it: Dict, market: str = "United States") -> str:
     loc = it.get("location")
     if isinstance(loc, dict):
         loc = ", ".join(p for p in (loc.get("city"), loc.get("state") or loc.get("region")) if p)
     loc = str(loc or "").strip()
     if not loc:
         loc = ", ".join(p for p in (it.get("city"), it.get("state")) if p)
-    return loc.removesuffix(", US").strip() or "United States"
+    return loc.removesuffix(", US").removesuffix(", CA").strip() or market
 
 
 def _is_test_posting(title: str, company: str) -> bool:
@@ -61,7 +61,7 @@ def _is_test_posting(title: str, company: str) -> bool:
     return title.upper().startswith("PAT_") or "testaccount" in company.lower().replace(" ", "")
 
 
-def _jobs(items: List[Dict], portal: str, source: str, keyword: str) -> List[Dict]:
+def _jobs(items: List[Dict], portal: str, source: str, keyword: str, market: str = "United States") -> List[Dict]:
     jobs, dropped = [], 0
     for idx, it in enumerate(items or []):
         title = _text(it.get("title") or it.get("jobTitle"))
@@ -73,7 +73,7 @@ def _jobs(items: List[Dict], portal: str, source: str, keyword: str) -> List[Dic
         if _is_test_posting(title, company):
             continue
         desc = _text(it.get("description") or it.get("descriptionText"))
-        where = _location(it)
+        where = _location(it, market)
         posted = _text(it.get("postedDate") or it.get("datePosted"))[:10] or "recently"
         jobs.append({
             "title": title,
@@ -88,7 +88,7 @@ def _jobs(items: List[Dict], portal: str, source: str, keyword: str) -> List[Dic
             "matched_skills": keyword,
             "match_score": 95 - idx,
             "is_24h": 1,
-            "country": "United States",
+            "country": market,
         })
     if dropped and not jobs:
         ij.LAST_ERROR[portal] = (f"{portal} returned {len(items)} jobs but in a format this app doesn't read yet "
@@ -97,8 +97,12 @@ def _jobs(items: List[Dict], portal: str, source: str, keyword: str) -> List[Dic
     return jobs
 
 
-def scrape_ziprecruiter(keyword: str, location: str = "United States", job_type: str = "") -> List[Dict]:
+def scrape_ziprecruiter(keyword: str, location: str = "United States", job_type: str = "", country: str = "United States") -> List[Dict]:
+    """country "Canada" searches ziprecruiter.ca (its jobs are saved as Canada jobs)."""
+    market = "Canada" if (country or "").strip().lower() == "canada" else "United States"
     payload = {"searches": [keyword], "postedWithin": "week", "maxItems": ZIP_LIMIT, "maxPages": 1, "includeDetails": True}
+    if market == "Canada":
+        payload["countryName"] = "canada"
     if location.strip().lower() not in _US_WIDE:
         payload["location"] = location.strip()
     if ZIP_TYPES.get(job_type):
@@ -108,7 +112,7 @@ def scrape_ziprecruiter(keyword: str, location: str = "United States", job_type:
     if err:
         logger.error(f"ZipRecruiter scraping error: {err}")
         return []
-    return _jobs(items, "ZipRecruiter", ZIP_SOURCE, keyword)
+    return _jobs(items, "ZipRecruiter", ZIP_SOURCE, keyword, market)
 
 
 def scrape_monster(keyword: str, location: str = "United States", job_type: str = "") -> List[Dict]:

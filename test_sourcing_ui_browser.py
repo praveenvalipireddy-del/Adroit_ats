@@ -77,7 +77,7 @@ try:
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
 
-        check("app.js?v=5.99.26" in page.content(), "cache-buster not bumped to app.js?v=5.99.26")
+        check("app.js?v=5.99.27" in page.content(), "cache-buster not bumped to app.js?v=5.99.27")
 
         page.click("a.nav-item[data-tab=sourcing]")
         page.select_option("#filter-student-bachelor-year", "2019")

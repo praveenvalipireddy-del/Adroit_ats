@@ -184,7 +184,7 @@ try:
         page = browser.new_page(viewport={"width": 1500, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, ADMIN_EMAIL, ADMIN_PW)
-        check("app.js?v=5.99.26" in page.content(), "cache-buster not bumped to 5.99.26")
+        check("app.js?v=5.99.27" in page.content(), "cache-buster not bumped to 5.99.27")
         opts = page.eval_on_selector("#view-region-switch", "s => [...s.options].map(o => o.textContent.trim())")
         check(opts == ["🌐 All teams", "🇺🇸 USA team", "🇮🇳 India team", "🇨🇦 Canada team"], f"team switcher: {opts}")
         with page.expect_navigation():
@@ -194,7 +194,7 @@ try:
         check(page.input_value("#filter-country") == "Canada" and page.is_disabled("#filter-country"), "Canada view: jobs market locked to Canada")
         page.click("a.nav-item[data-tab=jobs]")
         srcs = page.eval_on_selector("#filter-source", "s => [...s.options].map(o => o.value)")
-        check(srcs == ["All", "LinkedIn", "Indeed", "Recruiter Post", "Company site"], f"Canada portals: {srcs}")
+        check(srcs == ["All", "LinkedIn", "Indeed", "ZipRecruiter", "Recruiter Post", "Company site"], f"Canada portals: {srcs}")
         check("Indeed Canada" in page.inner_text("#filter-source"), "Indeed Canada named")
         page.screenshot(path=shot)
         # the consultant form

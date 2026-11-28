@@ -98,7 +98,7 @@ try:
         page.fill("input[name=password]", PASSWORD)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.25" in page.content(), "cache-buster not bumped to 5.99.25")
+        check("app.js?v=5.99.26" in page.content(), "cache-buster not bumped to 5.99.26")
         page.evaluate("localStorage.removeItem('jh-li-template'); localStorage.removeItem('jh-li-role')")
 
         # ---------------- A. Job Hunt

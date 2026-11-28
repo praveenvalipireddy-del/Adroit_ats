@@ -80,7 +80,7 @@ def _run_actor_sync(actor: str, payload: Dict, timeout: int = 150):
             items = items if isinstance(items, list) else []
             # every run is logged (search terms, results, time) - an empty result is visible in the server log
             logger.info(f"Apify {actor}: {len(items)} results in {time.monotonic() - started:.0f}s for "
-                        f"{ {k: v for k, v in payload.items() if k in ('keyword', 'position', 'title', 'searchQueries', 'country', 'location', 'jobAge', 'postedWithinDays', 'datePosted', 'maxPosts', 'postedLimit')} }")
+                        f"{ {k: v for k, v in payload.items() if k in ('keyword', 'position', 'title', 'searchQueries', 'searches', 'query', 'country', 'location', 'jobAge', 'postedWithinDays', 'datePosted', 'maxPosts', 'postedLimit')} }")
             return items, None
         logger.warning(f"Apify {actor}: HTTP {r.status_code} after {time.monotonic() - started:.0f}s: {r.text[:300]}")
         return None, explain_apify_error(r.status_code, r.text)

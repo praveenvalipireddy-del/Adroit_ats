@@ -26,6 +26,7 @@ def extract_email_from_text(text: str) -> Optional[str]:
         return None
     matches = EMAIL_REGEX.findall(text)
     for m in matches:
+        m = m.rstrip(".")                   # "email jobs@acme.com." - the full stop ends the sentence, not the address
         m_lower = m.lower()
         if not any(bad in m_lower for bad in [".png", ".jpg", ".jpeg", ".gif", "example.com", "domain.com", "schema.org", "w3.org", "sentry.io", "noreply", "no-reply"]):
             return m
@@ -196,7 +197,7 @@ def scrape_linkedin_us(keyword: str = "Java Cloud", location: str = "United Stat
 # --- 3. MASTER MULTI-SOURCE US SCRAPER RUNNER ---
 
 US_FREE_SOURCES = ("Dice", "LinkedIn")                 # read directly, no cost - "All US portals"
-US_SOURCES = ("Dice", "LinkedIn", "Indeed", "Recruiter Post")   # Indeed + recruiter posts are paid (Apify): only when picked
+US_SOURCES = ("Dice", "LinkedIn", "Indeed", "ZipRecruiter", "Monster", "Recruiter Post")   # all but Dice / LinkedIn are paid (Apify): only when picked
 
 
 def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: str = "United States", contract_only: bool = True, save_to_db: bool = True,
@@ -206,6 +207,7 @@ def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: s
     sources: {portal: {count, error, note}}}."""
     import india_job_scrapers as ij
     import indeed_jobs
+    import zip_monster_jobs
     if job_type is None:
         job_type = "Contract" if contract_only else ""
     if not keywords:
@@ -215,6 +217,8 @@ def run_multi_source_us_scrape(keywords: Optional[List[str]] = None, location: s
         "Dice": lambda kw: scrape_dice_us(kw, location=location, limit=8, job_type=job_type),
         "LinkedIn": lambda kw: scrape_linkedin_us(kw, location=location, contract_only=contract_only, limit=8, experience_years=experience_years, job_type=job_type),
         "Indeed": lambda kw: indeed_jobs.scrape_indeed(kw, location=location, country="United States", limit=25, job_type=job_type),
+        "ZipRecruiter": lambda kw: zip_monster_jobs.scrape_ziprecruiter(kw, location=location, job_type=job_type),
+        "Monster": lambda kw: zip_monster_jobs.scrape_monster(kw, location=location, job_type=job_type),
         "Recruiter Post": lambda kw: ij.scrape_recruiter_posts(kw, "United States", job_type),
     }
 

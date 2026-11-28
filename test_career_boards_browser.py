@@ -252,7 +252,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.25" in page.content(), "cache-buster not bumped to 5.99.25")
+        check("app.js?v=5.99.26" in page.content(), "cache-buster not bumped to 5.99.26")
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_selector("#jobs-side-consultant")
         check(page.is_hidden("#jobs-table-view") and page.is_visible("#jobs-cards"), "cards are the default Jobs view")

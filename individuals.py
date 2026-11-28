@@ -19,7 +19,7 @@ ROLE = "Individual"
 DEFAULT_DAILY_LIMIT = 20
 MAX_DAILY_LIMIT = 500
 DEFAULT_PAID_LIMIT = 5
-PAID_SOURCES = ("Naukri", "Recruiter Post")     # each live search runs an Apify scrape on the owner's account
+PAID_SOURCES = ("Naukri", "Recruiter Post", "ZipRecruiter", "Monster")     # each live search runs an Apify scrape on the owner's account
 
 # Routes an Individual may use (Flask endpoint -> methods). Everything else is refused (403) - an allowlist, so a
 # route added later stays closed to them until it is listed here.
@@ -60,7 +60,7 @@ ALLOWED = {
 # First entry is the default. The paid sources (PAID_SOURCES) are only offered to an Individual the admin turned
 # paid portals on for, and must be selected explicitly.
 JOB_SOURCES = {
-    "United States": ("All", "Dice", "LinkedIn", "Recruiter Post", "Company site"),
+    "United States": ("All", "Dice", "LinkedIn", "ZipRecruiter", "Monster", "Recruiter Post", "Company site"),
     "India": ("LinkedIn", "Naukri", "Recruiter Post", "Company site"),
     "Canada": ("LinkedIn", "Recruiter Post", "Company site"),
 }

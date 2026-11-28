@@ -702,6 +702,8 @@ function syncJobsMarketUi() {
                <option value="LinkedIn">LinkedIn (Live 24h)</option>
                <option value="Dice">Dice.com</option>
                <option value="Indeed">Indeed</option>
+               <option value="ZipRecruiter">ZipRecruiter</option>
+               <option value="Monster">Monster</option>
                <option value="Recruiter Post">📣 LinkedIn recruiter posts (AI-read)</option>
                <option value="Company site">🏢 Company career sites</option>`;
         if (window.IS_INDIVIDUAL) indivTrimSources(sourceSelect, country);
@@ -713,6 +715,8 @@ function syncJobsMarketUi() {
 const PORTAL_COST = {
     'Indeed': 'Indeed: about $0.004 per search (25 jobs) - paid from the Apify credit.',
     'Recruiter Post': 'Recruiter posts: reads up to 50 LinkedIn posts from the last 24 hours, the AI keeps the real requirements - about $0.10 per search (Apify credit). Takes 1-2 minutes.',
+    'ZipRecruiter': 'ZipRecruiter: about $0.08 per search (up to 20 jobs with full postings) - paid from the Apify credit.',
+    'Monster': 'Monster: about $0.03 per search (up to 25 jobs) - paid from the Apify credit.',
     'Naukri': 'Naukri: about $0.001 per job found (Apify credit).',
     'Foundit': 'Foundit: about $0.001 per job found (Apify credit).',
 };

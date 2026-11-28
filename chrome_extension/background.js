@@ -24,6 +24,7 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
       const j = c > 0 && d.j && typeof d.j === 'object'
         ? { title: String(d.j.title || '').slice(0, 200), company: String(d.j.company || '').slice(0, 200), url: String(d.j.url || '').slice(0, 1000) } : null;
       chrome.storage.session.set({ [liKey(tabId)]: { p: p > 0 ? p : null, c: c > 0 ? c : null, j, k: d.k === 'message' ? 'message' : 'note',
+                                                     w: ['poster', 'recruiter', 'referral'].includes(d.w) ? d.w : 'poster',
                                                      m: d.m.slice(0, 2000), n: String(d.n || '').slice(0, 120) } });
     }
   }
@@ -56,7 +57,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       const mode = msg.k === 'message' ? 'message' : 'note';
       // a job poster -> the consultant's application for that job; a sourced candidate -> the Sourcing card
       const [path, body] = c > 0
-        ? ['/api/ext/linkedin-messaged', { candidate_id: c, job: msg.j || {}, person: { name: msg.n || '', url: msg.u || '' }, mode }]
+        ? ['/api/ext/linkedin-messaged', { candidate_id: c, job: msg.j || {}, person: { name: msg.n || '', url: msg.u || '' }, mode, purpose: msg.w || 'poster' }]
         : [`/api/ext/sourcing/${p}/linkedin-sent`, { mode }];
       try {
         const res = await fetch(`${server}${path}`, {

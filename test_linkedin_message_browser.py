@@ -194,23 +194,16 @@ try:
 
         NOTE = "Hi Fixture, your data work fits a Spark role. Open to a chat? - Priya"
         hp = helper_page(NOTE_PAGE.replace("MAXLEN", "300"), {"p": 8, "k": "note", "m": NOTE, "n": "Fixture Person"})
-        hp.wait_for_timeout(1200)
-        check(not hp.evaluate("!!window.connectClicked"), "helper does NOT click Connect")
-        check("f59e0b" in (hp.evaluate("document.getElementById('conn').style.outline") or "").lower().replace("rgb(245, 158, 11)", "f59e0b"),
-              "Connect outlined for the recruiter")
-        check("then \"Add a note\"" in hp.locator("#jobhunt-li-helper #steps").inner_text(), "tells the recruiter what to click")
-        hp.click("#conn")          # the recruiter's own clicks
-        hp.click("#addnote")
+        # Job Hunt opens Connect and "Add a note" itself (they only open boxes) and types - Send stays with the recruiter
         hp.wait_for_function("document.querySelector('textarea[name=message]') && document.querySelector('textarea[name=message]').value.length > 0")
-        check(hp.input_value("textarea[name=message]") == NOTE and not hp.evaluate("!!window.sent"), "note typed, not sent")
+        check(hp.input_value("textarea[name=message]") == NOTE and hp.evaluate("!!window.connectClicked") and not hp.evaluate("!!window.sent"),
+              "Connect + Add a note opened by Job Hunt, note typed, NOT sent")
         hp.locator("#jobhunt-li-helper #nosend").click()
         check(hp.locator("#jobhunt-li-helper").count() == 0 and any(m["type"] == "jh-li-done" for m in hp.evaluate("window.__sentMsgs")),
               "Didn't send closes and forgets the draft")
         hp.close()
 
         hp = helper_page(NOTE_PAGE.replace("MAXLEN", "200"), {"p": 9, "k": "note", "m": "y " * 125, "n": "Fixture Person"})
-        hp.click("#conn")
-        hp.click("#addnote")
         hp.wait_for_function("document.querySelector('#jobhunt-li-helper').shadowRoot.getElementById('steps').innerText.includes('allows 200 characters')")
         check(hp.input_value("textarea[name=message]") == "", "too-long note not typed into a 200-character box")
         hp.close()

@@ -5,7 +5,7 @@
 //   JH.clearMarks()
 // It never submits the form. Filled fields get a green outline, AI answers amber, required fields left empty red.
 (() => {
-  if (window.JH && window.JH.version === 9) return;
+  if (window.JH && window.JH.version === 10) return;
 
   const GREEN = '#16a34a', AMBER = '#f59e0b', RED = '#dc2626';
   const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -41,7 +41,7 @@
   // "AI GENERALIST - Delhi - Indeed.com" is the job board's page title: the job is AI GENERALIST.
   const JOB_BOARD = /^(indeed|linkedin|glassdoor|naukri|foundit|monster|dice|ziprecruiter|simplyhired|shine|timesjobs)\b|[a-z0-9-]+\.(com|co\.in|in|co|org|io)$/i;
   function cleanTitle(t) {
-    const title = norm(t).replace(/\s*-\s*job post$/i, '');
+    const title = norm(t).replace(/^\(\d+\)\s*/, '').replace(/\s*-\s*job post$/i, '');
     const parts = title.split(/\s+[|–—-]\s+/);
     return parts.length > 1 && JOB_BOARD.test(parts[parts.length - 1]) ? parts[0] : title;
   }
@@ -52,6 +52,16 @@
   function companyOnPage() {
     const el = document.querySelector(COMPANY_ON_PAGE);
     return el ? textOf(el.querySelector('a') || el).slice(0, 120) : '';
+  }
+
+  // LinkedIn job page: the top card's company, else the tab title ("Job | Company | LinkedIn"), else the first company link
+  function linkedinCompany() {
+    const el = document.querySelector('.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .topcard__org-name-link');
+    if (el && textOf(el)) return textOf(el).slice(0, 120);
+    const parts = norm(document.title).split(' | ');
+    if (parts.length >= 3 && /linkedin/i.test(parts[parts.length - 1])) return parts[parts.length - 2].slice(0, 120);
+    const a = Array.from(document.querySelectorAll('main a[href*="/company/"]')).map(textOf).find((t) => t && t.length < 80);
+    return a || '';
   }
 
   function readJob() {
@@ -73,6 +83,7 @@
       } catch (e) { /* not JSON */ }
     }
     const atsCompany = companyFromUrl();
+    if (!job.company && /(^|\.)linkedin\.com$/.test(location.hostname)) job.company = linkedinCompany();
     if (!job.company) {
       const site = norm((document.querySelector('meta[property="og:site_name"]') || {}).content);
       job.company = atsCompany || companyOnPage() || (JOB_BOARD.test(site) ? '' : site);     // "Indeed" is the board, not the employer
@@ -501,6 +512,36 @@
     return null;
   }
 
+  // The people on a LinkedIn page: the job's poster, "People you can reach out to" (referrals - not the poster), or the
+  // profile being viewed (a recruiter found by search, anyone the person opened).
+  function readLinkedInPeople() {
+    if (!/(^|\.)linkedin\.com$/.test(location.hostname)) return null;
+    const out = { poster: readPoster(), reach: [], profile: null };
+    const heads = Array.from(document.querySelectorAll('h1, h2, h3, h4, span, div, p'))
+      .filter((h) => h.children.length <= 1 && /^people you can reach out to$/i.test(norm(h.textContent)));
+    for (const h of heads) {
+      let box = h.parentElement;
+      for (let i = 0; i < 6 && box && !box.querySelector('a[href*="/in/"]'); i++) box = box.parentElement;
+      if (!box) continue;
+      const seen = new Set();
+      for (const link of box.querySelectorAll('a[href*="/in/"]')) {
+        const url = profileUrl(link.href);
+        if (!url || seen.has(url) || (out.poster && out.poster.url === url)) continue;
+        seen.add(url);
+        const person = personFrom(link.closest('li, div') || box, link);
+        if (person) out.reach.push(person);
+        if (out.reach.length >= 3) break;
+      }
+      break;
+    }
+    if (/^\/in\/[^/]+\/?$/.test(location.pathname)) {
+      const name = norm(textOf(document.querySelector('main h1')));
+      const headline = norm(textOf(document.querySelector('main .text-body-medium, main [data-generated-suggestion-target], main h1 ~ div')));
+      if (name) out.profile = { name: name.slice(0, 100), title: headline.slice(0, 160), url: profileUrl(location.href) };
+    }
+    return out;
+  }
+
   // ---------------- the main fill
   function fill(profile, resume) {
     clearMarks();
@@ -689,6 +730,6 @@
     return { clicked: true, text: b.text };
   }
 
-  window.JH = { version: 9, fillLists, readPoster, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
+  window.JH = { version: 10, fillLists, readPoster, readLinkedInPeople, readJob, fill, fillAnswers, markUnanswered, clearMarks, clickApply, clickNext, hasNext, formFieldCount,
     _keyFor: keyFor, _labelOf: labelOf, _resumeInput: resumeInput };
 })();

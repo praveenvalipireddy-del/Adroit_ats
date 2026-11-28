@@ -3354,8 +3354,9 @@ def api_ext_job_status():
 
 @app.route("/api/ext/linkedin-messaged", methods=["POST"])
 def api_ext_linkedin_messaged():
-    """The consultant messaged a job's poster on LinkedIn (the extension typed it, the person clicked Send): the job is
-    saved to the consultant's Applications and the message is logged on it ("Messaged <name> on LinkedIn")."""
+    """The consultant messaged someone about a job on LinkedIn - its poster, a recruiter, or an employee for a referral
+    (the extension typed it, the person clicked Send): the job is saved to the consultant's Applications and the
+    message is logged on it ("Messaged <name> on LinkedIn" / "Asked <name> for a referral")."""
     user = _ext_user()
     if not user:
         return jsonify({"error": "Not connected"}), 401
@@ -3380,7 +3381,10 @@ def api_ext_linkedin_messaged():
         row = cur.fetchone()
         if row and not row["recruiter_name"] and name != "the poster":
             cur.execute("UPDATE applications SET recruiter_name = ? WHERE id = ?", (name, app_id))
-        application_tracker.event(cur, app_id, user["id"], "linkedin", f"Messaged {name} on LinkedIn ({how})" + (f" - {url}" if url else ""))
+        purpose = str(data.get("purpose") or "poster")
+        said = (f"Asked {name} for a referral on LinkedIn ({how})" if purpose == "referral"
+                else f"Messaged {name}{' (recruiter)' if purpose == 'recruiter' else ''} on LinkedIn ({how})")
+        application_tracker.event(cur, app_id, user["id"], "linkedin", said + (f" - {url}" if url else ""))
         conn.commit()
     finally:
         conn.close()

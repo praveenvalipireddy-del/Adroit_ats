@@ -72,15 +72,23 @@
     </div>
 
     <div class="card" id="poster-card" hidden>
-      <b>💬 Message the poster</b>
-      <p class="hint" id="poster-who"></p>
-      <p class="warn" id="poster-missing" hidden>No poster shown on this page. Paste their LinkedIn profile link:</p>
+      <b>💬 LinkedIn outreach</b>
+      <p class="hint" id="li-job"></p>
+      <div id="li-people"></div>
+      <p class="warn" id="poster-missing" hidden>No poster on this page. Use <b>Find recruiters</b> below and open one of them, or paste a profile link:</p>
       <input id="poster-link" class="in" placeholder="https://www.linkedin.com/in/..." hidden>
-      <textarea id="poster-msg" class="in" rows="4" aria-label="Message to the poster"></textarea>
+      <label class="lbl" for="li-kind">Message</label>
+      <select id="li-kind" class="in">
+        <option value="poster">I saw your posting (job poster)</option>
+        <option value="recruiter">I saw the opening (recruiter)</option>
+        <option value="referral">Would you refer me? (employee / alumni)</option>
+      </select>
+      <textarea id="poster-msg" class="in" rows="4" aria-label="Message"></textarea>
       <p class="hint" id="poster-count"></p>
       <p class="warn" id="poster-status" hidden></p>
       <div class="row"><button class="btn primary" id="btn-poster-type">Type it on LinkedIn</button><button class="btn" id="btn-poster-find" title="Read the page again">↻</button></div>
-      <p class="hint">Sends from the LinkedIn account open in this browser - use the consultant's own LinkedIn. You click Send; Job Hunt logs it.</p>
+      <button class="btn wide" id="btn-li-recruiters">🔎 Find recruiters at the company</button>
+      <p class="hint">Sends from the LinkedIn account open in this browser - use the consultant's own LinkedIn. Job Hunt opens Message (or Connect → Add a note) and types; you click Send.</p>
     </div>
 
     <div class="rowlink" id="row-info">

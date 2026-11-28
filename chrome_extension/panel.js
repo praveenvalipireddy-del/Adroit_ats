@@ -244,6 +244,15 @@ async function readPage() {
   const tab = await targetTab();
   if (!tab) { renderJob(null, 'Open a job page'); return; }
   const before = st.jobKey;
+  if (LI_PROFILE_PAGE.test(tab.url || '')) {
+    st.job = null;
+    st.jobKey = null;
+    if (before) showJobState();
+    renderJob(null, 'LinkedIn profile - outreach below');
+    refreshStatus();
+    readPoster(tab);
+    return;
+  }
   try {
     await inject(tab.id, false);
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.JH.readJob() });
@@ -304,70 +313,132 @@ async function useSiteTailored(t, cid) {
   } catch (e) { /* the original stays */ }
 }
 
-// ------------------------------------------------------------- message the poster (LinkedIn jobs + recruiter posts)
-// A fixed, short message from the consultant's own LinkedIn ("I saw your posting for ... I'm interested"). The
-// extension types it; the person clicks Send; Job Hunt logs "Messaged on LinkedIn" on the consultant's application.
+// ------------------------------------------------------------- LinkedIn outreach (jobs, recruiter posts, profiles)
+// Short fixed messages from the consultant's own LinkedIn: to the job's poster, a recruiter at the company, or an
+// employee / alumnus for a referral. The extension opens Message (or Connect -> Add a note) and types; the person
+// clicks Send; Job Hunt logs it on the consultant's application. No AI, no credits.
 const LI_JOB_PAGE = /^https:\/\/([a-z]+\.)?linkedin\.com\/(jobs\/|feed\/update\/|posts\/)/;
-const NOTE_LIMIT = 200;      // a connection note on a free account (300 with Premium)
+const LI_PROFILE_PAGE = /^https:\/\/([a-z]+\.)?linkedin\.com\/in\/[^/?#]+\/?(\?|#|$)/;
+const NOTE_LIMIT = 300;      // a connection note with Premium (200 on a free account)
+const RECRUITER_TITLE = /recruit|talent|sourc(er|ing)|hiring|staffing|acquisition|\bhr\b|human resources|people partner/i;
+const LI_TEMPLATES = {
+  poster: (f, role) => `Hi ${f}, I saw your posting for ${role}. I'm interested in this position and would love to connect. Thank you!`,
+  recruiter: (f, role) => `Hi ${f}, I saw the opening for ${role}. I'm interested in this position and would love to connect. Thank you!`,
+  referral: (f, role) => `Hi ${f}, I'm applying for ${role}. Would you be open to referring me? Thank you!`,
+};
 
-function posterMessage() {
-  const first = ((st.poster && st.poster.name) || '').split(/\s+/)[0] || 'there';
-  const job = st.job || {};
-  const role = job.title ? `the ${job.title} role${job.company ? ' at ' + job.company : ''}` : 'this role';
-  return `Hi ${first}, I saw your posting for ${role}. I'm interested in this position and would love to connect. Thank you!`;
+function liRole() {
+  const j = st.liJob || {};
+  const title = /^(post|linkedin|feed)$/i.test(j.title || '') ? '' : j.title;
+  return title ? `the ${title} role${j.company ? ' at ' + j.company : ''}` : 'this role';
+}
+
+function liMessage() {
+  const who = st.liPick;
+  const first = ((who && who.name) || '').split(/\s+/)[0] || 'there';
+  return LI_TEMPLATES[$('li-kind').value](first, liRole());
 }
 
 function posterCount() {
   const n = $('poster-msg').value.trim().length;
-  $('poster-count').textContent = `${n} / ${NOTE_LIMIT} characters` + (n > NOTE_LIMIT ? ' - too long for a connection note (fine for a message)' : '');
+  $('poster-count').textContent = `${n} / ${NOTE_LIMIT} characters` + (n > NOTE_LIMIT ? ' - too long for a connection note (fine for a message / InMail)' : '');
   $('poster-count').className = n > NOTE_LIMIT ? 'warn' : 'hint';
 }
 
-function renderPoster() {
-  const p = st.poster;
-  $('poster-who').innerHTML = p ? `<b>${esc(p.name)}</b>${p.title ? ' · ' + esc(p.title) : ''}` : '';
-  $('poster-missing').hidden = !!p;
-  $('poster-link').hidden = !!p;
-  const key = `${st.cid}|${(st.job && st.job.url) || ''}|${(p && p.url) || ''}`;
-  if (st.posterKey !== key) {          // a new job / person: the template again (an edit stays while it's the same one)
-    st.posterKey = key;
-    $('poster-msg').value = posterMessage();
+// everyone the card can offer, best first: the poster, the profile being viewed, then referral contacts
+function liPeople() {
+  const p = st.liPeople || {};
+  const out = [];
+  if (p.poster) out.push({ ...p.poster, kind: 'poster', tag: 'Job poster' });
+  if (p.profile) out.push({ ...p.profile, kind: RECRUITER_TITLE.test(p.profile.title || '') ? 'recruiter' : 'referral', tag: 'This profile' });
+  (p.reach || []).forEach((r) => out.push({ ...r, kind: 'referral', tag: 'Ask for a referral' }));
+  return out;
+}
+
+function renderOutreach() {
+  const people = liPeople();
+  const j = st.liJob;
+  $('li-job').innerHTML = j && j.title ? `About <b>${esc(j.title)}</b>${j.company ? ' at ' + esc(j.company) : ''}` : 'Open the LinkedIn job first, then the person.';
+  if (!people.some((x) => st.liPick && x.url === st.liPick.url)) st.liPick = people[0] || null;
+  $('li-people').innerHTML = people.map((x, i) => `<label class="li-person"><input type="radio" name="li-person" value="${i}" ${st.liPick && x.url === st.liPick.url ? 'checked' : ''}>
+      <span><b>${esc(x.name)}</b> <small class="li-tag">${esc(x.tag)}</small><br><small>${esc(x.title || '')}</small></span></label>`).join('');
+  document.querySelectorAll('input[name="li-person"]').forEach((r) => r.addEventListener('change', () => {
+    st.liPick = people[parseInt(r.value, 10)];
+    $('li-kind').value = st.liPick.kind;
+    st.liKey = null;
+    renderOutreach();
+  }));
+  $('poster-missing').hidden = people.length > 0;
+  $('poster-link').hidden = people.length > 0;
+  const company = (j && j.company) || '';
+  $('btn-li-recruiters').hidden = !company;
+  $('btn-li-recruiters').textContent = `🔎 Find recruiters at ${company}`;
+  const key = `${st.cid}|${(j && j.url) || ''}|${(st.liPick && st.liPick.url) || ''}`;
+  if (st.liKey !== key) {              // a new job / person: the template again (an edit stays while it's the same one)
+    st.liKey = key;
+    if (st.liPick) $('li-kind').value = st.liPick.kind;
+    $('poster-msg').value = liMessage();
   }
   posterCount();
 }
 
+async function rememberLiJob(job) {
+  st.liJob = { title: job.title || '', company: job.company || '', url: job.url || '' };
+  await chrome.storage.session.set({ jhLiJob: st.liJob });
+}
+
 async function readPoster(tab) {
   const card = $('poster-card');
-  if (!tab || !LI_JOB_PAGE.test(tab.url || '') || !st.cid) { card.hidden = true; st.poster = null; return; }
-  let p = null;
+  const onJob = tab && LI_JOB_PAGE.test(tab.url || '');
+  const onProfile = tab && LI_PROFILE_PAGE.test(tab.url || '');
+  if (!st.liJob) st.liJob = (await chrome.storage.session.get('jhLiJob')).jhLiJob || null;
+  if (!st.cid || !(onJob || (onProfile && st.liJob))) { card.hidden = true; st.liPeople = null; return; }
+  if (onJob && st.job && st.job.title) await rememberLiJob(st.job);
+  let people = null;
   try {
-    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => (window.JH && window.JH.readPoster ? window.JH.readPoster() : null) });
-    p = r && r.result;
-  } catch (e) { p = null; }
-  st.poster = p && p.url ? p : null;
+    await inject(tab.id, false);
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => (window.JH && window.JH.readLinkedInPeople ? window.JH.readLinkedInPeople() : null) });
+    people = r && r.result;
+  } catch (e) { people = null; }
+  st.liPeople = people || {};
+  st.liTab = tab;
   card.hidden = false;
-  renderPoster();
+  renderOutreach();
 }
 
 function showMessaged(m) {
   const box = $('poster-status');
   box.hidden = !m;
-  if (m) box.textContent = `⚠ Already messaged on LinkedIn for this job${m.date ? ' on ' + m.date : ''}${m.detail ? ' - ' + m.detail : ''}.`;
+  if (m) box.textContent = `⚠ Already contacted on LinkedIn for this job${m.date ? ' on ' + m.date : ''}${m.detail ? ' - ' + m.detail : ''}.`;
 }
 
 $('poster-msg').addEventListener('input', posterCount);
-$('btn-poster-find').addEventListener('click', async () => { st.posterKey = null; readPoster(await targetTab()); });
+$('li-kind').addEventListener('change', () => { $('poster-msg').value = liMessage(); posterCount(); });
+$('btn-poster-find').addEventListener('click', async () => { st.liKey = null; readPoster(await targetTab()); });
+$('btn-li-recruiters').addEventListener('click', () => {
+  const company = (st.liJob && st.liJob.company) || '';
+  if (!company) return;
+  chrome.tabs.create({ url: 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(`${company} recruiter talent acquisition`) });
+  flash('Open a recruiter\'s profile - this card then offers to message them about the job.');
+});
 $('btn-poster-type').addEventListener('click', async () => {
   const typed = $('poster-link').value.trim();
   const m = typed.match(/^https?:\/\/([a-z]+\.)?linkedin\.com\/in\/[^/?#\s]+/i);
-  const url = (st.poster && st.poster.url) || (m ? m[0].replace(/^http:/, 'https:') + '/' : '');
+  const pick = st.liPick || (m ? { name: '', url: m[0].replace(/^http:/, 'https:') + '/', kind: $('li-kind').value } : null);
   const text = $('poster-msg').value.trim();
-  if (!url) { flash('Paste the poster\'s LinkedIn profile link (linkedin.com/in/...) first.', true); return; }
+  if (!pick || !pick.url) { flash('Pick a person, or paste their LinkedIn profile link (linkedin.com/in/...).', true); return; }
   if (!text) { flash('Write the message first.', true); return; }
-  const job = st.job || {};
-  const draft = { c: st.cid, k: 'message', m: text, n: (st.poster && st.poster.name) || '',
+  const job = st.liJob || {};
+  const draft = { c: st.cid, k: 'message', w: $('li-kind').value, m: text, n: pick.name || '',
                   j: { title: job.title || '', company: job.company || '', url: job.url || '' } };
-  chrome.tabs.create({ url: url.split('#')[0] + '#jh-li=' + encodeURIComponent(JSON.stringify(draft)) });
+  const here = await targetTab();
+  if (here && LI_PROFILE_PAGE.test(here.url || '') && here.url.split(/[?#]/)[0].replace(/\/?$/, '/') === pick.url) {
+    // the person's profile is the page open now: type here
+    await chrome.storage.session.set({ ['jhLi' + here.id]: { p: null, c: draft.c, j: draft.j, k: draft.k, w: draft.w, m: draft.m, n: draft.n } });
+    await chrome.scripting.executeScript({ target: { tabId: here.id }, files: ['linkedin.js'] });
+    return;
+  }
+  chrome.tabs.create({ url: pick.url.split('#')[0] + '#jh-li=' + encodeURIComponent(JSON.stringify(draft)) });
 });
 
 function renderJob(job, emptyText) {

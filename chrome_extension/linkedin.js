@@ -1,6 +1,7 @@
 // Job Hunt - LinkedIn message helper. Injected by background.js into a LinkedIn tab that Job Hunt opened with a draft
 // ("Message on LinkedIn" on a Sourcing card). It types the draft into LinkedIn's message / connection-note box.
-// It NEVER clicks Send, Connect or anything that sends: the recruiter checks the text and clicks Send themselves.
+// It opens Message, or Connect -> "Add a note" (those only open boxes), and types. It NEVER clicks Send (or "Send
+// without a note"): the person checks the text and clicks Send themselves.
 (() => {
   if (window.__jhLiLoaded) return;
   window.__jhLiLoaded = true;
@@ -127,19 +128,52 @@
     });
   }
 
-  // Connection note: the recruiter clicks Connect > Add a note (that's their choice - free accounts have a monthly
-  // note limit); the moment LinkedIn shows the note box, the text goes in.
-  function watchForNote() {
+  // Connection note: Connect (on the profile, or under More) and then "Add a note" are clicked - they only open
+  // LinkedIn's note box; the moment it shows, the text goes in. Send is left to the person.
+  const SENDS = /^send\b|send without a note|send now/i;
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function dialogButton(re) {
+    return [...document.querySelectorAll('[role="dialog"] button, .artdeco-modal button')]
+      .filter(visible).find((b) => re.test(labelOf(b)) && !SENDS.test(labelOf(b))) || null;
+  }
+
+  async function connectButton() {
+    let connect = profileButton(/^(connect\b|invite .* to connect)/i);
+    if (connect) return connect;
+    const more = profileButton(/^(more\b|more actions)/i);
+    if (!more) return null;
+    more.click();                                     // opens the "More" menu - it sends nothing
+    await pause(600);
+    connect = [...document.querySelectorAll('[role="menuitem"], .artdeco-dropdown__item, [role="menu"] [aria-label], [role="menu"] div')]
+      .filter(visible).find((el) => /^(invite .* to connect|connect)\b/i.test(labelOf(el))) || null;
+    return connect;
+  }
+
+  async function watchForNote() {
     sentAs = 'note';
-    const connect = profileButton(/^(connect\b|invite .* to connect)/i);
-    if (connect) connect.style.outline = '3px solid #f59e0b';
-    step(connect ? 'Click Connect (outlined), then "Add a note" - I\'ll type it' : 'Click Connect (it may be under More), then "Add a note" - I\'ll type it', 'todo');
     stop();
     observer = new MutationObserver(() => {
       const box = find(NOTE_BOX);
-      if (box && !boxText(box)) { stop(); if (connect) connect.style.outline = ''; fill(box, 'note'); }
+      if (box && !boxText(box)) { stop(); fill(box, 'note'); }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    const connect = await connectButton();
+    if (!connect) {
+      step('No Connect button on this profile - you may be connected already (use Message) or LinkedIn hides it under More.', 'err');
+      return;
+    }
+    if (SENDS.test(labelOf(connect))) return;        // never a Send
+    connect.click();                                  // opens LinkedIn's invite dialog - it sends nothing
+    step('Opened Connect…', 'todo');
+    for (let i = 0; i < 20 && !find(NOTE_BOX); i++) {
+      const add = dialogButton(/^add a (free )?note\b/i);
+      if (add) { add.click(); break; }                // opens the note box - it sends nothing
+      await pause(250);
+    }
+    if (!find(NOTE_BOX) && !dialogButton(/^add a (free )?note\b/i)) {
+      replaceLast('LinkedIn did not offer "Add a note" - click it yourself (or Copy and paste the text).', 'err');
+    }
   }
 
   async function run() {
@@ -172,7 +206,7 @@
   });
   $('sent').addEventListener('click', () => {
     $('sent').disabled = true;
-    chrome.runtime.sendMessage({ type: 'jh-li-sent', p: draft.p, c: draft.c, j: draft.j, n: draft.n, u: location.origin + location.pathname, k: sentAs }, (res) => {
+    chrome.runtime.sendMessage({ type: 'jh-li-sent', p: draft.p, c: draft.c, j: draft.j, n: draft.n, w: draft.w, u: location.origin + location.pathname, k: sentAs }, (res) => {
       $('sent').disabled = false;
       if (res && res.ok) {
         stop();

@@ -77,3 +77,9 @@ h2 { font-size: 16px; margin: 0 0 8px; }
 .tl-changes li { font-size: 12px; line-height: 1.4; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .tl-changes s { color: var(--mute); }
 .tl-changes span { color: var(--ink); background: #eaf2ff; }
+
+/* LinkedIn outreach: the people the card can message */
+.li-person { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+.li-person small { color: var(--mute); }
+.li-person .li-tag { background: #eef2ff; color: #3730a3; border-radius: 6px; padding: 1px 6px; font-size: 11px; }
+#li-people { margin: 6px 0 8px; }

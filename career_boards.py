@@ -17,6 +17,7 @@ posting date is kept only once (its first-seen time) and never refreshed to look
 import json
 import logging
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
@@ -128,18 +129,55 @@ def _http_text(url: str):
 
 http_text: Callable = _http_text
 
+# Workday answers "429 Too Many Requests" when it is asked quickly (about 22 of its 23 companies failed each run), so
+# its requests go one at a time with a short gap, and a 429 waits (Retry-After when given) and tries again.
+WORKDAY_GAP_S = 0.4
+WORKDAY_RETRY_WAITS = (5, 15)         # seconds before the 2nd and 3rd try after a 429
+WORKDAY_MAX_RETRY_AFTER = 30
+sleep: Callable = time.sleep          # replaceable in tests
+_wd_lock = threading.Lock()
+_wd_last = [0.0]
 
-def _parallel(urls: List[str], parse: Callable, workers: int = 3) -> list:
+
+def _status(ex) -> Optional[int]:
+    return getattr(getattr(ex, "response", None), "status_code", None)
+
+
+def _retry_after(ex) -> Optional[float]:
+    try:
+        return min(float(ex.response.headers.get("Retry-After")), WORKDAY_MAX_RETRY_AFTER)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def workday_json(url: str, body: Optional[dict] = None):
+    """http_json for Workday: spaced out across threads, and patient with 429 Too Many Requests."""
+    for attempt in range(len(WORKDAY_RETRY_WAITS) + 1):
+        with _wd_lock:
+            wait_s = _wd_last[0] + WORKDAY_GAP_S - time.monotonic()
+            if wait_s > 0:
+                sleep(wait_s)
+            _wd_last[0] = time.monotonic()
+        try:
+            return http_json(url) if body is None else http_json(url, body)
+        except Exception as ex:
+            if _status(ex) != 429 or attempt == len(WORKDAY_RETRY_WAITS):
+                raise
+            sleep(_retry_after(ex) or WORKDAY_RETRY_WAITS[attempt])
+
+
+def _parallel(urls: List[str], parse: Callable, workers: int = 3, get: Optional[Callable] = None) -> list:
     """GET each url - or POST, for a (url, body) pair - a few at a time with one retry, and keep only parse(answer):
     the small piece we need, so a board's hundreds of full posting documents are never held in memory together.
     None where one still failed."""
     from concurrent.futures import ThreadPoolExecutor
+    get = get or http_json
 
     def one(u):
         url, body = u if isinstance(u, tuple) else (u, None)
         for attempt in (1, 2):
             try:
-                return parse(http_json(url) if body is None else http_json(url, body))
+                return parse(get(url) if body is None else get(url, body))
             except Exception as ex:
                 if attempt == 2:
                     logger.info(f"Career board detail skipped ({url[:80]}): {ex}")
@@ -355,7 +393,7 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
         base = f"https://{tenant}.{wd}.myworkdayjobs.com"
         picked, offset, stale_pages = [], 0, 0
         while offset < 600 and len(picked) < PER_BOARD_CAP * 2:
-            d = http_json(f"{base}/wday/cxs/{tenant}/{site}/jobs", {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": ""})
+            d = workday_json(f"{base}/wday/cxs/{tenant}/{site}/jobs", {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": ""})
             page = d.get("jobPostings", [])
             fresh = 0
             for j in page:
@@ -379,7 +417,8 @@ def fetch_board(ats: str, slug: str, company: str = "", days: int = DAYS, now: O
             return {"title": info.get("title"), "location": info.get("location"), "more": info.get("additionalLocations") or [],
                     "url": info.get("externalUrl"), "start": info.get("startDate"), "time": info.get("timeType") or "",
                     "text": _text(info.get("jobDescription"))[:20000], "code": code}
-        details = _parallel([f"{base}/wday/cxs/{tenant}/{site}{j['externalPath']}" for j, _ in picked], wd_info)
+        details = _parallel([f"{base}/wday/cxs/{tenant}/{site}{j['externalPath']}" for j, _ in picked], wd_info,
+                            workers=1, get=workday_json)
         for (j, posted), info in zip(picked, details):
             if info is None:
                 continue
@@ -635,14 +674,24 @@ def sync_all(conn, time_budget_s: float = 1500) -> Dict:
     pool = ThreadPoolExecutor(PARALLEL_BOARDS)
     queue = list(boards)
     pending = set()
+    running = {}
     try:
         while queue or pending:
             while queue and len(pending) < PARALLEL_BOARDS and time.monotonic() - started <= time_budget_s:
-                pending.add(pool.submit(read, queue.pop(0)))
+                # at most one Workday company at a time (Workday rate-limits); the other slot takes the next non-Workday one
+                busy_wd = any(running.get(f) == "workday" for f in pending)
+                nxt = next((i for i, b in enumerate(queue) if not (busy_wd and b.get("ats") == "workday")), None)
+                if nxt is None:
+                    break
+                b = queue.pop(nxt)
+                fut = pool.submit(read, b)
+                running[fut] = b.get("ats")
+                pending.add(fut)
             if not pending:
                 break
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
             for fut in done:
+                running.pop(fut, None)
                 b, jobs, err = fut.result()
                 r = sync_board(conn, b, now=now, fetched=jobs, fetch_error=err)
                 totals["boards"] += 1

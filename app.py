@@ -7,9 +7,11 @@ import re
 import io
 import base64
 import json
+import hashlib
 import logging
 from pathlib import Path
 from flask import Flask, render_template, render_template_string, request, jsonify, session, redirect, url_for, send_file, Response, make_response
+from itsdangerous import BadData, URLSafeTimedSerializer
 from werkzeug.utils import secure_filename
 import msal
 
@@ -3131,6 +3133,13 @@ def _original_lines(docx_bytes, resume_text):
     return (resume_text or "")[:60000]
 
 
+def _ext_pdf_review_signer(user, cand, job, approved, resume_text, custom):
+    # A layout retry can reuse only the edits made for this user, profile, job and selection.
+    scope = json.dumps([user["id"], cand["id"], cand.get("resume_filename"), resume_text,
+                        custom, job, sorted(approved)], sort_keys=True).encode("utf-8")
+    return URLSafeTimedSerializer(app.secret_key, salt="ext-pdf-review:" + hashlib.sha256(scope).hexdigest())
+
+
 @app.route("/api/ext/tailor", methods=["POST"])
 def api_ext_tailor():
     """The side panel's 'Tailor resume': mode "analyze" -> the match + the suggested changes (ticked when the resume
@@ -3152,21 +3161,39 @@ def api_ext_tailor():
         return jsonify({"error": f"No resume is on file for {cand.get('name')}. Upload one in Job Hunt."}), 404
     if str(data.get("mode") or "") == "apply":
         approved = [str(a) for a in (data.get("approved") or []) if str(a).strip()][:40]
-        res = resume_bot.optimize_resume_for_jd(resume_text, jd, custom_instructions=custom, docx_bytes=docx_bytes, approved=approved)
+        is_pdf = (cand.get("resume_filename") or "").lower().endswith(".pdf")
+        ticket = data.get("pdf_review")
+        if ticket:
+            if not is_pdf or data.get("allow_pdf_reflow") is not True or not isinstance(ticket, str):
+                return jsonify({"error": "Select the standard PDF layout to use the previous edits."}), 400
+            try:
+                signer = _ext_pdf_review_signer(user, cand, job, approved, resume_text, custom)
+                res = signer.loads(ticket, max_age=1800)
+            except BadData:
+                return jsonify({"error": "The previous PDF edits expired or the selection changed. Click Apply to make fresh edits."}), 409
+        else:
+            res = resume_bot.optimize_resume_for_jd(resume_text, jd, custom_instructions=custom, docx_bytes=docx_bytes, approved=approved)
         if res.get("error"):
             return jsonify(res), 400
         if not res.get("optimized"):
             return jsonify({"changed": False, "reason": res.get("not_optimized_reason") or res.get("ai_unavailable_reason") or "The resume was left as it is."})
         data_out = resume_versions.decode_docx(res.get("docx_base64") or "") if res.get("format_preserved") else None
         extension = ".docx"
-        if (cand.get("resume_filename") or "").lower().endswith(".pdf"):
-            original = models.find_resume_file(cand)
+        if is_pdf:
             text = res.get("updated_resume_text") or resume_text
-            try:
-                data_out = resume_pdf.original_layout(original[1] if original else None, text)
-            except resume_pdf.LayoutError as exc:
-                if data.get("allow_pdf_reflow") is not True:
-                    return jsonify({"changed": False, "reason": str(exc) + " A standard PDF layout can be selected before applying changes."})
+            if not ticket:
+                original = models.find_resume_file(cand)
+                try:
+                    data_out = resume_pdf.original_layout(original[1] if original else None, text)
+                except resume_pdf.LayoutError as exc:
+                    if data.get("allow_pdf_reflow") is not True:
+                        review = {k: res.get(k) for k in ("optimized", "updated_resume_text", "mandatory_matched_skills",
+                                                          "changes", "initial_match_percentage")}
+                        signer = _ext_pdf_review_signer(user, cand, job, approved, resume_text, custom)
+                        return jsonify({"changed": False, "can_reflow": True, "pdf_review": signer.dumps(review),
+                                        "reason": str(exc) + " Select the standard PDF layout and click Apply to use these edits."})
+                    data_out = None
+            if ticket or data_out is None:
                 try:
                     data_out = resume_pdf.reflow(text)
                 except ValueError as error:

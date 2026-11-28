@@ -141,6 +141,15 @@ def main():
     assert fail.status_code == 409 and fail.json["can_reflow"]
     reflow = client.post(route, data={**fields, "edited_text": too_long, "pdf_layout": "reflow"})
     assert reflow.status_code == 200 and " ".join(resume_pdf._read_text(reflow.data).split()) == " ".join(too_long.split())
+    with_bullets = "Experience\n\uf0b7 Reviewed cases.\n\uf0b7\nSecond item."
+    bullets = client.post(route, data={**fields, "edited_text": with_bullets, "pdf_layout": "reflow"})
+    assert bullets.status_code == 200
+    assert resume_pdf._lines(resume_pdf._read_text(bullets.data)) == resume_pdf._lines(with_bullets.replace("\uf0b7", "\u2022"))
+    if os.environ.get("JOBHUNT_PDF_QA_DIR"):
+        rendered(bullets.data, 0).save(dest / "standard-bullets.png")
+    # A private character inside a word has no known meaning. Identify it for review.
+    unknown = client.post(route, data={**fields, "edited_text": "Experience\nCode A\uf0b7B", "pdf_layout": "reflow"})
+    assert unknown.status_code == 400 and "U+F0B7 on text line 2" in unknown.json["error"]
     saved = client.post("/api/optimized-resumes", data={**fields, "format": "pdf", "job_id": job, "primary_skill": "SQL"})
     assert saved.status_code == 200 and saved.json["filename"].endswith(".pdf"), saved.json
     version = saved.json["id"]

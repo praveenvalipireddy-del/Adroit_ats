@@ -129,7 +129,7 @@ def original_layout(source, edited_text):
 
 
 def reflow(edited_text):
-    """Create a paginated PDF from exactly the reviewed text, embedding the fonts."""
+    """Typeset the reviewed text with embedded fonts and standard list markers."""
     import reportlab
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.pagesizes import A4
@@ -148,9 +148,15 @@ def reflow(edited_text):
     title = ParagraphStyle("title", parent=heading, fontSize=17, leading=22)
     story = []
     for i, line in enumerate(_lines(edited_text)):
+        # Word's Symbol font stores its list bullet in a private-use slot.
+        if line == "\uf0b7" or line.startswith("\uf0b7 "):
+            line = "\u2022" + line[1:]
         style = title if i == 0 and len(line) < 70 else heading if line.isupper() and len(line) < 65 else body
-        if any(ord(ch) not in pdfmetrics.getFont(style.fontName).face.charToGlyph for ch in line):
-            raise ValueError("The standard PDF font cannot display every character. Use the original file or Word download.")
+        glyphs = pdfmetrics.getFont(style.fontName).face.charToGlyph
+        for ch in line:
+            if ord(ch) not in glyphs:
+                raise ValueError(f"The standard PDF font cannot display U+{ord(ch):04X} on text line {i + 1}. "
+                                 "Edit that character in the reviewed text or use the original file.")
         story.append(Paragraph(escape(line), style))
     output = io.BytesIO()
     SimpleDocTemplate(output, pagesize=A4, leftMargin=48, rightMargin=48,

@@ -38,6 +38,7 @@ config.DATABASE_URL = ""
 import app as app_module  # noqa: E402
 import models  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
+from reportlab.pdfgen.canvas import Canvas  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
 failures = []
@@ -502,13 +503,43 @@ try:
         check(panel.inner_text("#job-title") == "AI GENERALIST", f"Indeed title: {panel.inner_text('#job-title')!r}")
         check("Delhi" in panel.inner_text("#job-chips") and "in.indeed.com" in panel.inner_text("#job-chips"), f"location: {panel.inner_text('#job-chips')!r}")
         check("original resume" in panel.inner_text("#attach-note"), f"says the original will attach: {panel.inner_text('#attach-note')!r}")
+        # Switch the fixture to a PDF with a narrow first column. The blocked edit
+        # should remain available for a standard-layout retry without a second AI call.
+        pdf_file = io.BytesIO()
+        canvas = Canvas(pdf_file)
+        canvas.drawString(36, 700, "Karun")
+        canvas.drawString(95, 700, "Skills")
+        canvas.save()
+        models.save_resume_file(K, "Karun.pdf", pdf_file.getvalue())
+        models.update_candidate(K, resume_filename="Karun.pdf", resume_text="Karun\nSkills")
+        panel.reload()
+        wait_text(panel, '#resume-name', 'Karun.pdf')
+        wait_text(panel, '#job-company', 'Kviss')
         panel.click("#btn-match")
         wait_text(panel, '#match-box', '70%')
         panel.click("#btn-tailor")
         wait_text(panel, '#tailor-box', 'Rewords the summary')
+        choice = panel.locator('[data-ch="skill:Power BI"]')
+        choice.uncheck()
+        before_calls, before_versions = len(tailor_calls), len(_rv.list_for(K))
+        with panel.expect_response(lambda r: r.url.endswith('/api/ext/tailor') and r.request.method == 'POST') as result:
+            panel.click("#btn-tl-apply")
+        wait_text(panel, '#tl-layout-warning', 'original column')
+        check(not choice.is_checked() and not panel.locator('#tl-reflow').is_checked(), "overflow keeps the selection and asks for layout consent")
+        check("original resume" in panel.inner_text('#attach-note') and len(_rv.list_for(K)) == before_versions, "no tailored version saved before consent")
+        request_data = result.value.request.post_data_json
+        ticket = result.value.json()["pdf_review"]
+        retry = {**request_data, "allow_pdf_reflow": True, "pdf_review": ticket}
+        for change in ({"approved": ["align", "skill:Tableau"]}, {"job": {**retry["job"], "url": "https://example.invalid/other"}},
+                       {"pdf_review": "invalid"}, {"allow_pdf_reflow": False}):
+            rejected = anon.post("/api/ext/tailor", headers=H, json={**retry, **change})
+            check(rejected.status_code in (400, 409), "a layout retry requires matching edits and explicit consent")
+        panel.locator('#tl-reflow').check()
         panel.click("#btn-tl-apply")
         wait_text(panel, '#tailor-box', 'change made')
+        check(len(tailor_calls) == before_calls + 1 and len(_rv.list_for(K)) == before_versions + 1, "layout retry uses the same edits and saves one PDF")
         indeed_file = panel.inner_text("#resume-name").replace(" (tailored for this job)", "")
+        check(indeed_file.endswith(".pdf"), "the extension attaches the tailored PDF")
         check("Indeed" not in indeed_file and "Delhi" not in indeed_file, f"clean file name: {indeed_file!r}")
         check(indeed_file in panel.inner_text("#attach-note") and "tailored" in panel.inner_text("#attach-note"), f"says the tailored one will attach: {panel.inner_text('#attach-note')!r}")
         # the panel fits: a long file name and consultant name never make it scroll sideways

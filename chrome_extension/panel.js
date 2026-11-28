@@ -16,7 +16,11 @@ async function api(path, opts = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) { const e = new Error(data.error || 'Not connected'); e.auth = true; throw e; }
-  if (!res.ok) throw new Error(data.error || `Job Hunt error ${res.status}`);
+  if (!res.ok) {
+    const error = new Error(data.error || `Job Hunt error ${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
   return data;
 }
 
@@ -392,32 +396,61 @@ function renderTailorReview() {
     ${group('Not stated in the resume', 'var(--amber)', items.filter((i) => i.kind === 'unproven'))}
     ${group('Not in the resume', 'var(--red)', items.filter((i) => i.kind === 'missing'))}
     <div class="tl-proj">Match ${esc(st.tailorReview.initial)}% → <b id="tl-proj"></b></div>
-    ${/\.pdf$/i.test(st.profile?.profile?.resume_filename || '') ? '<label><input type="checkbox" id="tl-reflow"> Allow a standard PDF layout if the edits do not fit</label>' : ''}
+    <p class="warn" id="tl-layout-warning" role="status" hidden></p>
+    <label id="tl-layout-choice"${/\.pdf$/i.test(st.profile?.profile?.resume_filename || '') ? '' : ' hidden'}><input type="checkbox" id="tl-reflow"> Allow a standard PDF layout if the edits do not fit</label>
     <div class="row"><button class="btn primary" id="btn-tl-apply">Apply</button><button class="btn" id="btn-tl-cancel">Keep the original</button></div>`;
-  box.querySelectorAll('input[data-ch]').forEach((i) => i.addEventListener('change', tailorChanged));
-  $('btn-tl-apply').addEventListener('click', tailorApply);
+  let pendingReview = null;
+  box.querySelectorAll('input[data-ch]').forEach((i) => i.addEventListener('change', () => {
+    $('tl-layout-warning').hidden = true;
+    tailorChanged();
+  }));
+  $('btn-tl-apply').addEventListener('click', async () => { pendingReview = await tailorApply(pendingReview); });
   $('btn-tl-cancel').addEventListener('click', resetTailor);
   tailorChanged();
 }
 
-async function tailorApply() {
+async function tailorApply(pendingReview) {
   const ids = tailorChecked();
   if (!ids.length) return;
   const btn = $('btn-tl-apply');
+  const inputs = $('tailor-box').querySelectorAll('input');
+  inputs.forEach((input) => { input.disabled = true; });
   btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span>Making the changes…';
   try {
-    const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids, allow_pdf_reflow: !!$('tl-reflow')?.checked } });
+    const allowReflow = $('tl-reflow').checked;
+    const selection = JSON.stringify(ids);
+    const sameEdits = pendingReview && pendingReview.selection === selection;
+    // Keep the edits in this review until the user chooses a layout or changes the selection.
+    if (sameEdits && !allowReflow) {
+      $('tl-layout-warning').hidden = false;
+      return pendingReview;
+    }
+    const d = await api('/api/ext/tailor', { method: 'POST', body: { candidate_id: st.cid, job: st.job, mode: 'apply', approved: ids, allow_pdf_reflow: allowReflow, pdf_review: sameEdits ? pendingReview.ticket : undefined } });
+    if (!btn.isConnected) return;
     const box = $('tailor-box');
+    if (d.can_reflow) {
+      const warning = $('tl-layout-warning');
+      warning.textContent = d.reason;
+      warning.hidden = false;
+      $('tl-layout-choice').hidden = false;
+      return { ticket: d.pdf_review, selection };
+    }
     if (!d.changed) { box.innerHTML = `<p class="warn">${esc(d.reason)}</p><p class="hint">Autofill attaches the original resume.</p>`; return; }
     st.tailored = { version_id: d.version_id, key: `v${d.version_id}`, filename: d.filename, mime: d.mime, base64: d.base64, original: d.original_text || '', changes: d.changes };
     remember({ tailored: st.tailored });
     showResumeName();
     renderTailorDone();
   } catch (e) {
+    if (!btn.isConnected) return;
     flash(e.message, true);
-    btn.disabled = false;
-    tailorChanged();
+    return e.status === 409 ? null : pendingReview;
+  } finally {
+    if (btn.isConnected) {
+      inputs.forEach((input) => { input.disabled = false; });
+      tailorChanged();
+      if (!$('tl-layout-warning').hidden) $('tl-reflow').focus();
+    }
   }
 }
 

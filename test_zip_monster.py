@@ -149,7 +149,7 @@ try:
         page.fill("input[name=password]", "Zip-pass-1")
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.27" in page.content(), "cache-buster not bumped to 5.99.27")
+        check("app.js?v=5.99.28" in page.content(), "cache-buster not bumped to 5.99.28")
         page.click("a.nav-item[data-tab=jobs]")
         page.wait_for_selector("#filter-source", timeout=10000)
         opts = page.eval_on_selector("#filter-source", "s => [...s.options].map(o => o.value)")
@@ -161,6 +161,16 @@ try:
         page.evaluate("syncJobsMarketUi()")
         opts = page.eval_on_selector("#filter-source", "s => [...s.options].map(o => o.textContent.trim())")
         check("ZipRecruiter Canada" in opts and "Monster" not in opts, f"Canada sources: {opts}")
+        # a consultant's Matched jobs: the portals of the consultant's market (a Canadian never sees Dice / Naukri)
+        page.evaluate("""() => { consUi.openId = 999; consUi.pane = 'jobs'; consUi.jf = {999: {query: 'Security', location: '', posted: '24', type: '',
+            source: 'Dice', work: '', roles: [], exp: ''}}; const d = document.createElement('div'); d.id = 'cons-test-pane'; document.body.appendChild(d);
+            consPaneJobs({id: 999, name: 'Canada Fixture', title: 'Security Analyst', country: 'Canada'}, d); }""")
+        page.wait_for_selector("#cons-jf-source", timeout=10000)
+        opts = page.eval_on_selector("#cons-jf-source", "s => [...s.options].map(o => o.value)")
+        check(opts == ["All", "Company site", "LinkedIn", "Indeed", "ZipRecruiter", "Recruiter Post", "Email"], f"Canada consultant's Matched jobs sources: {opts}")
+        check(page.input_value("#cons-jf-source") == "All", "a saved Dice pick falls back to All Canada portals")
+        us = page.evaluate("consJobSources('United States').map(x => x[0])")
+        check("Dice" in us and "Monster" in us and "Naukri" not in us, f"US consultant's sources: {us}")
         b.close()
 finally:
     server.shutdown()

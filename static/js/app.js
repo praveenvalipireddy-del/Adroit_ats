@@ -7645,13 +7645,29 @@ function jobMatchRank(m) {
     return m.pct != null ? m.pct : (m.hit.length ? 30 : -1);
 }
 
-const CONS_JOB_SOURCES = [['All', 'All portals'], ['Company site', '🏢 Company career sites'], ['LinkedIn', 'LinkedIn'], ['Indeed', 'Indeed'],
-    ['Dice', 'Dice (US)'], ['Naukri', 'Naukri (India)'], ['Recruiter Post', 'LinkedIn recruiter posts'], ['Email', 'Requirement emails']];
+// The consultant's market decides the portals (a Canadian consultant never sees Dice or Naukri) - the same lists
+// as the Jobs page.
+const CONS_JOB_SOURCES = {
+    'United States': [['All', 'All portals'], ['Company site', '🏢 Company career sites'], ['LinkedIn', 'LinkedIn'], ['Dice', 'Dice'],
+        ['Indeed', 'Indeed'], ['ZipRecruiter', 'ZipRecruiter'], ['Monster', 'Monster'], ['Recruiter Post', 'LinkedIn recruiter posts'], ['Email', 'Requirement emails']],
+    'India': [['All', 'All portals'], ['Company site', '🏢 Company career sites'], ['Naukri', 'Naukri'], ['Foundit', 'Foundit / Monster India'],
+        ['Indeed', 'Indeed India'], ['LinkedIn', 'LinkedIn'], ['Recruiter Post', 'LinkedIn recruiter posts'], ['Email', 'Requirement emails']],
+    'Canada': [['All', 'All Canada portals'], ['Company site', '🏢 Company career sites'], ['LinkedIn', 'LinkedIn'], ['Indeed', 'Indeed Canada'],
+        ['ZipRecruiter', 'ZipRecruiter Canada'], ['Recruiter Post', 'LinkedIn recruiter posts'], ['Email', 'Requirement emails']],
+};
+function consJobSources(country) {
+    const list = CONS_JOB_SOURCES[country] || CONS_JOB_SOURCES['United States'];
+    if (!window.IS_INDIVIDUAL) return list;
+    const keep = (window.INDIVIDUAL_SOURCES || {})[country] || ['LinkedIn'];
+    return list.filter(([v]) => keep.includes(v) || v === 'Email');
+}
 
 async function consPaneJobs(c, body) {
     const country = consCountry(c);
     consUi.jf = consUi.jf || {};
     const f = consUi.jf[c.id] = consUi.jf[c.id] || { query: consCoreTitle(c.title), location: '', posted: '24', type: '', source: 'All', work: '', roles: [], exp: jobExpValue(c.experience_years) };
+    const sources = consJobSources(country);
+    if (!sources.some(([v]) => v === f.source)) f.source = sources[0][0];      // a portal of another market
     const sel = (id, opts, val) => `<select id="${id}" class="form-control">${opts.map(([v, l]) => `<option value="${v}" ${String(val) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
     body.innerHTML = `
         <div class="cons-filter">
@@ -7662,7 +7678,7 @@ async function consPaneJobs(c, body) {
             <div><label>Work model</label>${sel('cons-jf-work', [['', 'Any'], ['remote', 'Remote'], ['hybrid', 'Hybrid'], ['onsite', 'On-site']], f.work)}</div>
             <div><label>Job type</label>${sel('cons-jf-type', [['', 'All types'], ['Contract', 'Contract'], ['Full-time', 'Full-time'], ['Part-time', 'Part-time']], f.type)}</div>
             <div><label>Experience</label>${sel('cons-jf-exp', JOB_EXP_OPTIONS, f.exp)}</div>
-            <div><label>Source</label>${sel('cons-jf-source', CONS_JOB_SOURCES, f.source)}</div>
+            <div><label>Source</label>${sel('cons-jf-source', sources, f.source)}</div>
             <div class="cf-go"><button type="button" class="btn btn-primary" id="cons-jf-go">🔍 Search</button></div>
         </div>
         <div class="cons-pane-bar"><span id="cons-jobs-count">${escapeHtml(country)} jobs for ${escapeHtml(c.name)}</span>
@@ -7822,6 +7838,7 @@ async function consFindLiveJobs(c, f, country, body) {
     const cost = PORTAL_COST[src] || (india ? 'Naukri, Foundit and Indeed India are read through Apify: about $0.001 per job found plus about $0.004 per Indeed search (Apify credit).'
         : country === 'Canada' ? 'LinkedIn is free; Indeed Canada is about $0.004 per search (Apify credit).'
         : 'LinkedIn and Dice are free; Indeed is about $0.004 per search (Apify credit).');
+    // ZipRecruiter / Monster are never in "All": only when picked (the cost line above names them)
     if (!confirm(`Search the job portals now for "${keyword}" in ${country}${src !== 'All' ? ' (' + src + ')' : ''}?\n\n${cost}\n\nIt can take 1-2 minutes.`)) return;
     btn.disabled = true;
     btn.textContent = 'Searching the portals…';

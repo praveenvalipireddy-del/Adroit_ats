@@ -184,7 +184,7 @@ try:
         page = browser.new_page(viewport={"width": 1500, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, ADMIN_EMAIL, ADMIN_PW)
-        check("app.js?v=5.99.27" in page.content(), "cache-buster not bumped to 5.99.27")
+        check("app.js?v=5.99.28" in page.content(), "cache-buster not bumped to 5.99.28")
         opts = page.eval_on_selector("#view-region-switch", "s => [...s.options].map(o => o.textContent.trim())")
         check(opts == ["🌐 All teams", "🇺🇸 USA team", "🇮🇳 India team", "🇨🇦 Canada team"], f"team switcher: {opts}")
         with page.expect_navigation():

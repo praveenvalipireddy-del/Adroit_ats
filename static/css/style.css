@@ -1500,3 +1500,6 @@ body.individual-plan #do-email-box { display: none !important; }
 #mp-answers { max-height: 340px; overflow-y: auto; }
 @media (max-width: 900px) { .mp-grid, .mp-fields { grid-template-columns: 1fr; } }
 #mp-resume-download[hidden], #btn-download-optimized-pdf[hidden], #jp-export-pdf[hidden] { display: none; }
+
+/* Hiring team: nobody in the job's country - shown from other countries */
+.jp-note { background: #fffbeb; color: #92400e; border-top: 1px solid #fde68a; border-bottom: 1px solid #fde68a; font-size: 0.85rem; }

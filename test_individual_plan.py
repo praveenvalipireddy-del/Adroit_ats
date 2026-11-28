@@ -244,7 +244,7 @@ try:
         page = browser.new_page(viewport={"width": 1440, "height": 950})
         page.on("pageerror", lambda e: js_errors.append(str(e)))
         login(page, "ivy-indiv@example.invalid", "Ivy-pass-1")
-        check("app.js?v=5.99.28" in page.content(), "cache-buster not bumped to 5.99.28")
+        check("app.js?v=5.99.29" in page.content(), "cache-buster not bumped to 5.99.29")
         page.wait_for_selector("#tab-jobs.active", timeout=10000)
         visible = [t.strip() for t in page.locator(".nav-menu .nav-item:visible span").all_inner_texts() if t.strip()]
         check([v for v in visible if v != "LIVE 24h"] == ["My profile", "Jobs", "Resume Optimizer", "My applications", "Autofill extension"],

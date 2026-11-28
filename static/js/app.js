@@ -8314,7 +8314,9 @@ async function openSuperApply(job, candId) {
             $('sa-status').innerHTML = `<span class="cons-muted">Apollo found no recruiters or HR at <b>${escapeHtml(d.company)}</b> in this country. No credits used.</span>`;
             return;
         }
-        $('sa-status').innerHTML = `<span class="cons-muted">${d.people.length} people at ${escapeHtml(d.company)} - recruiters first. Pick 1-2 and get their email.</span>`;
+        $('sa-status').innerHTML = d.worldwide
+            ? `<span class="cons-muted">Nobody at ${escapeHtml(d.company)} in ${escapeHtml(d.country)} on Apollo - ${d.people.length} people in other countries. Check the location before using a credit.</span>`
+            : `<span class="cons-muted">${d.people.length} people at ${escapeHtml(d.company)} - recruiters first. Pick 1-2 and get their email.</span>`;
         $('sa-people').innerHTML = d.people.map(p => `
             <div class="sa-person" data-id="${escapeHtml(p.id)}">
                 <div class="sa-p-main"><b>${escapeHtml(p.name)}</b><span>${escapeHtml(p.title)}${p.location ? ' · ' + escapeHtml(p.location) : ''}</span>
@@ -8423,6 +8425,7 @@ async function openJobPage(job, candId, backTab) {
     jp.back = backTab || state.activeTab || 'jobs';
     jp.pane = 'overview';
     jp.team = null;
+    jp.teamWorldwide = '';
     jp.teamError = null;
     jp.filter = 'all';
     jp.ticked = new Set();
@@ -8790,7 +8793,7 @@ async function jpTeam(pane) {
             const res = await fetch('/api/super-apply/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: job.id }) });
             const d = await res.json().catch(() => ({}));
             if (jp.job !== job) return;
-            if (res.ok) jp.team = d.people || [];
+            if (res.ok) { jp.team = d.people || []; jp.teamWorldwide = d.worldwide ? (d.country || 'this country') : ''; }
             else {
                 jp.teamError = d;
                 jp.team = (d.saved || []).map(s => ({ ...s, id: s.apollo_id, saved: true, has_email: !!s.email }));
@@ -8838,6 +8841,7 @@ async function jpTeam(pane) {
                 <div class="jp-filters">${filterBtn('all', 'All')}${filterBtn('ta', 'Recruiters / TA')}${filterBtn('hr', 'HR')}${filterBtn('saved', 'Saved')}</div>
             </div>
             ${err ? `<div class="sa-err jp-pad">${escapeHtml(err.error || 'Apollo search failed.')}</div>${err.plan_blocked ? '<div id="jp-manual" class="jp-pad"></div>' : ''}` : ''}
+            ${jp.teamWorldwide ? `<div class="jp-note jp-pad" id="jp-team-worldwide">Apollo lists nobody at ${escapeHtml(jp.job.company || 'this company')} in ${escapeHtml(jp.teamWorldwide)} - showing their hiring team in other countries. Check each person's location before using a credit.</div>` : ''}
             ${shown.length ? `<div class="jp-thead"><span></span><span>PERSON</span><span>EMAIL &amp; LINKEDIN</span><span>ACTION</span></div>${shown.map(row).join('')}`
                 : `<div class="jp-muted jp-pad">${err ? '' : `Apollo found no recruiters or HR at ${escapeHtml(jp.job.company || 'this company')} in this country. No credits used.`}</div>`}
         </section>

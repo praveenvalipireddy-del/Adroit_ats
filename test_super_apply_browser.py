@@ -141,6 +141,19 @@ check(client.post("/api/super-apply/check").get_json()["ok"], "check: connected"
 d = client.post("/api/super-apply/search", json={"job_id": jid}).get_json()
 check([p["title"] for p in d["people"]] == ["Senior Technical Recruiter", "HR Business Partner"] and d["company"] == "Fixture Health",
       f"search route (a Data Analyst job: the Engineering Manager is not its hiring manager): {d}")
+check(d["worldwide"] is False, "people found in the job's country: not the worldwide fallback")
+
+# nobody at the company in the job's country (Apollo returns no one for Canada): the hiring team elsewhere, labelled
+ca = models.save_or_update_scraped_job({"title": "Security Analyst (Canada Fixture)", "company": "Fixture Health", "source": "LinkedIn",
+                                        "url": "https://www.linkedin.com/jobs/view/ca-fixture-1", "country": "Canada",
+                                        "description": "Labelled fixture job in Canada."})
+ca = ca["id"] if isinstance(ca, dict) else ca
+_inner = apollo_api.http_post
+apollo_api.http_post = lambda path, body: {"people": []} if body.get("person_locations") == ["Canada"] else _inner(path, body)
+d = client.post("/api/super-apply/search", json={"job_id": ca}).get_json()
+check(d["worldwide"] is True and d["country"] == "Canada" and [p["title"] for p in d["people"]] == ["Senior Technical Recruiter", "HR Business Partner"],
+      f"no one in Canada -> the company's hiring team in other countries, labelled: {d}")
+apollo_api.http_post = _inner
 d = client.post("/api/super-apply/reveal", json={"job_id": jid, "person_id": P1}).get_json()
 check(d["verified"] and d.get("saved_on_job") and models.get_job_by_id(jid)["recruiter_email"] == "rita@fixturehealth.example", f"saved on the job: {d}")
 conn = models.get_db_connection()
@@ -191,7 +204,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.28" in page.content(), "cache-buster not bumped to 5.99.28")
+        check("app.js?v=5.99.29" in page.content(), "cache-buster not bumped to 5.99.29")
         page.evaluate("window.createJobDraft = (...a) => { window.__draft = a.slice(0, 3); }")
         page.click("a.nav-item[data-tab=candidates]")
         page.click(f".cons-card[data-id='{K}']")

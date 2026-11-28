@@ -2664,7 +2664,14 @@ def api_super_apply_search():
     try:
         saved = hiring_contacts.for_company(conn, job.get("company") or "")
         try:
-            people = apollo_api.search_hiring_team(job.get("company") or "", job.get("country") or "", job_title=job.get("title") or "")
+            country = job.get("country") or ""
+            people = apollo_api.search_hiring_team(job.get("company") or "", country, job_title=job.get("title") or "")
+            # nobody listed in the job's country (e.g. a Canadian office): the company's hiring team elsewhere - still free,
+            # each person's location shown so the recruiter decides
+            worldwide = False
+            if not people and country:
+                people = apollo_api.search_hiring_team(job.get("company") or "", "", job_title=job.get("title") or "")
+                worldwide = bool(people)
         except apollo_api.ApolloError as ex:
             return jsonify({"error": str(ex), "plan_blocked": ex.plan_blocked, "company": job.get("company") or "",
                             "saved": saved}), 400
@@ -2683,7 +2690,8 @@ def api_super_apply_search():
               "email_status": s["email_status"], "revealed_by_name": s["revealed_by_name"], "revealed_at": s["revealed_at"],
               "emailed_count": s["emailed_count"]} for s in saved if s["apollo_id"] not in listed]
     people = sorted(extra + people, key=lambda p: (not p.get("saved"), not p.get("verified")))
-    return jsonify({"people": people, "company": job.get("company") or "", "job_title": job.get("title") or ""})
+    return jsonify({"people": people, "company": job.get("company") or "", "job_title": job.get("title") or "",
+                    "worldwide": worldwide, "country": job.get("country") or ""})
 
 
 @app.route("/api/super-apply/reveal", methods=["POST"])

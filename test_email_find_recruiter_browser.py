@@ -94,7 +94,7 @@ try:
         page.fill("input[name=password]", PW)
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard**")
-        check("app.js?v=5.99.28" in page.content(), "cache-buster not bumped to 5.99.28")
+        check("app.js?v=5.99.29" in page.content(), "cache-buster not bumped to 5.99.29")
         page.wait_for_function("typeof emailBox === 'function'", timeout=15000)
         page.evaluate(SETUP, [K, JOB])
 
